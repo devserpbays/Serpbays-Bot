@@ -42,3 +42,5 @@ next-env.d.ts
 
 # facebook browser profile (contains login cookies)
 .fb-profile/
+.linkedin-profile/
+.reddit-profile/
