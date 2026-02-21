@@ -1,0 +1,13 @@
+2026/02/20-10:45:12.839 ad09e Reusing MANIFEST /var/www/ai-bot/bot-serp/.reddit-profile/Default/IndexedDB/https_www.reddit.com_0.indexeddb.leveldb/MANIFEST-000001
+2026/02/20-10:45:12.839 ad09e Recovering log #10
+2026/02/20-10:45:12.877 ad09e Reusing old log /var/www/ai-bot/bot-serp/.reddit-profile/Default/IndexedDB/https_www.reddit.com_0.indexeddb.leveldb/000010.log 
+2026/02/20-10:45:19.943 ad0a8 Level-0 table #15: started
+2026/02/20-10:45:19.972 ad0a8 Level-0 table #15: 120765 bytes OK
+2026/02/20-10:45:19.990 ad0a8 Delete type=0 #10
+2026/02/20-10:45:20.010 ad09e Manual compaction at level-0 from '\x00\x05\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00\x06\x00\x00\x00' @ 0 : 0; will stop at '\x00\x05\x05\x1f\x01"\x00!\x00R\x00y\x00-\x00y\x00Y\x00E\x00J\x00g\x00R\x00y\x00S\x00Y\x00B\x00M\x00D\x00J\x00E\x00w\x009\x00H\x00V\x00A\x00:\x00r\x00e\x00d\x00d\x00i\x00t\x00.\x00c\x00o\x00m\x00\x04\x02\x01"\x00!\x00R\x00y\x00-\x00y\x00Y\x00E\x00J\x00g\x00R\x00y\x00S\x00Y\x00B\x00M\x00D\x00J\x00E\x00w\x009\x00H\x00V\x00A\x00:\x00r\x00e\x00d\x00d\x00i\x00t\x00.\x00c\x00o\x00m\x01\x13\x00@\x00t\x002\x00_\x001\x00q\x00w\x00k\x00:\x00r\x00e\x00d\x00d\x00i\x00t\x00.\x00c\x00o\x00m' @ 4128 : 1
+2026/02/20-10:45:20.010 ad09e Compacting 1@0 + 1@1 files
+2026/02/20-10:45:20.019 ad09e Generated table #16@0: 306 keys, 3178 bytes
+2026/02/20-10:45:20.041 ad09e Compacted 1@0 + 1@1 files => 3178 bytes
+2026/02/20-10:45:20.054 ad09e compacted to: files[ 0 1 1 0 0 0 0 ]
+2026/02/20-10:45:20.054 ad09e Delete type=2 #15
+2026/02/20-10:45:20.056 ad0a2 Manual compaction at level-0 from '\x00\x05\x05\x1f\x01"\x00!\x00R\x00y\x00-\x00y\x00Y\x00E\x00J\x00g\x00R\x00y\x00S\x00Y\x00B\x00M\x00D\x00J\x00E\x00w\x009\x00H\x00V\x00A\x00:\x00r\x00e\x00d\x00d\x00i\x00t\x00.\x00c\x00o\x00m\x00\x04\x02\x01"\x00!\x00R\x00y\x00-\x00y\x00Y\x00E\x00J\x00g\x00R\x00y\x00S\x00Y\x00B\x00M\x00D\x00J\x00E\x00w\x009\x00H\x00V\x00A\x00:\x00r\x00e\x00d\x00d\x00i\x00t\x00.\x00c\x00o\x00m\x01\x13\x00@\x00t\x002\x00_\x001\x00q\x00w\x00k\x00:\x00r\x00e\x00d\x00d\x00i\x00t\x00.\x00c\x00o\x00m' @ 4128 : 1 .. '\x00\x06\x00\x00\x00' @ 0 : 0; will stop at (end)
