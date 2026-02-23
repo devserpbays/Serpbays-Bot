@@ -30,9 +30,6 @@ export async function PUT(req: NextRequest) {
     redditKeywords,
     redditDailyLimit,
     redditAutoPostThreshold,
-    linkedinKeywords,
-    linkedinDailyLimit,
-    linkedinAutoPostThreshold,
     quoraKeywords,
     quoraDailyLimit,
     quoraAutoPostThreshold,
@@ -58,9 +55,6 @@ export async function PUT(req: NextRequest) {
     if (redditKeywords !== undefined) settings.redditKeywords = redditKeywords;
     if (redditDailyLimit !== undefined) settings.redditDailyLimit = redditDailyLimit;
     if (redditAutoPostThreshold !== undefined) settings.redditAutoPostThreshold = redditAutoPostThreshold;
-    if (linkedinKeywords !== undefined) settings.linkedinKeywords = linkedinKeywords;
-    if (linkedinDailyLimit !== undefined) settings.linkedinDailyLimit = linkedinDailyLimit;
-    if (linkedinAutoPostThreshold !== undefined) settings.linkedinAutoPostThreshold = linkedinAutoPostThreshold;
     if (quoraKeywords !== undefined) settings.quoraKeywords = quoraKeywords;
     if (quoraDailyLimit !== undefined) settings.quoraDailyLimit = quoraDailyLimit;
     if (quoraAutoPostThreshold !== undefined) settings.quoraAutoPostThreshold = quoraAutoPostThreshold;
@@ -84,9 +78,6 @@ export async function PUT(req: NextRequest) {
       redditKeywords: redditKeywords || [],
       redditDailyLimit: redditDailyLimit ?? 5,
       redditAutoPostThreshold: redditAutoPostThreshold ?? 70,
-      linkedinKeywords: linkedinKeywords || [],
-      linkedinDailyLimit: linkedinDailyLimit ?? 5,
-      linkedinAutoPostThreshold: linkedinAutoPostThreshold ?? 70,
       quoraKeywords: quoraKeywords || [],
       quoraDailyLimit: quoraDailyLimit ?? 3,
       quoraAutoPostThreshold: quoraAutoPostThreshold ?? 70,

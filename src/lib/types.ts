@@ -50,9 +50,6 @@ export interface ISettings {
   redditKeywords?: string[];
   redditDailyLimit?: number;
   redditAutoPostThreshold?: number;
-  linkedinKeywords?: string[];
-  linkedinDailyLimit?: number;
-  linkedinAutoPostThreshold?: number;
   quoraKeywords?: string[];
   quoraDailyLimit?: number;
   quoraAutoPostThreshold?: number;
