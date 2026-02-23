@@ -49,3 +49,4 @@ next-env.d.ts
 .twitter-account
 .quora-profile
 .pinterest-profile
+.pinterest-profile/ ..quora-profile/ ..youtube-profile.
