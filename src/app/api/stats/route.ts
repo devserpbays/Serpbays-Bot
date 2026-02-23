@@ -16,19 +16,23 @@ export async function GET() {
   statuses.forEach((s, i) => { byStatus[s] = counts[i]; });
 
   // Per-platform totals + posted counts
-  const [fbTotal, twTotal, rdTotal, fbPosted, twPosted, rdPosted] = await Promise.all([
-    Post.countDocuments({ platform: 'facebook' }),
-    Post.countDocuments({ platform: 'twitter' }),
-    Post.countDocuments({ platform: 'reddit' }),
-    Post.countDocuments({ platform: 'facebook', status: 'posted' }),
-    Post.countDocuments({ platform: 'twitter', status: 'posted' }),
-    Post.countDocuments({ platform: 'reddit', status: 'posted' }),
+  const platforms = ['facebook', 'twitter', 'reddit', 'linkedin', 'quora'] as const;
+  const platformCounts = await Promise.all([
+    ...platforms.map(p => Post.countDocuments({ platform: p })),
+    ...platforms.map(p => Post.countDocuments({ platform: p, status: 'posted' })),
   ]);
+
+  const byPlatform: Record<string, number> = {};
+  const postedByPlatform: Record<string, number> = {};
+  platforms.forEach((p, i) => {
+    byPlatform[p] = platformCounts[i];
+    postedByPlatform[p] = platformCounts[platforms.length + i];
+  });
 
   return NextResponse.json({
     total,
     byStatus,
-    byPlatform: { facebook: fbTotal, twitter: twTotal, reddit: rdTotal },
-    postedByPlatform: { facebook: fbPosted, twitter: twPosted, reddit: rdPosted },
+    byPlatform,
+    postedByPlatform,
   });
 }

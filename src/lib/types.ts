@@ -20,6 +20,17 @@ export interface IPost {
   postedAt?: Date;
 }
 
+export interface SocialAccount {
+  id: string;
+  platform: string;
+  username: string;
+  displayName: string;
+  profileDir: string;
+  accountIndex: number;
+  addedAt: string;
+  active?: boolean;
+}
+
 export interface ISettings {
   _id?: string;
   companyName: string;
@@ -28,6 +39,7 @@ export interface ISettings {
   platforms: string[];
   subreddits: string[];
   promptTemplate: string;
+  socialAccounts?: SocialAccount[];
   facebookGroups?: string[];
   facebookKeywords?: string[];
   facebookDailyLimit?: number;
@@ -41,6 +53,9 @@ export interface ISettings {
   linkedinKeywords?: string[];
   linkedinDailyLimit?: number;
   linkedinAutoPostThreshold?: number;
+  quoraKeywords?: string[];
+  quoraDailyLimit?: number;
+  quoraAutoPostThreshold?: number;
 }
 
 export interface AIEvaluation {

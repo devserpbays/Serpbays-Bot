@@ -19,6 +19,7 @@ export async function PUT(req: NextRequest) {
     platforms,
     subreddits,
     promptTemplate,
+    socialAccounts,
     facebookGroups,
     facebookKeywords,
     facebookDailyLimit,
@@ -32,6 +33,9 @@ export async function PUT(req: NextRequest) {
     linkedinKeywords,
     linkedinDailyLimit,
     linkedinAutoPostThreshold,
+    quoraKeywords,
+    quoraDailyLimit,
+    quoraAutoPostThreshold,
   } = body;
 
   let settings = await Settings.findOne();
@@ -43,6 +47,7 @@ export async function PUT(req: NextRequest) {
     settings.platforms = platforms ?? settings.platforms;
     settings.subreddits = subreddits ?? settings.subreddits;
     settings.promptTemplate = promptTemplate ?? settings.promptTemplate;
+    if (socialAccounts !== undefined) settings.socialAccounts = socialAccounts;
     if (facebookGroups !== undefined) settings.facebookGroups = facebookGroups;
     if (facebookKeywords !== undefined) settings.facebookKeywords = facebookKeywords;
     if (facebookDailyLimit !== undefined) settings.facebookDailyLimit = facebookDailyLimit;
@@ -56,6 +61,9 @@ export async function PUT(req: NextRequest) {
     if (linkedinKeywords !== undefined) settings.linkedinKeywords = linkedinKeywords;
     if (linkedinDailyLimit !== undefined) settings.linkedinDailyLimit = linkedinDailyLimit;
     if (linkedinAutoPostThreshold !== undefined) settings.linkedinAutoPostThreshold = linkedinAutoPostThreshold;
+    if (quoraKeywords !== undefined) settings.quoraKeywords = quoraKeywords;
+    if (quoraDailyLimit !== undefined) settings.quoraDailyLimit = quoraDailyLimit;
+    if (quoraAutoPostThreshold !== undefined) settings.quoraAutoPostThreshold = quoraAutoPostThreshold;
     await settings.save();
   } else {
     settings = await Settings.create({
@@ -65,6 +73,7 @@ export async function PUT(req: NextRequest) {
       platforms: platforms || ['twitter', 'reddit'],
       subreddits: subreddits || [],
       promptTemplate: promptTemplate || '',
+      socialAccounts: socialAccounts || [],
       facebookGroups: facebookGroups || [],
       facebookKeywords: facebookKeywords || [],
       facebookDailyLimit: facebookDailyLimit ?? 5,
@@ -78,6 +87,9 @@ export async function PUT(req: NextRequest) {
       linkedinKeywords: linkedinKeywords || [],
       linkedinDailyLimit: linkedinDailyLimit ?? 5,
       linkedinAutoPostThreshold: linkedinAutoPostThreshold ?? 70,
+      quoraKeywords: quoraKeywords || [],
+      quoraDailyLimit: quoraDailyLimit ?? 3,
+      quoraAutoPostThreshold: quoraAutoPostThreshold ?? 70,
     });
   }
 

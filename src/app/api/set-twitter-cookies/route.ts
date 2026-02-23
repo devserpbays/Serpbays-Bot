@@ -18,14 +18,14 @@ function parseCookieString(str: string): Record<string, string> {
 }
 
 export async function POST(req: NextRequest) {
-  let body: { cookies: unknown };
+  let body: { cookies: unknown; accountIndex?: number };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const { cookies } = body;
+  const { cookies, accountIndex = 0 } = body;
   if (!cookies) {
     return NextResponse.json({ error: 'cookies field required' }, { status: 400 });
   }
@@ -143,10 +143,24 @@ export async function POST(req: NextRequest) {
       );
     } catch {}
 
+    // Persist per-account credentials file for multi-account support
+    try {
+      const credsFile = accountIndex === 0
+        ? join(process.cwd(), '.twitter-account')
+        : join(process.cwd(), `.twitter-account-${accountIndex}`);
+      writeFileSync(
+        credsFile,
+        JSON.stringify({ accountId, username: user.username, name: user.name, ts: new Date().toISOString(), accountIndex }),
+        'utf8'
+      );
+    } catch {}
+
     return NextResponse.json({
       success: true,
       user,
       accountId,
+      accountIndex,
+      profileDir: join(process.cwd(), accountIndex === 0 ? '.twitter-account' : `.twitter-account-${accountIndex}`),
       message: `Twitter credentials verified — logged in as @${user.username} (${user.name})`,
     });
   } catch (err) {

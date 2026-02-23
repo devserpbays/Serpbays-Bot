@@ -49,14 +49,14 @@ function normalizeSameSite(v: string | undefined): 'Strict' | 'Lax' | 'None' | u
 }
 
 export async function POST(req: NextRequest) {
-  let body: { cookies: unknown };
+  let body: { cookies: unknown; accountIndex?: number };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const { cookies } = body;
+  const { cookies, accountIndex = 0 } = body;
   if (!cookies) {
     return NextResponse.json({ error: 'cookies field required' }, { status: 400 });
   }
@@ -98,7 +98,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'No valid cookies parsed' }, { status: 400 });
   }
 
-  const PROFILE_DIR = join(process.cwd(), '.reddit-profile');
+  const PROFILE_DIR = join(process.cwd(), accountIndex === 0 ? '.reddit-profile' : `.reddit-profile-${accountIndex}`);
   let context;
 
   // Remove stale browser lock from previous crash
@@ -214,6 +214,8 @@ export async function POST(req: NextRequest) {
       accountId,
       displayName,
       username,
+      profileDir: PROFILE_DIR,
+      accountIndex,
       message: 'Reddit cookies injected and session verified',
     });
   } catch (err) {

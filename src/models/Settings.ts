@@ -1,5 +1,16 @@
 import mongoose, { Schema } from 'mongoose';
 
+const SocialAccountSchema = new Schema({
+  id: { type: String, required: true },
+  platform: { type: String, required: true },
+  username: { type: String, default: '' },
+  displayName: { type: String, default: '' },
+  profileDir: { type: String, default: '' },
+  accountIndex: { type: Number, default: 0 },
+  addedAt: { type: String, default: () => new Date().toISOString() },
+  active: { type: Boolean, default: true },
+}, { _id: false });
+
 const SettingsSchema = new Schema({
   companyName: { type: String, required: true },
   companyDescription: { type: String, required: true },
@@ -7,6 +18,7 @@ const SettingsSchema = new Schema({
   platforms: [{ type: String, enum: ['twitter', 'reddit', 'facebook', 'linkedin', 'quora'], default: ['twitter', 'reddit'] }],
   subreddits: [{ type: String }],
   promptTemplate: { type: String, default: '' },
+  socialAccounts: { type: [SocialAccountSchema], default: [] },
   facebookGroups: [{ type: String }],
   facebookKeywords: [{ type: String }],
   facebookDailyLimit: { type: Number, default: 5 },

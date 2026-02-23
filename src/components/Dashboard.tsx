@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { IPost, PostStatus } from '@/lib/types';
+import type { IPost, SocialAccount } from '@/lib/types';
 import PostCard from './PostCard';
 import SettingsPanel from './SettingsPanel';
 
@@ -20,8 +20,8 @@ interface Stats {
   approved: number;
   rejected: number;
   posted: number;
-  byPlatform?: { facebook: number; twitter: number; reddit: number };
-  postedByPlatform?: { facebook: number; twitter: number; reddit: number };
+  byPlatform: Record<string, number>;
+  postedByPlatform: Record<string, number>;
 }
 
 interface PipelineResult {
@@ -33,6 +33,80 @@ interface PipelineResult {
   startedAt: string;
   finishedAt: string;
 }
+
+// ── Platform config (same as SettingsPanel) ──────────────────────────────────
+
+interface PlatformMeta {
+  id: string;
+  label: string;
+  activeCls: string;
+  inactiveCls: string;
+  iconBg: string;
+  icon: React.ReactNode;
+}
+
+const PLATFORM_META: PlatformMeta[] = [
+  {
+    id: 'twitter',
+    label: 'Twitter/X',
+    activeCls: 'bg-black text-white border-black',
+    inactiveCls: 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100',
+    iconBg: 'bg-black',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="currentColor" className="w-3 h-3 text-white">
+        <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.73-8.835L1.254 2.25H8.08l4.258 5.63 5.906-5.63zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+      </svg>
+    ),
+  },
+  {
+    id: 'reddit',
+    label: 'Reddit',
+    activeCls: 'bg-orange-600 text-white border-orange-600',
+    inactiveCls: 'bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100',
+    iconBg: 'bg-orange-600',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="currentColor" className="w-3 h-3 text-white">
+        <path d="M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm5.01 4.744c.688 0 1.25.561 1.25 1.249a1.25 1.25 0 0 1-2.498.056l-2.597-.547-.8 3.747c1.824.07 3.48.632 4.674 1.488.308-.309.73-.491 1.207-.491.968 0 1.754.786 1.754 1.754 0 .716-.435 1.333-1.01 1.614a3.111 3.111 0 0 1 .042.52c0 2.694-3.13 4.87-7.004 4.87-3.874 0-7.004-2.176-7.004-4.87 0-.183.015-.366.043-.534A1.748 1.748 0 0 1 4.028 12c0-.968.786-1.754 1.754-1.754.463 0 .898.196 1.207.49 1.207-.883 2.878-1.43 4.744-1.487l.885-4.182a.342.342 0 0 1 .14-.197.35.35 0 0 1 .238-.042l2.906.617a1.214 1.214 0 0 1 1.108-.701zM9.25 12C8.561 12 8 12.562 8 13.25c0 .687.561 1.248 1.25 1.248.687 0 1.248-.561 1.248-1.249 0-.688-.561-1.249-1.249-1.249zm5.5 0c-.687 0-1.248.561-1.248 1.25 0 .687.561 1.248 1.249 1.248.688 0 1.249-.561 1.249-1.249 0-.687-.562-1.249-1.25-1.249zm-5.466 3.99a.327.327 0 0 0-.231.094.33.33 0 0 0 0 .463c.842.842 2.484.913 2.961.913.477 0 2.105-.056 2.961-.913a.361.361 0 0 0 .029-.463.33.33 0 0 0-.464 0c-.547.533-1.684.73-2.512.73-.828 0-1.979-.196-2.512-.73a.326.326 0 0 0-.232-.095z" />
+      </svg>
+    ),
+  },
+  {
+    id: 'facebook',
+    label: 'Facebook',
+    activeCls: 'bg-blue-600 text-white border-blue-600',
+    inactiveCls: 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100',
+    iconBg: 'bg-blue-600',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="currentColor" className="w-3 h-3 text-white">
+        <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
+      </svg>
+    ),
+  },
+  {
+    id: 'linkedin',
+    label: 'LinkedIn',
+    activeCls: 'bg-[#0077B5] text-white border-[#0077B5]',
+    inactiveCls: 'bg-sky-50 text-sky-800 border-sky-200 hover:bg-sky-100',
+    iconBg: 'bg-[#0077B5]',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="currentColor" className="w-3 h-3 text-white">
+        <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 0 1-2.063-2.065 2.064 2.064 0 1 1 2.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z" />
+      </svg>
+    ),
+  },
+  {
+    id: 'quora',
+    label: 'Quora',
+    activeCls: 'bg-red-600 text-white border-red-600',
+    inactiveCls: 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100',
+    iconBg: 'bg-red-600',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="currentColor" className="w-3 h-3 text-white">
+        <path d="M12.071 0C5.4 0 .001 5.4.001 12.071c0 6.248 4.759 11.41 10.85 12.003-.044-.562-.094-1.407-.094-2.001 0-.666.023-1.406.068-2.028-.447.045-.896.068-1.349.068-3.734 0-5.941-2.162-5.941-5.95 0-3.78 2.207-5.941 5.941-5.941 3.733 0 5.94 2.161 5.94 5.941 0 1.873-.509 3.374-1.407 4.38l1.047 1.986c.423.806.847 1.166 1.336 1.166.888 0 1.406-.949 1.406-2.688V12.07C17.8 6.37 15.292 0 12.071 0zm-1.595 17.624c.263-.01.526-.022.786-.022h.026l-.803-1.523c.598-.861.941-2.083.941-3.578 0-3.022-1.73-4.697-4.689-4.697-2.97 0-4.7 1.675-4.7 4.697 0 3.031 1.73 4.706 4.7 4.706.575 0 1.127-.056 1.739-.183z" />
+      </svg>
+    ),
+  },
+];
 
 const statusFilters: { value: string; label: string }[] = [
   { value: '', label: 'All' },
@@ -66,8 +140,13 @@ export default function Dashboard() {
   const [stats, setStats] = useState<Stats>({
     total: 0, new: 0, evaluating: 0, evaluated: 0,
     approved: 0, rejected: 0, posted: 0,
-    postedByPlatform: { facebook: 0, twitter: 0, reddit: 0 },
+    byPlatform: {},
+    postedByPlatform: {},
   });
+
+  // Settings-derived state
+  const [enabledPlatforms, setEnabledPlatforms] = useState<string[]>([]);
+  const [socialAccounts, setSocialAccounts] = useState<SocialAccount[]>([]);
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -90,24 +169,36 @@ export default function Dashboard() {
       const res = await fetch('/api/stats');
       const data = await res.json();
       setStats({
-        total:           data.total ?? 0,
-        new:             data.byStatus?.new ?? 0,
-        evaluating:      data.byStatus?.evaluating ?? 0,
-        evaluated:       data.byStatus?.evaluated ?? 0,
-        approved:        data.byStatus?.approved ?? 0,
-        rejected:        data.byStatus?.rejected ?? 0,
-        posted:          data.byStatus?.posted ?? 0,
-        byPlatform:      data.byPlatform,
-        postedByPlatform: data.postedByPlatform,
+        total:            data.total ?? 0,
+        new:              data.byStatus?.new ?? 0,
+        evaluating:       data.byStatus?.evaluating ?? 0,
+        evaluated:        data.byStatus?.evaluated ?? 0,
+        approved:         data.byStatus?.approved ?? 0,
+        rejected:         data.byStatus?.rejected ?? 0,
+        posted:           data.byStatus?.posted ?? 0,
+        byPlatform:       data.byPlatform ?? {},
+        postedByPlatform: data.postedByPlatform ?? {},
       });
     } catch {/* silent — polling will retry */}
+  }, []);
+
+  const fetchSettings = useCallback(async () => {
+    try {
+      const res = await fetch('/api/settings');
+      const data = await res.json();
+      if (data.settings) {
+        setEnabledPlatforms(data.settings.platforms ?? []);
+        setSocialAccounts(data.settings.socialAccounts ?? []);
+      }
+    } catch {/* silent */}
   }, []);
 
   // Initial load
   useEffect(() => {
     fetchPosts();
     fetchStats();
-  }, [fetchPosts, fetchStats]);
+    fetchSettings();
+  }, [fetchPosts, fetchStats, fetchSettings]);
 
   // Auto-polling every 10s
   useEffect(() => {
@@ -117,6 +208,12 @@ export default function Dashboard() {
     }, POLL_INTERVAL_MS);
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [fetchStats, fetchPosts]);
+
+  // Refresh settings whenever settings panel closes
+  const handleSettingsClose = () => {
+    setSettingsOpen(false);
+    fetchSettings();
+  };
 
   // ── Individual actions ─────────────────────────────────────────────────────
 
@@ -168,7 +265,10 @@ export default function Dashboard() {
   const handleRunPipeline = async () => {
     setPipelineRunning(true);
     setPipelineResult(null);
-    setPipelineStep('Scraping Twitter, Reddit & Facebook…');
+    const platformNames = enabledPlatforms.length
+      ? enabledPlatforms.map((p) => PLATFORM_META.find((m) => m.id === p)?.label ?? p).join(', ')
+      : 'all platforms';
+    setPipelineStep(`Scraping ${platformNames}…`);
 
     try {
       const res = await fetch('/api/run-pipeline', { method: 'POST' });
@@ -203,6 +303,15 @@ export default function Dashboard() {
   const totalPages = Math.ceil(total / 20);
   const isAnyActionRunning = scraping || evaluating || pipelineRunning;
 
+  // Determine which platforms to show in the breakdown.
+  // Show platforms that are either enabled in settings OR have posts.
+  const visiblePlatforms = PLATFORM_META.filter(
+    (p) => enabledPlatforms.includes(p.id) || (stats.byPlatform[p.id] ?? 0) > 0
+  );
+
+  const accountsForPlatform = (platformId: string) =>
+    socialAccounts.filter((a) => a.platform === platformId);
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* ── Header ── */}
@@ -210,7 +319,6 @@ export default function Dashboard() {
         <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <h1 className="text-xl font-bold text-gray-900">Social Engagement Bot</h1>
-            {/* Live indicator */}
             <span className="flex items-center gap-1.5 text-xs text-gray-400">
               <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
               Live
@@ -245,26 +353,49 @@ export default function Dashboard() {
           ))}
         </div>
 
-        {/* Platform breakdown — click to filter */}
-        {stats.byPlatform && (
+        {/* ── Platform breakdown — click to filter ── */}
+        {visiblePlatforms.length > 0 && (
           <div className="flex gap-3 flex-wrap">
-            {[
-              { key: 'facebook', label: 'Facebook',  total: stats.byPlatform.facebook, posted: stats.postedByPlatform?.facebook ?? 0, activeCls: 'bg-blue-600 text-white border-blue-600',   inactiveCls: 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100' },
-              { key: 'twitter',  label: 'Twitter/X', total: stats.byPlatform.twitter,  posted: stats.postedByPlatform?.twitter  ?? 0, activeCls: 'bg-sky-600 text-white border-sky-600',    inactiveCls: 'bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100' },
-              { key: 'reddit',   label: 'Reddit',    total: stats.byPlatform.reddit,   posted: stats.postedByPlatform?.reddit   ?? 0, activeCls: 'bg-orange-600 text-white border-orange-600', inactiveCls: 'bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100' },
-            ].map(({ key, label, total, posted, activeCls, inactiveCls }) => {
-              const active = platformFilter === key;
+            {visiblePlatforms.map((p) => {
+              const active = platformFilter === p.id;
+              const total = stats.byPlatform[p.id] ?? 0;
+              const posted = stats.postedByPlatform[p.id] ?? 0;
+              const accounts = accountsForPlatform(p.id);
+
               return (
                 <button
-                  key={key}
-                  onClick={() => { setPlatformFilter(active ? '' : key); setPage(1); }}
-                  className={`border rounded-lg px-4 py-2 text-sm font-medium flex items-center gap-2 transition-colors ${active ? activeCls : inactiveCls}`}
+                  key={p.id}
+                  onClick={() => { setPlatformFilter(active ? '' : p.id); setPage(1); }}
+                  className={`border rounded-lg px-3 py-2 text-sm font-medium flex items-center gap-2 transition-colors ${active ? p.activeCls : p.inactiveCls}`}
                 >
-                  <span>{label}</span>
+                  {/* Platform icon */}
+                  <span className={`w-5 h-5 rounded flex items-center justify-center flex-shrink-0 ${p.iconBg}`}>
+                    {p.icon}
+                  </span>
+                  <span>{p.label}</span>
                   <span className="font-bold">{total}</span>
                   {posted > 0 && (
                     <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${active ? 'bg-white/20 text-white' : 'bg-white text-gray-600 border border-gray-200'}`}>
                       {posted} posted
+                    </span>
+                  )}
+                  {/* Connected account avatars */}
+                  {accounts.length > 0 && (
+                    <span className="flex items-center -space-x-1 ml-0.5">
+                      {accounts.slice(0, 3).map((acc) => (
+                        <span
+                          key={acc.id}
+                          className={`w-5 h-5 rounded-full border-2 flex items-center justify-center text-[9px] font-bold ${active ? 'border-white/40 bg-white/20 text-white' : 'border-white bg-gray-200 text-gray-600'}`}
+                          title={acc.displayName || acc.username}
+                        >
+                          {(acc.displayName || acc.username || '?')[0].toUpperCase()}
+                        </span>
+                      ))}
+                      {accounts.length > 3 && (
+                        <span className={`w-5 h-5 rounded-full border-2 flex items-center justify-center text-[9px] font-bold ${active ? 'border-white/40 bg-white/20 text-white' : 'border-white bg-gray-200 text-gray-500'}`}>
+                          +{accounts.length - 3}
+                        </span>
+                      )}
                     </span>
                   )}
                 </button>
@@ -273,7 +404,7 @@ export default function Dashboard() {
             {platformFilter && (
               <button
                 onClick={() => { setPlatformFilter(''); setPage(1); }}
-                className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1 underline"
+                className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1 underline self-center"
               >
                 Clear filter
               </button>
@@ -287,7 +418,11 @@ export default function Dashboard() {
             <div>
               <h2 className="text-base font-semibold text-gray-900">Run Full Job</h2>
               <p className="text-sm text-gray-500 mt-0.5">
-                Scrapes all platforms, then evaluates every new post in one click.
+                Scrapes{' '}
+                {enabledPlatforms.length > 0
+                  ? enabledPlatforms.map((p) => PLATFORM_META.find((m) => m.id === p)?.label ?? p).join(', ')
+                  : 'all platforms'}
+                , then evaluates every new post in one click.
               </p>
             </div>
             <button
@@ -381,7 +516,7 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* ── Filters ── */}
+        {/* ── Status Filters ── */}
         <div className="flex gap-2 flex-wrap">
           {statusFilters.map(({ value, label }) => (
             <button
@@ -446,7 +581,7 @@ export default function Dashboard() {
         )}
       </div>
 
-      <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <SettingsPanel open={settingsOpen} onClose={handleSettingsClose} />
     </div>
   );
 }
