@@ -50,3 +50,5 @@ next-env.d.ts
 .quora-profile
 .pinterest-profile
 .pinterest-profile/ ..quora-profile/ ..youtube-profile.
+.youtube-profile/
+.twitter-profile/
