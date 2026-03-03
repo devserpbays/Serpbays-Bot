@@ -33,6 +33,12 @@ export async function PUT(req: NextRequest) {
     quoraKeywords,
     quoraDailyLimit,
     quoraAutoPostThreshold,
+    youtubeKeywords,
+    youtubeDailyLimit,
+    youtubeAutoPostThreshold,
+    pinterestKeywords,
+    pinterestDailyLimit,
+    pinterestAutoPostThreshold,
   } = body;
 
   let settings = await Settings.findOne();
@@ -58,6 +64,12 @@ export async function PUT(req: NextRequest) {
     if (quoraKeywords !== undefined) settings.quoraKeywords = quoraKeywords;
     if (quoraDailyLimit !== undefined) settings.quoraDailyLimit = quoraDailyLimit;
     if (quoraAutoPostThreshold !== undefined) settings.quoraAutoPostThreshold = quoraAutoPostThreshold;
+    if (youtubeKeywords !== undefined) settings.youtubeKeywords = youtubeKeywords;
+    if (youtubeDailyLimit !== undefined) settings.youtubeDailyLimit = youtubeDailyLimit;
+    if (youtubeAutoPostThreshold !== undefined) settings.youtubeAutoPostThreshold = youtubeAutoPostThreshold;
+    if (pinterestKeywords !== undefined) settings.pinterestKeywords = pinterestKeywords;
+    if (pinterestDailyLimit !== undefined) settings.pinterestDailyLimit = pinterestDailyLimit;
+    if (pinterestAutoPostThreshold !== undefined) settings.pinterestAutoPostThreshold = pinterestAutoPostThreshold;
     await settings.save();
   } else {
     settings = await Settings.create({
@@ -81,6 +93,12 @@ export async function PUT(req: NextRequest) {
       quoraKeywords: quoraKeywords || [],
       quoraDailyLimit: quoraDailyLimit ?? 3,
       quoraAutoPostThreshold: quoraAutoPostThreshold ?? 70,
+      youtubeKeywords: youtubeKeywords || [],
+      youtubeDailyLimit: youtubeDailyLimit ?? 5,
+      youtubeAutoPostThreshold: youtubeAutoPostThreshold ?? 70,
+      pinterestKeywords: pinterestKeywords || [],
+      pinterestDailyLimit: pinterestDailyLimit ?? 5,
+      pinterestAutoPostThreshold: pinterestAutoPostThreshold ?? 70,
     });
   }
 

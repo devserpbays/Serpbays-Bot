@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { chromium } from 'playwright';
 import { join } from 'path';
 import { writeFileSync, unlinkSync } from 'fs';
+import { execSync } from 'child_process';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -101,8 +102,11 @@ export async function POST(req: NextRequest) {
   const PROFILE_DIR = join(process.cwd(), accountIndex === 0 ? '.reddit-profile' : `.reddit-profile-${accountIndex}`);
   let context;
 
-  // Remove stale browser lock from previous crash
+  // Kill orphaned Chromium processes using this profile, then clear lock files
+  try { execSync(`pkill -f "${PROFILE_DIR}" 2>/dev/null || true`, { stdio: 'ignore' }); } catch {}
+  await new Promise(r => setTimeout(r, 600));
   try { unlinkSync(join(PROFILE_DIR, 'SingletonLock')); } catch {}
+  try { unlinkSync('/root/snap/chromium/common/chromium/SingletonLock'); } catch {}
 
   try {
     context = await chromium.launchPersistentContext(PROFILE_DIR, {

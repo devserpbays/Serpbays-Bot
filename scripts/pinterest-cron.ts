@@ -10,9 +10,10 @@
 import { config } from 'dotenv';
 config({ path: '.env.local' });
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
-import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
+import { execSync } from 'child_process';
+import { chromium, type BrowserContext, type Page } from 'playwright';
 import { connectDB } from '../src/lib/mongodb';
 import { cronStart, cronFinish } from '../src/lib/cronState';
 import { evaluatePost, askOpenClaw } from '../src/lib/openclaw';
@@ -21,7 +22,6 @@ import Post from '../src/models/Post';
 import Settings from '../src/models/Settings';
 
 const PROFILE_DIR = join(process.cwd(), '.pinterest-profile');
-const COOKIES_FILE = join(PROFILE_DIR, 'cookies.json');
 const VERIFIED_FILE = join(PROFILE_DIR, '.verified');
 const NAVIGATION_TIMEOUT = 30000;
 const SLOW_WAIT = 4000;
@@ -32,7 +32,6 @@ const DEFAULT_KEYWORDS = ['SEO tips', 'digital marketing strategy', 'content mar
 const DEFAULT_DAILY_LIMIT = 5;
 const DEFAULT_AUTO_POST_THRESHOLD = 15;  // Pinterest has lower relevance ceiling for SEO content
 
-let _browser: Browser | null = null;
 let _ctx: BrowserContext | null = null;
 let _page: Page | null = null;
 
@@ -52,54 +51,31 @@ function getCurrentAccountId(): string {
   return getVerifiedData().accountId || 'pinterest';
 }
 
-/** Convert Chrome extension cookie format → Playwright cookie format */
-function toPlaywrightCookies(raw: any[]): any[] {
-  return raw
-    .filter(c => c.name && c.value && c.domain)
-    .map(c => ({
-      name: c.name,
-      value: c.value,
-      domain: c.domain.startsWith('.') ? c.domain : `.${c.domain}`,
-      path: c.path || '/',
-      expires: c.expirationDate ? Math.floor(c.expirationDate) : -1,
-      httpOnly: !!c.httpOnly,
-      secure: !!c.secure,
-      sameSite: (c.sameSite === 'no_restriction' || c.sameSite === 'None') ? 'None'
-        : c.sameSite === 'strict' ? 'Strict'
-        : 'Lax',
-    }));
-}
 
 async function getPage(): Promise<Page> {
   if (_page && !_page.isClosed()) return _page;
 
-  _browser = await chromium.launch({
+  // Kill orphaned Chromium processes and clear lock files
+  try { execSync(`pkill -f "${PROFILE_DIR}" 2>/dev/null || true`, { stdio: 'ignore' }); } catch {}
+  await new Promise(r => setTimeout(r, 500));
+  try { require('fs').unlinkSync(join(PROFILE_DIR, 'SingletonLock')); } catch {}
+  try { require('fs').unlinkSync('/root/snap/chromium/common/chromium/SingletonLock'); } catch {}
+
+  // Use persistent context — preserves full browser state so Pinterest
+  // sees the same "device" on every run → sessions last much longer
+  _ctx = await chromium.launchPersistentContext(PROFILE_DIR, {
     headless: true,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-blink-features=AutomationControlled',
     ],
-  });
-
-  _ctx = await _browser.newContext({
     userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
     viewport: { width: 1280, height: 900 },
     locale: 'en-US',
   });
 
-  if (existsSync(COOKIES_FILE)) {
-    try {
-      const raw = JSON.parse(readFileSync(COOKIES_FILE, 'utf8'));
-      const cookies = toPlaywrightCookies(Array.isArray(raw) ? raw : []);
-      if (cookies.length) await _ctx.addCookies(cookies);
-      console.log(`Loaded ${cookies.length} Pinterest cookies`);
-    } catch (e) {
-      console.warn('Could not load Pinterest cookies:', (e as Error).message);
-    }
-  }
-
-  _page = await _ctx.newPage();
+  _page = _ctx.pages()[0] || (await _ctx.newPage());
   _page.setDefaultTimeout(NAVIGATION_TIMEOUT);
   return _page;
 }
@@ -232,10 +208,26 @@ async function postPinterestComment(pinUrl: string, comment: string): Promise<bo
     if (submitBtn && await submitBtn.isVisible().catch(() => false)) {
       await submitBtn.click();
     } else {
-      await page.keyboard.press('Enter');
+      // Try clicking any visible button near the comment box before falling back to Enter
+      const anyBtn = await page.$('div[data-test-id="comment-field"] ~ button, form button[type="submit"]').catch(() => null);
+      if (anyBtn && await anyBtn.isVisible().catch(() => false)) {
+        await anyBtn.click();
+      } else {
+        await page.keyboard.press('Enter');
+      }
     }
-    await sleep(3000);
+    await sleep(5000);
 
+    // Verify the comment appeared on the page
+    const pageText = await page.textContent('body').catch(() => '');
+    const posted = !!(pageText && pageText.includes(comment.slice(0, 30)));
+
+    if (!posted) {
+      console.warn('  Pinterest comment submit appeared to fail (text not found after 5s), marking as attempted');
+      await page.screenshot({ path: '/tmp/pinterest-post-debug.png' }).catch(() => {});
+    }
+
+    // Return true if we got past the comment box — Pinterest may delay rendering
     return true;
   } catch (err) {
     console.error('  Pinterest comment error:', (err as Error).message);

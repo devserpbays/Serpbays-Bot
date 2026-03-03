@@ -10,9 +10,10 @@
 import { config } from 'dotenv';
 config({ path: '.env.local' });
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
-import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
+import { execSync } from 'child_process';
+import { chromium, type BrowserContext, type Page } from 'playwright';
 import { connectDB } from '../src/lib/mongodb';
 import { cronStart, cronFinish } from '../src/lib/cronState';
 import { evaluatePost, askOpenClaw } from '../src/lib/openclaw';
@@ -21,7 +22,6 @@ import Post from '../src/models/Post';
 import Settings from '../src/models/Settings';
 
 const PROFILE_DIR = join(process.cwd(), '.youtube-profile');
-const COOKIES_FILE = join(PROFILE_DIR, 'cookies.json');
 const VERIFIED_FILE = join(PROFILE_DIR, '.verified');
 const NAVIGATION_TIMEOUT = 30000;
 const SLOW_WAIT = 4000;
@@ -30,7 +30,6 @@ const DEFAULT_KEYWORDS = ['Serpbays', 'guest post', 'backlinks', 'link building'
 const DEFAULT_DAILY_LIMIT = 5;
 const DEFAULT_AUTO_POST_THRESHOLD = 70;
 
-let _browser: Browser | null = null;
 let _ctx: BrowserContext | null = null;
 let _page: Page | null = null;
 
@@ -50,62 +49,38 @@ function getCurrentAccountId(): string {
   return getVerifiedData().accountId || 'youtube';
 }
 
-/** Convert Chrome extension cookie format → Playwright cookie format */
-function toPlaywrightCookies(raw: any[]): any[] {
-  return raw
-    .filter(c => c.name && c.value && c.domain)
-    .map(c => ({
-      name: c.name,
-      value: c.value,
-      domain: c.domain.startsWith('.') ? c.domain : `.${c.domain}`,
-      path: c.path || '/',
-      expires: c.expirationDate ? Math.floor(c.expirationDate) : -1,
-      httpOnly: !!c.httpOnly,
-      secure: !!c.secure,
-      sameSite: (c.sameSite === 'no_restriction' || c.sameSite === 'None') ? 'None'
-        : c.sameSite === 'strict' ? 'Strict'
-        : 'Lax',
-    }));
-}
 
 async function getPage(): Promise<Page> {
   if (_page && !_page.isClosed()) return _page;
 
-  _browser = await chromium.launch({
+  // Kill orphaned Chromium processes and clear lock files so the profile is free
+  try { execSync(`pkill -f "${PROFILE_DIR}" 2>/dev/null || true`, { stdio: 'ignore' }); } catch {}
+  await new Promise(r => setTimeout(r, 500));
+  try { require('fs').unlinkSync(join(PROFILE_DIR, 'SingletonLock')); } catch {}
+  try { require('fs').unlinkSync('/root/snap/chromium/common/chromium/SingletonLock'); } catch {}
+
+  // Use persistent context — preserves localStorage, IndexedDB, service workers
+  // so Google/YouTube sees the same "device" on every run → sessions last weeks not hours
+  _ctx = await chromium.launchPersistentContext(PROFILE_DIR, {
     headless: true,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-blink-features=AutomationControlled',
     ],
-  });
-
-  _ctx = await _browser.newContext({
     userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
     viewport: { width: 1280, height: 900 },
     locale: 'en-US',
   });
 
-  if (existsSync(COOKIES_FILE)) {
-    try {
-      const raw = JSON.parse(readFileSync(COOKIES_FILE, 'utf8'));
-      const cookies = toPlaywrightCookies(Array.isArray(raw) ? raw : []);
-      if (cookies.length) await _ctx.addCookies(cookies);
-      console.log(`Loaded ${cookies.length} YouTube cookies`);
-    } catch (e) {
-      console.warn('Could not load YouTube cookies:', (e as Error).message);
-    }
-  }
-
-  _page = await _ctx.newPage();
+  _page = _ctx.pages()[0] || (await _ctx.newPage());
   _page.setDefaultTimeout(NAVIGATION_TIMEOUT);
   return _page;
 }
 
 async function closeBrowser(): Promise<void> {
-  if (_browser) {
-    await _browser.close().catch(() => {});
-    _browser = null;
+  if (_ctx) {
+    await _ctx.close().catch(() => {});
     _ctx = null;
     _page = null;
   }
@@ -118,15 +93,23 @@ async function ensureYouTubeLoggedIn(): Promise<boolean> {
     await sleep(SLOW_WAIT);
 
     const url = page.url();
-    if (url.includes('/signin') || url.includes('/accounts.google.com')) return false;
+    if (url.includes('/signin') || url.includes('accounts.google.com')) return false;
 
-    // Look for avatar (logged in indicator)
+    // Check for avatar button — definitive logged-in indicator
     const avatar = await page.$('#avatar-btn, ytd-masthead #avatar-btn, button#avatar-btn').catch(() => null);
     if (avatar && await avatar.isVisible().catch(() => false)) return true;
 
-    // No sign-in button visible = logged in
-    const signInBtn = await page.$('[href*="accounts.google.com"], yt-button-renderer a[href*="signin"]').catch(() => null);
-    if (signInBtn && await signInBtn.isVisible().catch(() => false)) return false;
+    // Check for any "Sign in" text button in the page — catches header + masthead variants
+    const hasSignIn = await page.evaluate(() => {
+      const els = document.querySelectorAll('a, button, yt-button-renderer');
+      for (const el of els) {
+        const text = (el.textContent || '').trim().toLowerCase();
+        if (text === 'sign in') return true;
+      }
+      return false;
+    }).catch(() => false);
+
+    if (hasSignIn) return false;
 
     return true;
   } catch (err) {
@@ -185,6 +168,16 @@ async function postYouTubeComment(videoUrl: string, comment: string): Promise<bo
     await sleep(2000);
     await page.evaluate(() => window.scrollTo(0, 900));
     await sleep(2000);
+
+    // If page shows "Sign in" in the comment area, cookies are expired — abort
+    const needsSignIn = await page.evaluate(() => {
+      const el = document.querySelector('ytd-comment-simplebox-renderer, #comment-teaser');
+      return !el || (el.textContent || '').toLowerCase().includes('sign in');
+    }).catch(() => false);
+    if (needsSignIn) {
+      console.error('  YouTube not logged in — "Sign in" prompt in comment section. Refresh cookies via dashboard.');
+      return false;
+    }
 
     // Click on the comment box placeholder
     const commentPlaceholder = await page.$('#simplebox-placeholder, ytd-comment-simplebox-renderer #simplebox-placeholder').catch(() => null);

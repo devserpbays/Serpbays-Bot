@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import Link from 'next/link';
 import type { SocialAccount, ISettings } from '@/lib/types';
 
 /* ── Types ───────────────────────────────────────────────────────── */
@@ -279,10 +280,14 @@ export default function OverviewPage() {
 
     const fetchSettings = useCallback(async () => {
         try {
-            const res = await fetch('/api/settings');
-            const data = await res.json();
-            setSettings(data.settings ?? null);
-            setAccounts(data.settings?.socialAccounts ?? []);
+            const [settRes, accRes] = await Promise.all([
+                fetch('/api/settings'),
+                fetch('/api/social-accounts'),
+            ]);
+            const settData = await settRes.json();
+            const accData = await accRes.json();
+            setSettings(settData.settings ?? null);
+            setAccounts(accData.accounts ?? []);
         } catch { /* silent */ }
         setLoaded(true);
     }, []);
@@ -414,18 +419,19 @@ export default function OverviewPage() {
                    ══════════════════════════════════════════════════ */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16 }}>
                     {PLATFORM_META.map((p) => {
-                        const isEnabled = enabledPlatforms.includes(p.id);
+                        const platAccounts = accountsFor(p.id);
+                        const isEnabled = enabledPlatforms.includes(p.id) || platAccounts.length > 0;
                         const total = stats.byPlatform[p.id] ?? 0;
                         const posted = stats.postedByPlatform[p.id] ?? 0;
                         const evaluated = total > 0 ? Math.min(total, stats.evaluated) : 0;
-                        const platAccounts = accountsFor(p.id);
                         const pct = total > 0 ? Math.round((posted / total) * 100) : 0;
 
                         return (
-                            <div
+                            <Link
                                 key={p.id}
+                                href={`/dashboard/platform/${p.id}`}
                                 className="card"
-                                style={{ border: `1px solid ${p.color}22`, opacity: isEnabled ? 1 : 0.6 }}
+                                style={{ border: `1px solid ${p.color}22`, opacity: isEnabled ? 1 : 0.6, textDecoration: 'none', display: 'block', cursor: 'pointer' }}
                             >
                                 {/* Card header */}
                                 <div className="card-header">
@@ -453,14 +459,10 @@ export default function OverviewPage() {
                                             </span>
                                         )}
                                     </div>
-                                    {settings && (
-                                        <PlatformMenu
-                                            platform={p}
-                                            settings={settings}
-                                            accounts={platAccounts}
-                                            onSave={handlePlatformSave}
-                                        />
-                                    )}
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}
+                                        style={{ width: 16, height: 16, color: 'var(--text-muted)', flexShrink: 0 }}>
+                                        <polyline points="9,18 15,12 9,6" />
+                                    </svg>
                                 </div>
 
                                 {/* Stats row */}
@@ -520,7 +522,7 @@ export default function OverviewPage() {
                                         </div>
                                     )}
                                 </div>
-                            </div>
+                            </Link>
                         );
                     })}
                 </div>

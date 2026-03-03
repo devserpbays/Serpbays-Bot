@@ -2,14 +2,56 @@ import { NextRequest, NextResponse } from 'next/server';
 import { connectDB } from '@/lib/mongodb';
 import Settings from '@/models/Settings';
 import type { SocialAccount } from '@/lib/types';
+import { existsSync, readFileSync } from 'fs';
+import { join } from 'path';
 
 export const dynamic = 'force-dynamic';
 
-// GET — return all social accounts
+const PLATFORM_PROFILE_DIRS: { platform: string; prefix: string }[] = [
+  { platform: 'twitter',   prefix: '.twitter-profile' },
+  { platform: 'reddit',    prefix: '.reddit-profile' },
+  { platform: 'facebook',  prefix: '.fb-profile' },
+  { platform: 'quora',     prefix: '.quora-profile' },
+  { platform: 'youtube',   prefix: '.youtube-profile' },
+  { platform: 'pinterest', prefix: '.pinterest-profile' },
+];
+
+function readVerifiedAccounts(): SocialAccount[] {
+  const accounts: SocialAccount[] = [];
+  const cwd = process.cwd();
+
+  for (const { platform, prefix } of PLATFORM_PROFILE_DIRS) {
+    // Check index 0 (no suffix) and up to 5 additional slots
+    for (let idx = 0; idx <= 5; idx++) {
+      const profileDir = join(cwd, idx === 0 ? prefix : `${prefix}-${idx}`);
+      const verifiedFile = join(profileDir, '.verified');
+      if (!existsSync(verifiedFile)) continue;
+
+      try {
+        const data = JSON.parse(readFileSync(verifiedFile, 'utf-8'));
+        if (!data.loggedIn) continue;
+
+        accounts.push({
+          id: data.accountId || `${platform}_${idx}`,
+          platform,
+          username: data.username || '',
+          displayName: data.displayName || data.username || '',
+          profileDir,
+          accountIndex: idx,
+          addedAt: data.ts || new Date().toISOString(),
+          active: true,
+        });
+      } catch { /* skip corrupt file */ }
+    }
+  }
+
+  return accounts;
+}
+
+// GET — return all social accounts from .verified files
 export async function GET() {
-  await connectDB();
-  const settings = await Settings.findOne().lean() as { socialAccounts?: SocialAccount[] } | null;
-  return NextResponse.json({ accounts: settings?.socialAccounts ?? [] });
+  const accounts = readVerifiedAccounts();
+  return NextResponse.json({ accounts });
 }
 
 // POST — add a new social account

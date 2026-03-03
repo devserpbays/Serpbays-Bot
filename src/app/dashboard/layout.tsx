@@ -19,16 +19,6 @@ const NAV_ITEMS = [
     ),
   },
   {
-    href: '/dashboard/posts',
-    label: 'Posts',
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="nav-icon">
-        <path d="M19 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2z" />
-        <path d="M7 8h10M7 12h6M7 16h8" />
-      </svg>
-    ),
-  },
-  {
     href: '/dashboard/pipeline',
     label: 'Pipeline',
     icon: (

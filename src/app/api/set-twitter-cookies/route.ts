@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { readFileSync, writeFileSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { verifyCredentials, closeBrowser } from '@/lib/twitter';
 
@@ -133,6 +133,17 @@ export async function POST(req: NextRequest) {
   try {
     const user = await verifyCredentials();
     const accountId = `tw_${user.username}`;
+    const profileDir = join(process.cwd(), accountIndex === 0 ? '.twitter-profile' : `.twitter-profile-${accountIndex}`);
+
+    // Write .verified file so /api/social-accounts can discover this account
+    try {
+      mkdirSync(profileDir, { recursive: true });
+      writeFileSync(
+        join(profileDir, '.verified'),
+        JSON.stringify({ loggedIn: true, ts: new Date().toISOString(), accountId, username: user.username, displayName: user.name }),
+        'utf8'
+      );
+    } catch {}
 
     // Persist account identity for cron scripts to read
     try {

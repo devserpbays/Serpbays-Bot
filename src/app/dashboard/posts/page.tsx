@@ -1,180 +1,188 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { IPost, PostStatus } from '@/lib/types';
-
-/* ── Status config ───────────────────────────────────────────────── */
-const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
-    new: { label: 'New', cls: 'badge-new' },
-    evaluating: { label: 'Evaluating', cls: 'badge-evaluating' },
-    evaluated: { label: 'Evaluated', cls: 'badge-evaluated' },
-    approved: { label: 'Approved', cls: 'badge-approved' },
-    rejected: { label: 'Rejected', cls: 'badge-rejected' },
-    posted: { label: 'Posted', cls: 'badge-posted' },
-};
-
-const STATUS_FILTERS: { value: string; label: string }[] = [
-    { value: '', label: 'All' },
-    { value: 'new', label: 'New' },
-    { value: 'evaluated', label: 'Evaluated' },
-    { value: 'approved', label: 'Approved' },
-    { value: 'rejected', label: 'Rejected' },
-    { value: 'posted', label: 'Posted' },
-];
+import type { IPost } from '@/lib/types';
 
 const PLATFORM_FILTERS = [
     { value: '', label: 'All Platforms' },
     { value: 'twitter', label: 'Twitter / X' },
-    { value: 'reddit', label: 'Reddit' },
     { value: 'facebook', label: 'Facebook' },
+    { value: 'reddit', label: 'Reddit' },
     { value: 'quora', label: 'Quora' },
     { value: 'youtube', label: 'YouTube' },
     { value: 'pinterest', label: 'Pinterest' },
 ];
 
-interface PostsResponse {
-    posts: IPost[];
-    total: number;
-    page: number;
-    limit: number;
+const TIME_FILTERS = [
+    { value: 'today',   label: 'Today' },
+    { value: 'yesterday', label: 'Yesterday' },
+    { value: '7days',   label: 'Last 7 days' },
+    { value: '15days',  label: 'Last 15 days' },
+    { value: '30days',  label: 'Last 30 days' },
+    { value: 'all',     label: 'All time' },
+];
+
+function getDateRange(filter: string): { from?: Date; to?: Date } {
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    switch (filter) {
+        case 'today':     return { from: startOfToday };
+        case 'yesterday': {
+            const from = new Date(startOfToday); from.setDate(from.getDate() - 1);
+            return { from, to: startOfToday };
+        }
+        case '7days':  { const d = new Date(startOfToday); d.setDate(d.getDate() - 6);  return { from: d }; }
+        case '15days': { const d = new Date(startOfToday); d.setDate(d.getDate() - 14); return { from: d }; }
+        case '30days': { const d = new Date(startOfToday); d.setDate(d.getDate() - 29); return { from: d }; }
+        default:       return {};
+    }
 }
 
-const POLL_MS = 10_000;
+const PLATFORM_COLORS: Record<string, string> = {
+    twitter: '#1d9bf0', facebook: '#1877f2', reddit: '#ff4500',
+    quora: '#b92b27', youtube: '#ff0000', pinterest: '#e60023',
+};
+
+const PLATFORM_LABELS: Record<string, string> = {
+    twitter: 'Twitter / X', facebook: 'Facebook', reddit: 'Reddit',
+    quora: 'Quora', youtube: 'YouTube', pinterest: 'Pinterest',
+};
+
+const REPLY_LABEL: Record<string, string> = {
+    twitter: 'Reply', quora: 'Answer',
+};
+
+interface PostsResponse { posts: IPost[]; total: number; page: number; limit: number; }
+
+const LIMIT = 20;
+const POLL_MS = 15_000;
 
 export default function PostsPage() {
-    const [posts, setPosts] = useState<IPost[]>([]);
-    const [total, setTotal] = useState(0);
-    const [page, setPage] = useState(1);
-    const [statusFilter, setStatusFilter] = useState('');
-    const [platformFilter, setPlatformFilter] = useState('');
-    const [expandedId, setExpandedId] = useState<string | null>(null);
-    const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
-
+    const [posts, setPosts]               = useState<IPost[]>([]);
+    const [total, setTotal]               = useState(0);
+    const [page, setPage]                 = useState(1);
+    const [platform, setPlatform]         = useState('');
+    const [timeFilter, setTimeFilter]     = useState('today');
+    const [expandedId, setExpandedId]     = useState<string | null>(null);
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     const fetchPosts = useCallback(async () => {
-        const params = new URLSearchParams();
-        if (statusFilter) params.set('status', statusFilter);
-        if (platformFilter) params.set('platform', platformFilter);
-        params.set('page', String(page));
-        params.set('limit', '20');
+        const params = new URLSearchParams({ status: 'posted', limit: String(LIMIT), page: String(page) });
+        if (platform) params.set('platform', platform);
+
+        const { from, to } = getDateRange(timeFilter);
+        if (from) params.set('from', from.toISOString());
+        if (to) params.set('to', to.toISOString());
+
         try {
             const res = await fetch(`/api/posts?${params}`);
             const data: PostsResponse = await res.json();
-            setPosts(data.posts);
-            setTotal(data.total);
+            setPosts(data.posts ?? []);
+            setTotal(data.total ?? 0);
         } catch { /* silent */ }
-    }, [statusFilter, platformFilter, page]);
+    }, [platform, timeFilter, page]);
 
     useEffect(() => { fetchPosts(); }, [fetchPosts]);
-
     useEffect(() => {
         pollRef.current = setInterval(fetchPosts, POLL_MS);
         return () => { if (pollRef.current) clearInterval(pollRef.current); };
     }, [fetchPosts]);
 
-    const handleUpdate = async (id: string, data: Record<string, unknown>) => {
-        setActionLoading((prev) => ({ ...prev, [id]: true }));
-        try {
-            await fetch('/api/posts', {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id, ...data }),
-            });
-            fetchPosts();
-        } catch { /* silent */ }
-        setActionLoading((prev) => ({ ...prev, [id]: false }));
-    };
-
-
-
-    const totalPages = Math.ceil(total / 20);
+    const totalPages = Math.ceil(total / LIMIT);
 
     return (
         <div className="animate-fade-in">
             <div className="page-header">
-                <h2>Posts</h2>
-                <p>Manage scraped posts — filter, review, approve, and post replies</p>
+                <div>
+                    <h2>Posted Comments</h2>
+                    <p>All comments and replies successfully posted across platforms</p>
+                </div>
+                <span style={{ fontSize: 13, color: 'var(--text-muted)', alignSelf: 'center' }}>
+                    {total} post{total !== 1 ? 's' : ''}
+                </span>
             </div>
 
             <div className="page-body" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
                 {/* ── Filters ── */}
-                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-                    {/* Status */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {/* Time filter */}
                     <div className="chip-group">
-                        {STATUS_FILTERS.map(({ value, label }) => (
+                        {TIME_FILTERS.map(({ value, label }) => (
                             <button
                                 key={value}
-                                className={`chip ${statusFilter === value ? 'active' : ''}`}
-                                onClick={() => { setStatusFilter(value); setPage(1); }}
+                                className={`chip ${timeFilter === value ? 'active' : ''}`}
+                                onClick={() => { setTimeFilter(value); setPage(1); }}
                             >
                                 {label}
                             </button>
                         ))}
                     </div>
 
-                    <div style={{ width: 1, height: 24, background: 'var(--border-subtle)', margin: '0 4px' }} />
-
-                    {/* Platform */}
-                    <select
-                        className="input"
-                        style={{ width: 'auto', minWidth: 160 }}
-                        value={platformFilter}
-                        onChange={(e) => { setPlatformFilter(e.target.value); setPage(1); }}
-                    >
+                    {/* Platform filter */}
+                    <div className="chip-group">
                         {PLATFORM_FILTERS.map(({ value, label }) => (
-                            <option key={value} value={value}>{label}</option>
+                            <button
+                                key={value}
+                                className={`chip ${platform === value ? 'active' : ''}`}
+                                style={platform === value && value ? { background: PLATFORM_COLORS[value], borderColor: PLATFORM_COLORS[value], color: '#fff' } : undefined}
+                                onClick={() => { setPlatform(value); setPage(1); }}
+                            >
+                                {label}
+                            </button>
                         ))}
-                    </select>
-
-                    <span style={{ marginLeft: 'auto', fontSize: 13, color: 'var(--text-muted)' }}>
-                        {total} post{total !== 1 ? 's' : ''}
-                    </span>
+                    </div>
                 </div>
 
                 {/* ── Post List ── */}
                 {posts.length === 0 ? (
                     <div className="empty-state">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="empty-state-icon" style={{ width: 48, height: 48, margin: '0 auto 16px' }}>
-                            <path d="M19 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2z" /><path d="M7 8h10M7 12h6" />
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} style={{ width: 48, height: 48, margin: '0 auto 16px', opacity: 0.4 }}>
+                            <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
                         </svg>
-                        <h3>No posts found</h3>
-                        <p>Try adjusting your filters or run a pipeline job to scrape new posts.</p>
+                        <h3>No posted comments</h3>
+                        <p>No comments found for the selected filters.</p>
                     </div>
                 ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                         {posts.map((post) => {
-                            const badge = STATUS_BADGE[post.status] || STATUS_BADGE.new;
                             const expanded = expandedId === post._id;
                             const reply = post.editedReply || post.aiReply || '';
+                            const color = PLATFORM_COLORS[post.platform] || 'var(--accent)';
+                            const replyLabel = REPLY_LABEL[post.platform] || 'Comment';
+                            const postedAt = post.postedAt ? new Date(post.postedAt).toLocaleString() : '';
 
                             return (
-                                <div key={post._id} className="post-card">
-                                    {/* Header */}
+                                <div key={post._id} className="post-card" style={{ borderLeft: `3px solid ${color}` }}>
+                                    {/* Header row */}
                                     <div
                                         className="post-card-header"
                                         style={{ cursor: 'pointer' }}
                                         onClick={() => setExpandedId(expanded ? null : (post._id ?? null))}
                                     >
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
-                                            <span className={`badge ${badge.cls}`}>{badge.label}</span>
-                                            <span className={`platform-chip platform-${post.platform}`} style={{ fontSize: 11 }}>
-                                                {post.platform}
+                                            <span
+                                                className={`platform-chip platform-${post.platform}`}
+                                                style={{ fontSize: 11, background: color + '22', color, border: `1px solid ${color}44`, flexShrink: 0 }}
+                                            >
+                                                {PLATFORM_LABELS[post.platform] || post.platform}
                                             </span>
                                             <span style={{
                                                 fontSize: 13, color: 'var(--text-secondary)',
                                                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                                             }}>
-                                                {post.content.slice(0, 100)}{post.content.length > 100 ? '…' : ''}
+                                                {post.content.slice(0, 120)}{post.content.length > 120 ? '…' : ''}
                                             </span>
                                         </div>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
                                             {post.aiRelevanceScore != null && (
-                                                <span style={{
-                                                    fontSize: 12, fontWeight: 700,
-                                                    color: post.aiRelevanceScore >= 70 ? 'var(--status-approved)' : post.aiRelevanceScore >= 40 ? 'var(--status-evaluating)' : 'var(--status-rejected)',
-                                                }}>
+                                                <span style={{ fontSize: 12, fontWeight: 700, color }}>
                                                     {post.aiRelevanceScore}%
+                                                </span>
+                                            )}
+                                            {postedAt && (
+                                                <span style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                                                    {postedAt}
                                                 </span>
                                             )}
                                             <svg
@@ -186,93 +194,49 @@ export default function PostsPage() {
                                         </div>
                                     </div>
 
-                                    {/* Expanded Body */}
+                                    {/* Expanded */}
                                     {expanded && (
-                                        <>
-                                            <div className="post-card-body">
-                                                {/* Original post */}
-                                                <div style={{ marginBottom: 16 }}>
-                                                    <div className="label">Original Post by {post.author}</div>
-                                                    <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-                                                        {post.content}
-                                                    </p>
-                                                    {post.url && (
-                                                        <a
-                                                            href={post.url}
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            style={{ fontSize: 12, color: 'var(--accent)', marginTop: 6, display: 'inline-block' }}
-                                                        >
-                                                            View original →
-                                                        </a>
-                                                    )}
-                                                </div>
-
-                                                {/* AI Reply */}
-                                                {reply && (
-                                                    <div style={{ marginBottom: 16 }}>
-                                                        <div className="label">AI Suggested Reply</div>
-                                                        <div style={{
-                                                            background: 'var(--bg-input)', borderRadius: 'var(--radius-sm)',
-                                                            padding: '12px 16px', fontSize: 13, color: 'var(--text-primary)', lineHeight: 1.6,
-                                                            border: '1px solid var(--border-subtle)',
-                                                        }}>
-                                                            {reply}
-                                                        </div>
-                                                    </div>
-                                                )}
-
-                                                {/* AI Details */}
-                                                {(post.aiTone || post.aiReasoning) && (
-                                                    <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 12, color: 'var(--text-muted)' }}>
-                                                        {post.aiTone && <span>Tone: <strong style={{ color: 'var(--text-secondary)' }}>{post.aiTone}</strong></span>}
-                                                        {post.aiReasoning && <span>Reasoning: <strong style={{ color: 'var(--text-secondary)' }}>{post.aiReasoning}</strong></span>}
-                                                    </div>
-                                                )}
-                                            </div>
-
-                                            {/* Actions */}
-                                            <div className="post-card-footer">
-                                                {post.status === 'evaluated' && (
-                                                    <>
-                                                        <button
-                                                            className="btn btn-success btn-sm"
-                                                            disabled={!!actionLoading[post._id!]}
-                                                            onClick={() => handleUpdate(post._id!, { status: 'approved' })}
-                                                        >
-                                                            ✓ Approve
-                                                        </button>
-                                                        <button
-                                                            className="btn btn-danger btn-sm"
-                                                            disabled={!!actionLoading[post._id!]}
-                                                            onClick={() => handleUpdate(post._id!, { status: 'rejected' })}
-                                                        >
-                                                            ✗ Reject
-                                                        </button>
-                                                    </>
-                                                )}
-                                                {post.status === 'approved' && (
-                                                    <span style={{ fontSize: 12, color: 'var(--status-approved)', fontWeight: 600 }}>
-                                                        Queued for auto-posting
-                                                    </span>
-                                                )}
-                                                {post.status === 'posted' && post.replyUrl && (
-                                                    <a href={post.replyUrl} target="_blank" rel="noopener noreferrer" className="btn btn-ghost btn-sm">
-                                                        View Reply →
+                                        <div className="post-card-body">
+                                            {/* Original post */}
+                                            <div style={{ marginBottom: 14 }}>
+                                                <div className="label">Original Post{post.author ? ` by ${post.author}` : ''}</div>
+                                                <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, margin: '6px 0 0' }}>
+                                                    {post.content}
+                                                </p>
+                                                {post.url && (
+                                                    <a href={post.url} target="_blank" rel="noopener noreferrer"
+                                                        style={{ fontSize: 12, color: 'var(--accent)', marginTop: 6, display: 'inline-block' }}>
+                                                        View original →
                                                     </a>
                                                 )}
-                                                {post.status !== 'posted' && (
-                                                    <button
-                                                        className="btn btn-ghost btn-sm"
-                                                        style={{ marginLeft: 'auto' }}
-                                                        disabled={!!actionLoading[post._id!]}
-                                                        onClick={() => handleUpdate(post._id!, { status: 'rejected' })}
-                                                    >
-                                                        Dismiss
-                                                    </button>
+                                            </div>
+
+                                            {/* Posted reply */}
+                                            {reply && (
+                                                <div style={{ marginBottom: 14 }}>
+                                                    <div className="label">{replyLabel} Posted</div>
+                                                    <div style={{
+                                                        background: color + '11', border: `1px solid ${color}33`,
+                                                        borderRadius: 'var(--radius-sm)', padding: '10px 14px',
+                                                        fontSize: 13, color: 'var(--text-primary)', lineHeight: 1.6, marginTop: 6,
+                                                    }}>
+                                                        {reply}
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* Meta row */}
+                                            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 12, color: 'var(--text-muted)', alignItems: 'center' }}>
+                                                {post.postedByAccount && <span>Account: <strong style={{ color: 'var(--text-secondary)' }}>{post.postedByAccount}</strong></span>}
+                                                {post.keywordsMatched?.length ? <span>Keywords: <strong style={{ color: 'var(--text-secondary)' }}>{post.keywordsMatched.join(', ')}</strong></span> : null}
+                                                {post.replyUrl && (
+                                                    <a href={post.replyUrl} target="_blank" rel="noopener noreferrer"
+                                                        style={{ color: 'var(--accent)', marginLeft: 'auto' }}>
+                                                        View reply →
+                                                    </a>
                                                 )}
                                             </div>
-                                        </>
+                                        </div>
                                     )}
                                 </div>
                             );
@@ -283,11 +247,11 @@ export default function PostsPage() {
                 {/* ── Pagination ── */}
                 {totalPages > 1 && (
                     <div className="pagination">
-                        <button className="pagination-btn" disabled={page === 1} onClick={() => setPage(Math.max(1, page - 1))}>
+                        <button className="pagination-btn" disabled={page === 1} onClick={() => setPage(p => Math.max(1, p - 1))}>
                             ← Previous
                         </button>
                         <span className="pagination-info">Page {page} of {totalPages}</span>
-                        <button className="pagination-btn" disabled={page === totalPages} onClick={() => setPage(Math.min(totalPages, page + 1))}>
+                        <button className="pagination-btn" disabled={page === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>
                             Next →
                         </button>
                     </div>

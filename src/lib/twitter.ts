@@ -12,6 +12,7 @@
 import { chromium, type BrowserContext, type Page } from 'playwright';
 import { join } from 'path';
 import { unlinkSync } from 'fs';
+import { execSync } from 'child_process';
 
 const TWITTER_GRAPHQL_BASE = 'https://x.com/i/api/graphql';
 const BEARER =
@@ -56,8 +57,11 @@ function buildCookies(): Array<{ name: string; value: string; domain: string; pa
 async function getPage(): Promise<Page> {
   if (_page && !_page.isClosed()) return _page;
 
-  // Remove stale browser lock from previous crash
+  // Kill any orphaned chromium processes using this profile, then clear both lock files
+  try { execSync(`pkill -f "${PROFILE_DIR}" 2>/dev/null || true`, { stdio: 'ignore' }); } catch {}
+  await new Promise(r => setTimeout(r, 600));
   try { unlinkSync(join(PROFILE_DIR, 'SingletonLock')); } catch {}
+  try { unlinkSync('/root/snap/chromium/common/chromium/SingletonLock'); } catch {}
 
   _context = await chromium.launchPersistentContext(PROFILE_DIR, {
     executablePath: '/usr/bin/chromium-browser',

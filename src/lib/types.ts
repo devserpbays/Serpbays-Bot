@@ -18,6 +18,7 @@ export interface IPost {
   evaluatedAt?: Date;
   approvedAt?: Date;
   postedAt?: Date;
+  postedByAccount?: string;
 }
 
 export interface SocialAccount {

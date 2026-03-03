@@ -69,12 +69,14 @@ export default function AccountsPage() {
 
     const fetchSettings = useCallback(async () => {
         try {
-            const res = await fetch('/api/settings');
-            const data = await res.json();
-            if (data.settings) {
-                setAccounts(data.settings.socialAccounts ?? []);
-                setEnabledPlatforms(data.settings.platforms ?? []);
-            }
+            const [accRes, settRes] = await Promise.all([
+                fetch('/api/social-accounts'),
+                fetch('/api/settings'),
+            ]);
+            const accData = await accRes.json();
+            const settData = await settRes.json();
+            setAccounts(accData.accounts ?? []);
+            setEnabledPlatforms(settData.settings?.platforms ?? []);
         } catch { /* silent */ }
     }, []);
 

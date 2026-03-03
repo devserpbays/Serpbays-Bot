@@ -12,14 +12,23 @@ export async function GET(req: NextRequest) {
   const page = parseInt(searchParams.get('page') || '1');
   const limit = parseInt(searchParams.get('limit') || '20');
 
+  const from = searchParams.get('from');
+  const to = searchParams.get('to');
+
   const filter: Record<string, unknown> = {};
   if (status) filter.status = status;
   if (platform) filter.platform = platform;
   if (minScore) filter.aiRelevanceScore = { $gte: parseInt(minScore) };
+  if (from || to) {
+    const dateFilter: Record<string, Date> = {};
+    if (from) dateFilter.$gte = new Date(from);
+    if (to) dateFilter.$lt = new Date(to);
+    filter.postedAt = dateFilter;
+  }
 
   const [posts, total] = await Promise.all([
     Post.find(filter)
-      .sort({ scrapedAt: -1 })
+      .sort({ postedAt: -1, scrapedAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
       .lean(),
