@@ -53,6 +53,12 @@ export interface ISettings {
   quoraKeywords?: string[];
   quoraDailyLimit?: number;
   quoraAutoPostThreshold?: number;
+  youtubeKeywords?: string[];
+  youtubeDailyLimit?: number;
+  youtubeAutoPostThreshold?: number;
+  pinterestKeywords?: string[];
+  pinterestDailyLimit?: number;
+  pinterestAutoPostThreshold?: number;
 }
 
 export interface AIEvaluation {

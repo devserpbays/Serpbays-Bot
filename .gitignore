@@ -42,13 +42,8 @@ next-env.d.ts
 
 # facebook browser profile (contains login cookies)
 .fb-profile/
-.linkedin-profile/
 .reddit-profile/
-.linkedin-profile/
-.reddit-profile/
-.twitter-account
-.quora-profile
-.pinterest-profile
-.pinterest-profile/ ..quora-profile/ ..youtube-profile.
 .youtube-profile/
 .twitter-profile/
+.quora-profile/
+.pinterest-profile/
