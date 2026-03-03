@@ -1,0 +1,310 @@
+/**
+ * Pinterest Browser Automation via Playwright + Chromium
+ *
+ * Uses a persistent browser context so cookies survive between runs.
+ * Profile data stored at: /var/www/ai-bot/bot-serp/.pinterest-profile/
+ */
+
+import { chromium, type BrowserContext, type Page } from 'playwright';
+import { join } from 'path';
+import { unlinkSync } from 'fs';
+
+const NAVIGATION_TIMEOUT = 30000;
+const SLOW_WAIT = 4000;
+
+interface PinterestPin {
+  url: string;
+  author: string;
+  content: string;
+  platform: 'pinterest';
+}
+
+const _contexts = new Map<string, BrowserContext>();
+const _pages = new Map<string, Page>();
+
+// --- Launch or reuse persistent browser context ---
+async function getPage(profileDir: string): Promise<Page> {
+  const existingPage = _pages.get(profileDir);
+  if (existingPage && !existingPage.isClosed()) return existingPage;
+
+  // Remove stale browser lock from previous crash
+  try { unlinkSync(join(profileDir, 'SingletonLock')); } catch {}
+
+  const context = await chromium.launchPersistentContext(profileDir, {
+    headless: true,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-blink-features=AutomationControlled',
+    ],
+    userAgent:
+      'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
+    viewport: { width: 1280, height: 900 },
+    locale: 'en-US',
+  });
+
+  _contexts.set(profileDir, context);
+  const page = context.pages()[0] || (await context.newPage());
+  page.setDefaultTimeout(NAVIGATION_TIMEOUT);
+  _pages.set(profileDir, page);
+  return page;
+}
+
+// --- Cleanup ---
+export async function closeBrowser(profileDir: string): Promise<void> {
+  const context = _contexts.get(profileDir);
+  if (context) {
+    await context.close().catch(() => {});
+    _contexts.delete(profileDir);
+    _pages.delete(profileDir);
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+// --- Check if logged in to Pinterest ---
+export async function ensurePinterestLoggedIn(profileDir: string): Promise<boolean> {
+  try {
+    const page = await getPage(profileDir);
+    await page.goto('https://www.pinterest.com', { waitUntil: 'domcontentloaded' });
+    await sleep(SLOW_WAIT);
+
+    const url = page.url();
+    if (url.includes('/login') || url.includes('/auth/')) {
+      console.error('Not logged in to Pinterest — redirected to login page.');
+      return false;
+    }
+
+    // Check for logged-in avatar indicator
+    const loggedIn = await page
+      .locator('[data-test-id="header-avatar"], [data-test-id="header-profile-link"]')
+      .first()
+      .isVisible({ timeout: 5000 })
+      .catch(() => false);
+
+    if (loggedIn) return true;
+
+    // Check for login button (logged-out indicator)
+    const hasLoginBtn = await page
+      .locator('[data-test-id="login-button"], a[href*="/login/"]')
+      .first()
+      .isVisible({ timeout: 3000 })
+      .catch(() => false);
+
+    if (hasLoginBtn) {
+      console.error('Not logged in to Pinterest — login button visible.');
+      return false;
+    }
+
+    // Fallback body check
+    const bodyText = await page.textContent('body').catch(() => '');
+    const looksLoggedIn = bodyText && bodyText.length > 500 && !bodyText.includes('Log in');
+    if (looksLoggedIn) return true;
+
+    console.warn('Pinterest login state uncertain');
+    return false;
+  } catch (err) {
+    console.error('Failed to check Pinterest login:', (err as Error).message);
+    return false;
+  }
+}
+
+// --- Scrape profile identity of the logged-in user ---
+export async function scrapeProfileIdentity(profileDir: string): Promise<{ displayName: string; username: string; accountId: string }> {
+  try {
+    const page = await getPage(profileDir);
+
+    const info = await page.evaluate(() => {
+      let username = '';
+      let displayName = '';
+
+      // Try to get username from profile link
+      const avatarLink = document.querySelector('[data-test-id="header-avatar"]') as HTMLAnchorElement | null;
+      if (avatarLink) {
+        const href = avatarLink.getAttribute('href') || '';
+        const m = href.match(/\/([^/]+)\/?$/);
+        if (m && m[1] && m[1] !== 'settings') username = m[1];
+      }
+
+      // Try profile links
+      if (!username) {
+        const profileLinks = document.querySelectorAll('a[href*="/"]');
+        for (const link of profileLinks) {
+          const href = link.getAttribute('href') || '';
+          if (href.match(/^\/[a-zA-Z0-9_-]+\/$/) && !href.includes('/settings') && !href.includes('/login')) {
+            username = href.replace(/\//g, '');
+            break;
+          }
+        }
+      }
+
+      return { username, displayName };
+    }).catch(() => ({ username: '', displayName: '' }));
+
+    const username = info.username || '';
+    const accountId = username ? `pt_${username}` : `pt_${Date.now()}`;
+    return { displayName: info.displayName || username, username, accountId };
+  } catch {
+    return { displayName: '', username: '', accountId: '' };
+  }
+}
+
+// --- Scrape Pinterest pins matching keywords ---
+export async function scrapePinterestPins(keywords: string[], profileDir: string): Promise<PinterestPin[]> {
+  const pins: PinterestPin[] = [];
+
+  for (const keyword of keywords) {
+    try {
+      const page = await getPage(profileDir);
+      const searchUrl = `https://www.pinterest.com/search/pins/?q=${encodeURIComponent(keyword)}&rs=typed`;
+      await page.goto(searchUrl, { waitUntil: 'domcontentloaded' });
+      await sleep(SLOW_WAIT);
+
+      // Scroll to load more pins
+      for (let i = 0; i < 3; i++) {
+        await page.mouse.wheel(0, 1000);
+        await sleep(2000);
+      }
+
+      // Extract pin elements
+      const pinData = await page.evaluate(() => {
+        const results: { url: string; description: string; creator: string; pinId: string }[] = [];
+
+        // Try data-test-id="pin" selector
+        const pinEls = document.querySelectorAll('[data-test-id="pin"], [data-grid-item="true"], div[role="listitem"]');
+
+        for (const pin of pinEls) {
+          const linkEl = pin.querySelector('a[href*="/pin/"]') as HTMLAnchorElement | null;
+          if (!linkEl) continue;
+
+          const href = linkEl.getAttribute('href') || '';
+          const pinIdMatch = href.match(/\/pin\/(\d+)/);
+          if (!pinIdMatch) continue;
+
+          const pinId = pinIdMatch[1];
+          const imgAlt = pin.querySelector('img')?.getAttribute('alt') || '';
+          const descEl = pin.querySelector('[data-test-id="pin-description"], div[class*="description"]');
+          const description = descEl?.textContent?.trim() || imgAlt.trim();
+
+          if (description.length < 5) continue;
+
+          results.push({
+            url: `https://www.pinterest.com/pin/${pinId}/`,
+            description,
+            creator: '',
+            pinId,
+          });
+        }
+        return results;
+      }).catch(() => [] as { url: string; description: string; creator: string; pinId: string }[]);
+
+      for (const p of pinData) {
+        pins.push({
+          url: p.url,
+          author: p.creator || 'Pinterest User',
+          content: p.description.slice(0, 2000),
+          platform: 'pinterest',
+        });
+      }
+
+      await sleep(2000);
+    } catch (err) {
+      console.error(`Failed to search Pinterest for "${keyword}":`, (err as Error).message);
+    }
+  }
+
+  // Deduplicate by URL
+  const seen = new Set<string>();
+  return pins.filter((p) => {
+    if (seen.has(p.url)) return false;
+    seen.add(p.url);
+    return true;
+  });
+}
+
+// --- Post a comment on a Pinterest pin ---
+export async function postPinterestComment(pinUrl: string, comment: string, profileDir: string): Promise<boolean> {
+  if (!comment || comment.trim().length < 5) {
+    console.error('Invalid comment text, refusing to post.');
+    return false;
+  }
+
+  try {
+    const page = await getPage(profileDir);
+    await page.goto(pinUrl, { waitUntil: 'domcontentloaded' });
+    await sleep(SLOW_WAIT);
+
+    // Scroll to comment section
+    await page.mouse.wheel(0, 400);
+    await sleep(1500);
+
+    // Click comment box
+    const commentBoxSelectors = [
+      '[data-test-id="comment-box-input"]',
+      '[data-test-id="CommentBox"] textarea',
+      'textarea[placeholder*="comment" i]',
+      'textarea[placeholder*="Add a comment" i]',
+    ];
+
+    let focused = false;
+    for (const sel of commentBoxSelectors) {
+      const el = page.locator(sel).first();
+      if (await el.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await el.click({ force: true });
+        focused = true;
+        await sleep(1000);
+        break;
+      }
+    }
+
+    if (!focused) {
+      console.error('Could not find Pinterest comment box on:', pinUrl);
+      await page.screenshot({ path: '/tmp/pinterest-comment-failed.png', fullPage: false }).catch(() => {});
+      return false;
+    }
+
+    // Type the comment
+    await page.keyboard.type(comment, { delay: 30 });
+    await sleep(1000);
+
+    // Submit — try button first, then Enter
+    const submitSelectors = [
+      '[data-test-id="comment-box-submit-button"]',
+      'button[type="submit"]',
+      'button:has-text("Post")',
+    ];
+
+    let submitted = false;
+    for (const sel of submitSelectors) {
+      const btn = page.locator(sel).first();
+      if (await btn.isVisible({ timeout: 2000 }).catch(() => false)) {
+        await btn.click({ force: true });
+        submitted = true;
+        break;
+      }
+    }
+
+    if (!submitted) {
+      await page.keyboard.press('Enter');
+    }
+
+    await sleep(4000);
+
+    const pageText = await page.textContent('body').catch(() => '');
+    const posted = pageText?.includes(comment.slice(0, 20)) ?? false;
+
+    if (posted) {
+      console.log(`Pinterest comment posted successfully on: ${pinUrl}`);
+    } else {
+      console.warn(`Pinterest comment may NOT have posted on: ${pinUrl}`);
+      await page.screenshot({ path: '/tmp/pinterest-post-failed.png', fullPage: false }).catch(() => {});
+    }
+
+    return posted;
+  } catch (err) {
+    console.error(`Failed to post Pinterest comment on ${pinUrl}:`, (err as Error).message);
+    return false;
+  }
+}

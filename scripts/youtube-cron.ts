@@ -14,6 +14,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 import { connectDB } from '../src/lib/mongodb';
+import { cronStart, cronFinish } from '../src/lib/cronState';
 import { evaluatePost, askOpenClaw } from '../src/lib/openclaw';
 import { isWithinSchedule } from '../src/lib/schedule';
 import Post from '../src/models/Post';
@@ -319,6 +320,8 @@ async function getTodayCommentCount(accountId: string): Promise<number> {
 
 async function main() {
   console.log(`[${new Date().toISOString()}] YouTube Cron: starting`);
+  const _cronId = cronStart('youtube', 'auto');
+  process.on('exit', (code) => cronFinish(_cronId, 'youtube', code));
 
   await connectDB();
 
@@ -332,6 +335,12 @@ async function main() {
   const schedule = settings.platformSchedules?.get('youtube');
   if (!isWithinSchedule(schedule)) {
     console.log('Outside scheduled hours, exiting');
+    process.exit(0);
+  }
+
+  // Pause guard — dashboard "Pause Cron" button sets this flag
+  if (settings.autoPostingPaused) {
+    console.log('Auto-posting is paused via dashboard, exiting');
     process.exit(0);
   }
 
@@ -456,7 +465,16 @@ async function main() {
       );
     }
 
-    if (!replyText || replyText.length < 5 || /error|failed|exception|undefined|null/i.test(replyText)) {
+    // Safety check — block JSON/debug garbage and empty/error text
+    const looksLikeJson = /^\s*[\[{]/.test(replyText || '');
+    // eslint-disable-next-line no-control-regex
+    const hasAnsi = /\x1b\[[\d;]*m/.test(replyText || '');
+    const hasPayloads = /"payloads"\s*:/.test(replyText || '');
+    const hasDebugPrefix = /\[agent\/embedded\]/.test(replyText || '');
+
+    if (looksLikeJson || hasAnsi || hasPayloads || hasDebugPrefix) {
+      console.error('Generated comment failed format check — JSON/debug garbage, skipping:', replyText?.slice(0, 100));
+    } else if (!replyText || replyText.length < 5 || /error|failed|exception|undefined|null/i.test(replyText)) {
       console.error('Generated comment failed safety check, skipping:', replyText?.slice(0, 100));
     } else {
       console.log(`Auto-posting comment on ${candidate.url} (score: ${candidate.aiRelevanceScore})`);

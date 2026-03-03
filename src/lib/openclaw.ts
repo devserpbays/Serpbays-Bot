@@ -47,11 +47,31 @@ Respond ONLY with valid JSON (no markdown, no code blocks, no extra text):
   return defaultPrompt;
 }
 
+// Strip ANSI escape codes from a string
+function stripAnsi(str: string): string {
+  // eslint-disable-next-line no-control-regex
+  return str.replace(/\x1b\[[0-9;]*m/g, '');
+}
+
+// Validate that text looks like a human-readable response, not a JSON/debug dump.
+// Returns false if the text is an OpenClaw envelope, debug prefix, or raw JSON.
+function isHumanReadable(text: string): boolean {
+  if (!text || text.trim().length < 5) return false;
+  if (/^\s*[\[{]/.test(text)) return false;           // starts with JSON array/object
+  if (/"payloads"\s*:/.test(text)) return false;       // OpenClaw response envelope key
+  if (/\[agent\/embedded\]/.test(text)) return false;  // OpenClaw debug prefix
+  // eslint-disable-next-line no-control-regex
+  if (/\x1b\[[\d;]*m/.test(text)) return false;       // residual ANSI escape codes
+  return true;
+}
+
 // --- Parse AI evaluation from raw text ---
 function parseEvaluation(text: string): AIEvaluation | null {
+  const clean = stripAnsi(text).trim();
+
   // Try direct JSON parse
   try {
-    const parsed = JSON.parse(text);
+    const parsed = JSON.parse(clean);
     if ('relevant' in parsed && 'score' in parsed) {
       return parsed as AIEvaluation;
     }
@@ -60,7 +80,7 @@ function parseEvaluation(text: string): AIEvaluation | null {
   }
 
   // Extract JSON from markdown code blocks or mixed text
-  const jsonMatch = text.match(/\{[\s\S]*?"relevant"[\s\S]*?"reasoning"[\s\S]*?\}/);
+  const jsonMatch = clean.match(/\{[\s\S]*?"relevant"[\s\S]*?"reasoning"[\s\S]*?\}/);
   if (jsonMatch) {
     try {
       return JSON.parse(jsonMatch[0]) as AIEvaluation;
@@ -93,14 +113,30 @@ async function evaluateViaHTTP(prompt: string): Promise<string> {
     throw new Error(`OpenClaw HTTP API returned ${res.status}: ${await res.text()}`);
   }
 
-  const data = await res.json();
+  // Read as text first — the server may prefix the JSON body with debug lines
+  // like "[agent/embedded] google tool schema snapshot" making res.json() fail
+  const body = await res.text();
+  const cleanBody = stripAnsi(body);
+  const firstBrace = cleanBody.indexOf('{');
 
-  // Extract text from various response shapes
-  return data?.payloads?.[0]?.text
-    || data?.result?.content
-    || data?.content
-    || data?.message
-    || (typeof data === 'string' ? data : JSON.stringify(data));
+  let data: Record<string, unknown> = {};
+  if (firstBrace !== -1) {
+    try {
+      data = JSON.parse(cleanBody.slice(firstBrace));
+    } catch {
+      throw new Error(`OpenClaw HTTP response not parseable as JSON: ${cleanBody.slice(0, 200)}`);
+    }
+  } else {
+    throw new Error(`OpenClaw HTTP response has no JSON object: ${cleanBody.slice(0, 200)}`);
+  }
+
+  const raw = (data?.payloads as Array<{ text?: string }>)?.[0]?.text
+    || (data?.result as { content?: string })?.content
+    || data?.content as string
+    || data?.message as string
+    || JSON.stringify(data);
+
+  return stripAnsi(String(raw));
 }
 
 // --- Method 2: OpenClaw CLI (fallback) ---
@@ -115,34 +151,24 @@ async function evaluateViaCLI(prompt: string): Promise<string> {
       { timeout: 120000, maxBuffer: 1024 * 1024 }
     );
 
-    // Parse the OpenClaw JSON response - find JSON in stdout
-    const lines = stdout.split('\n');
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (trimmed.startsWith('{')) {
-        try {
-          const parsed = JSON.parse(trimmed);
-          // Extract AI text from OpenClaw wrapper
-          const aiText = parsed?.payloads?.[0]?.text
-            || parsed?.result?.content
-            || parsed?.content
-            || parsed?.message;
-          if (aiText) return typeof aiText === 'string' ? aiText : JSON.stringify(aiText);
-        } catch {
-          continue;
-        }
-      }
+    // Strip ANSI escape codes — debug prefix "[agent/embedded] google tool schema snapshot"
+    // appears before multi-line pretty-printed JSON. Find first '{' and parse from there.
+    const clean = stripAnsi(stdout);
+
+    const firstBrace = clean.indexOf('{');
+    if (firstBrace !== -1) {
+      try {
+        const parsed = JSON.parse(clean.slice(firstBrace));
+        const aiText = parsed?.payloads?.[0]?.text
+          || parsed?.result?.content
+          || parsed?.content
+          || parsed?.message;
+        if (aiText) return typeof aiText === 'string' ? aiText : JSON.stringify(aiText);
+      } catch { /* malformed */ }
     }
 
-    // Try to find the full JSON payload
-    const jsonMatch = stdout.match(/\{[\s\S]*"payloads"[\s\S]*\}/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
-      const aiText = parsed?.payloads?.[0]?.text || parsed?.content;
-      if (aiText) return typeof aiText === 'string' ? aiText : JSON.stringify(aiText);
-    }
-
-    return stdout;
+    // Last resort: return cleaned text (never raw stdout with ANSI codes)
+    return clean.trim();
   } finally {
     await unlink(tmpFile).catch(() => {});
   }
@@ -208,8 +234,18 @@ export async function askOpenClaw(message: string, sessionId?: string): Promise<
     });
 
     if (res.ok) {
-      const data = await res.json();
-      return data?.payloads?.[0]?.text || data?.content || data?.message || JSON.stringify(data);
+      const body = stripAnsi(await res.text());
+      const firstBrace = body.indexOf('{');
+      if (firstBrace !== -1) {
+        try {
+          const data = JSON.parse(body.slice(firstBrace));
+          const text = (data?.payloads as Array<{ text?: string }>)?.[0]?.text
+            || (data?.result as { content?: string })?.content
+            || data?.content as string
+            || data?.message as string;
+          if (text && isHumanReadable(String(text))) return String(text);
+        } catch { /* fall through to CLI */ }
+      }
     }
   } catch {
     // fall through to CLI
@@ -225,19 +261,27 @@ export async function askOpenClaw(message: string, sessionId?: string): Promise<
       { timeout: 120000, maxBuffer: 1024 * 1024 }
     );
 
-    const lines = stdout.split('\n');
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (trimmed.startsWith('{')) {
-        try {
-          const parsed = JSON.parse(trimmed);
-          return parsed?.payloads?.[0]?.text || parsed?.content || parsed?.message || trimmed;
-        } catch {
-          continue;
-        }
-      }
+    const clean = stripAnsi(stdout);
+
+    // The CLI outputs debug prefix lines like "[agent/embedded] google tool schema snapshot"
+    // followed by multi-line pretty-printed JSON. Find the first '{' and parse from there.
+    const firstBrace = clean.indexOf('{');
+    if (firstBrace !== -1) {
+      try {
+        const parsed = JSON.parse(clean.slice(firstBrace));
+        const aiText = parsed?.payloads?.[0]?.text
+          || parsed?.result?.content
+          || parsed?.content
+          || parsed?.message;
+        if (aiText && isHumanReadable(String(aiText))) return String(aiText);
+        // OpenClaw returned an envelope (payloads/meta) but no usable text — don't
+        // fall through to the raw debug string, return empty so callers can handle it.
+        if ('payloads' in parsed || 'meta' in parsed) return '';
+      } catch { /* malformed or truncated */ }
     }
-    return stdout.trim();
+
+    const result = clean.trim();
+    return isHumanReadable(result) ? result : '';
   } finally {
     await unlink(tmpFile).catch(() => {});
   }

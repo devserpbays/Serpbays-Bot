@@ -16,6 +16,7 @@ import { readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { connectDB } from '../src/lib/mongodb';
 import { evaluatePost, askOpenClaw } from '../src/lib/openclaw';
+import { cronStart, cronFinish } from '../src/lib/cronState';
 import {
   ensureQuoraLoggedIn,
   scrapeProfileIdentity,
@@ -150,6 +151,8 @@ Write the answer now:`;
 
 async function main() {
   console.log(`[${new Date().toISOString()}] Quora Cron: starting`);
+  const _cronId = cronStart('quora', 'auto');
+  process.on('exit', (code) => cronFinish(_cronId, 'quora', code));
 
   await connectDB();
 
@@ -164,6 +167,12 @@ async function main() {
   const schedule = settings.platformSchedules?.get('quora');
   if (!isWithinSchedule(schedule)) {
     console.log('Outside scheduled hours, exiting');
+    process.exit(0);
+  }
+
+  // Pause guard — dashboard "Pause Cron" button sets this flag
+  if (settings.autoPostingPaused) {
+    console.log('Auto-posting is paused via dashboard, exiting');
     process.exit(0);
   }
 
@@ -318,8 +327,16 @@ async function main() {
       );
     }
 
-    // Safety check
-    if (!replyText || replyText.length < 10 || /error|failed|exception|undefined|null/i.test(replyText)) {
+    // Safety check — block JSON/debug garbage and empty/error text
+    const looksLikeJson = /^\s*[\[{]/.test(replyText || '');
+    // eslint-disable-next-line no-control-regex
+    const hasAnsi = /\x1b\[[\d;]*m/.test(replyText || '');
+    const hasPayloads = /"payloads"\s*:/.test(replyText || '');
+    const hasDebugPrefix = /\[agent\/embedded\]/.test(replyText || '');
+
+    if (looksLikeJson || hasAnsi || hasPayloads || hasDebugPrefix) {
+      console.error('Generated answer failed format check — JSON/debug garbage, skipping:', replyText?.slice(0, 100));
+    } else if (!replyText || replyText.length < 10 || /error|failed|exception|undefined|null/i.test(replyText)) {
       console.error('Generated answer failed safety check, skipping:', replyText?.slice(0, 100));
     } else {
       console.log(

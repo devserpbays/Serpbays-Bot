@@ -1,7 +1,1 @@
-{
-  "loggedIn": true,
-  "accountId": "youtube",
-  "displayName": "YouTube Account",
-  "username": "youtube",
-  "ts": "2026-02-23T06:12:30.258Z"
-}
+{"loggedIn":false,"ts":"2026-03-03T05:30:52.970Z","message":"Session expired — cron detected not logged in"}

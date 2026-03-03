@@ -16,7 +16,7 @@ export async function GET() {
   statuses.forEach((s, i) => { byStatus[s] = counts[i]; });
 
   // Per-platform totals + posted counts
-  const platforms = ['facebook', 'twitter', 'reddit', 'quora'] as const;
+  const platforms = ['facebook', 'twitter', 'reddit', 'quora', 'youtube', 'pinterest'] as const;
   const platformCounts = await Promise.all([
     ...platforms.map(p => Post.countDocuments({ platform: p })),
     ...platforms.map(p => Post.countDocuments({ platform: p, status: 'posted' })),

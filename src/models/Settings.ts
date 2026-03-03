@@ -32,6 +32,7 @@ const SettingsSchema = new Schema({
   quoraKeywords: [{ type: String }],
   quoraDailyLimit: { type: Number, default: 3 },
   quoraAutoPostThreshold: { type: Number, default: 70 },
+  autoPostingPaused: { type: Boolean, default: false },
   platformSchedules: {
     type: Map,
     of: new Schema({

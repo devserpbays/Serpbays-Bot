@@ -1,0 +1,50 @@
+{
+  "twitter": {
+    "running": false,
+    "lastStarted": "2026-03-03T05:30:18.833Z",
+    "lastFinished": "2026-03-03T05:30:19.687Z",
+    "lastExitCode": 0,
+    "lastMessage": "",
+    "lastTrigger": "auto"
+  },
+  "facebook": {
+    "running": false,
+    "lastStarted": "2026-03-03T05:30:19.409Z",
+    "lastFinished": "2026-03-03T05:30:25.952Z",
+    "lastExitCode": 1,
+    "lastMessage": "",
+    "lastTrigger": "auto"
+  },
+  "reddit": {
+    "running": false,
+    "lastStarted": "2026-03-03T05:30:19.919Z",
+    "lastFinished": "2026-03-03T05:31:37.349Z",
+    "lastExitCode": 0,
+    "lastMessage": "",
+    "lastTrigger": "auto"
+  },
+  "quora": {
+    "running": false,
+    "lastStarted": "2026-03-03T05:30:19.343Z",
+    "lastFinished": "2026-03-03T05:32:26.728Z",
+    "lastExitCode": 0,
+    "lastMessage": "",
+    "lastTrigger": "auto"
+  },
+  "pinterest": {
+    "running": false,
+    "lastStarted": "2026-03-03T05:30:19.398Z",
+    "lastFinished": "2026-03-03T05:31:55.476Z",
+    "lastExitCode": 0,
+    "lastMessage": "",
+    "lastTrigger": "auto"
+  },
+  "youtube": {
+    "running": false,
+    "lastStarted": "2026-03-03T05:30:20.086Z",
+    "lastFinished": "2026-03-03T05:30:52.971Z",
+    "lastExitCode": 1,
+    "lastMessage": "",
+    "lastTrigger": "auto"
+  }
+}

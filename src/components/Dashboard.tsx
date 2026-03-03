@@ -135,6 +135,8 @@ export default function Dashboard() {
   // Settings-derived state
   const [enabledPlatforms, setEnabledPlatforms] = useState<string[]>([]);
   const [socialAccounts, setSocialAccounts] = useState<SocialAccount[]>([]);
+  const [cronPaused, setCronPaused] = useState(false);
+  const [cronToggling, setCronToggling] = useState(false);
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -181,12 +183,31 @@ export default function Dashboard() {
     } catch {/* silent */}
   }, []);
 
+  const fetchCronStatus = useCallback(async () => {
+    try {
+      const res = await fetch('/api/cron-control');
+      const data = await res.json();
+      setCronPaused(data.paused ?? false);
+    } catch {/* silent */}
+  }, []);
+
+  const handleToggleCron = async () => {
+    setCronToggling(true);
+    try {
+      const res = await fetch('/api/cron-control', { method: 'POST' });
+      const data = await res.json();
+      setCronPaused(data.paused ?? false);
+    } catch {/* silent */}
+    setCronToggling(false);
+  };
+
   // Initial load
   useEffect(() => {
     fetchPosts();
     fetchStats();
     fetchSettings();
-  }, [fetchPosts, fetchStats, fetchSettings]);
+    fetchCronStatus();
+  }, [fetchPosts, fetchStats, fetchSettings, fetchCronStatus]);
 
   // Auto-polling every 10s
   useEffect(() => {
@@ -312,12 +333,27 @@ export default function Dashboard() {
               Live
             </span>
           </div>
-          <button
-            onClick={() => setSettingsOpen(true)}
-            className="px-4 py-2 bg-gray-100 text-gray-700 text-sm rounded-md hover:bg-gray-200"
-          >
-            Settings
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleToggleCron}
+              disabled={cronToggling}
+              title={cronPaused ? 'Cron jobs are PAUSED — click to resume' : 'Cron jobs are RUNNING — click to pause'}
+              className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-md transition-colors disabled:opacity-50 ${
+                cronPaused
+                  ? 'bg-red-100 text-red-700 hover:bg-red-200 border border-red-300'
+                  : 'bg-green-100 text-green-700 hover:bg-green-200 border border-green-300'
+              }`}
+            >
+              <span className={`w-2 h-2 rounded-full ${cronPaused ? 'bg-red-500' : 'bg-green-500 animate-pulse'}`} />
+              {cronToggling ? 'Updating…' : cronPaused ? 'Cron Paused' : 'Cron Running'}
+            </button>
+            <button
+              onClick={() => setSettingsOpen(true)}
+              className="px-4 py-2 bg-gray-100 text-gray-700 text-sm rounded-md hover:bg-gray-200"
+            >
+              Settings
+            </button>
+          </div>
         </div>
       </header>
 

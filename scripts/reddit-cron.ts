@@ -16,6 +16,7 @@ import { readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { connectDB } from '../src/lib/mongodb';
 import { evaluatePost, askOpenClaw } from '../src/lib/openclaw';
+import { cronStart, cronFinish } from '../src/lib/cronState';
 import {
   ensureRedditLoggedIn,
   scrapeProfileIdentity,
@@ -152,6 +153,8 @@ Write the comment now:`;
 
 async function main() {
   console.log(`[${new Date().toISOString()}] Reddit Cron: starting`);
+  const _cronId = cronStart('reddit', 'auto');
+  process.on('exit', (code) => cronFinish(_cronId, 'reddit', code));
 
   await connectDB();
 
@@ -166,6 +169,12 @@ async function main() {
   const schedule = settings.platformSchedules?.get('reddit');
   if (!isWithinSchedule(schedule)) {
     console.log('Outside scheduled hours, exiting');
+    process.exit(0);
+  }
+
+  // Pause guard — dashboard "Pause Cron" button sets this flag
+  if (settings.autoPostingPaused) {
+    console.log('Auto-posting is paused via dashboard, exiting');
     process.exit(0);
   }
 
@@ -339,14 +348,29 @@ async function main() {
       );
     }
 
-    // Safety check
-    if (!replyText || replyText.length < 5 || /error|failed|exception|undefined|null/i.test(replyText)) {
+    // ── Pre-post preview ─────────────────────────────────────────────────────
+    console.log('─'.repeat(60));
+    console.log('COMMENT PREVIEW (before posting)');
+    console.log(`  Post URL : ${autoPostCandidate.url}`);
+    console.log(`  Score    : ${autoPostCandidate.aiRelevanceScore}`);
+    console.log(`  Length   : ${replyText?.length ?? 0} chars`);
+    console.log(`  Text     :\n\n${replyText}\n`);
+    console.log('─'.repeat(60));
+
+    // Detect if the comment looks like JSON or still has ANSI/payload garbage
+    const looksLikeJson = /^\s*[\[{]/.test(replyText || '');
+    const hasAnsi = /\x1b\[[\d;]*m/.test(replyText || '');
+    const hasPayloads = /"payloads"\s*:/.test(replyText || '');
+
+    if (looksLikeJson || hasAnsi || hasPayloads) {
+      console.error('COMMENT FAILED FORMAT CHECK — contains JSON/ANSI garbage, skipping');
+      console.error('  looksLikeJson:', looksLikeJson, '| hasAnsi:', hasAnsi, '| hasPayloads:', hasPayloads);
+    } else if (!replyText || replyText.length < 5 || /error|failed|exception|undefined|null/i.test(replyText)) {
       console.error('Generated comment failed safety check, skipping:', replyText?.slice(0, 100));
     } else {
       console.log(
         `Auto-posting comment on ${autoPostCandidate.url} (score: ${autoPostCandidate.aiRelevanceScore})`
       );
-      console.log(`Comment: "${replyText}"`);
 
       // Warm-up: upvote post before commenting (builds rapport)
       if (!autoPostCandidate.likedByBot) {

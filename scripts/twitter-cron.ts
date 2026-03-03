@@ -19,6 +19,7 @@ import { readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { connectDB } from '../src/lib/mongodb';
 import { evaluatePost, askOpenClaw } from '../src/lib/openclaw';
+import { cronStart, cronFinish } from '../src/lib/cronState';
 import {
   searchTweets,
   replyToTweet,
@@ -143,6 +144,8 @@ Write the reply now:`;
 
 async function main() {
   console.log(`[${new Date().toISOString()}] Twitter Cron: starting`);
+  const _cronId = cronStart('twitter', 'auto');
+  process.on('exit', (code) => cronFinish(_cronId, 'twitter', code));
 
   // Step 1: Check credentials
   if (!isTwitterConfigured()) {
@@ -164,6 +167,12 @@ async function main() {
   const schedule = settings.platformSchedules?.get('twitter');
   if (!isWithinSchedule(schedule)) {
     console.log('Outside scheduled hours, exiting');
+    process.exit(0);
+  }
+
+  // Pause guard — dashboard "Pause Cron" button sets this flag
+  if (settings.autoPostingPaused) {
+    console.log('Auto-posting is paused via dashboard, exiting');
     process.exit(0);
   }
 
@@ -335,8 +344,16 @@ async function main() {
       );
     }
 
-    // Safety check — never post errors or empty text
-    if (!replyText || replyText.length < 5 || /error|failed|exception|undefined|null/i.test(replyText)) {
+    // Safety check — block JSON/debug garbage and empty/error text
+    const looksLikeJson = /^\s*[\[{]/.test(replyText || '');
+    // eslint-disable-next-line no-control-regex
+    const hasAnsi = /\x1b\[[\d;]*m/.test(replyText || '');
+    const hasPayloads = /"payloads"\s*:/.test(replyText || '');
+    const hasDebugPrefix = /\[agent\/embedded\]/.test(replyText || '');
+
+    if (looksLikeJson || hasAnsi || hasPayloads || hasDebugPrefix) {
+      console.error('Generated reply failed format check — JSON/debug garbage, skipping:', replyText?.slice(0, 100));
+    } else if (!replyText || replyText.length < 5 || /error|failed|exception|undefined|null/i.test(replyText)) {
       console.error('Generated reply failed safety check, skipping:', replyText?.slice(0, 100));
     } else {
       const tweetText = replyText.length > 280 ? replyText.slice(0, 277) + '...' : replyText;

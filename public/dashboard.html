@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Serpbays Bot Dashboard</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Real-time toast notifications -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- Add Platform Modal -->
+  <div id="add-platform-overlay" class="add-platform-overlay" style="display:none;" onclick="if(event.target===this)closeAddPlatformModal()">
+    <div class="add-platform-modal">
+      <h3>Add Social Platform</h3>
+      <p class="modal-subtitle">Connect any social media by pasting cookies from DevTools.</p>
+      <div class="modal-field">
+        <label>Platform Name *</label>
+        <input type="text" id="modal-platform-name" placeholder="e.g. Instagram, TikTok, Mastodon" maxlength="40" />
+      </div>
+      <div class="modal-field">
+        <label>Short Icon Label (1–3 chars)</label>
+        <input type="text" id="modal-platform-icon" placeholder="e.g. IG, TT, M" maxlength="3" />
+      </div>
+      <div class="modal-field">
+        <label>Accent Color</label>
+        <div class="modal-icon-row" id="modal-color-row">
+          <div class="modal-icon-opt selected" data-color="#E1306C" style="background:#E1306C;border-color:#E1306C;color:#fff;" onclick="selectModalColor(this)">IG</div>
+          <div class="modal-icon-opt" data-color="#69C9D0" style="background:#69C9D0;border-color:var(--border);color:#fff;" onclick="selectModalColor(this)">TT</div>
+          <div class="modal-icon-opt" data-color="#7289DA" style="background:#7289DA;border-color:var(--border);color:#fff;" onclick="selectModalColor(this)">DC</div>
+          <div class="modal-icon-opt" data-color="#FF6314" style="background:#FF6314;border-color:var(--border);color:#fff;" onclick="selectModalColor(this)">Snap</div>
+          <div class="modal-icon-opt" data-color="#00AFF0" style="background:#00AFF0;border-color:var(--border);color:#fff;" onclick="selectModalColor(this)">Sk</div>
+          <div class="modal-icon-opt" data-color="#6c5ce7" style="background:#6c5ce7;border-color:var(--border);color:#fff;" onclick="selectModalColor(this)">+</div>
+        </div>
+      </div>
+      <div class="modal-error" id="modal-error" style="display:none;"></div>
+      <div class="modal-actions">
+        <button class="btn btn-sm" onclick="closeAddPlatformModal()">Cancel</button>
+        <button class="btn btn-primary btn-sm" id="modal-save-btn" onclick="saveCustomPlatform()">Add Platform</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="container" id="dashboard-container">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-left">
+        <h1>Serpbays <span class="accent">Bot</span></h1>
+        <span id="status-badge" class="badge badge-idle hidden"></span>
+      </div>
+      <div class="header-right">
+        <div class="platform-dots">
+          <span class="platform-dot" id="fb-login-dot" title="Facebook"><span class="cookie-tab-icon fb-icon">f</span><span class="dot-indicator"></span></span>
+          <span class="platform-dot" id="tw-login-dot" title="Twitter / X"><span class="cookie-tab-icon tw-icon">&#x1D54F;</span><span class="dot-indicator"></span></span>
+          <span class="platform-dot" id="rd-login-dot" title="Reddit"><span class="cookie-tab-icon rd-icon">r/</span><span class="dot-indicator"></span></span>
+          <span class="platform-dot" id="qa-login-dot" title="Quora"><span class="cookie-tab-icon qa-icon">Q</span><span class="dot-indicator"></span></span>
+          <span class="platform-dot" id="pi-login-dot" title="Pinterest"><span class="cookie-tab-icon pi-icon">P</span><span class="dot-indicator"></span></span>
+          <span class="platform-dot" id="yt-login-dot" title="YouTube"><span class="cookie-tab-icon yt-icon">▶</span><span class="dot-indicator"></span></span>
+          <span id="custom-platform-dots"></span>
+        </div>
+        <button id="cron-pause-btn" class="btn btn-success" onclick="toggleCronPause()" title="Pause or resume auto-scheduled cron jobs">
+          <span id="cron-pause-dot"></span>
+          <span id="cron-pause-label">Cron Running</span>
+        </button>
+        <button id="run-btn" class="btn btn-primary" onclick="runBot()">Run Bot</button>
+        <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark mode">
+          <svg id="theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+          <svg id="theme-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Alert Banner -->
+    <div id="alert-banner" class="alert-banner hidden">
+      <div class="alert-content">
+        <span class="alert-icon">&#9888;</span>
+        <span id="alert-message">Bot paused — checkpoint detected</span>
+      </div>
+      <button id="resume-btn" class="btn btn-warning" onclick="resumeBot()">Resume Bot</button>
+    </div>
+
+    <!-- Section Navigation -->
+    <div id="section-nav-sentinel"></div>
+    <nav id="section-nav" class="section-nav">
+      <div class="section-nav-inner">
+        <a class="section-nav-link active" href="#nav-accounts" data-nav="pa-section">Accounts</a>
+        <a class="section-nav-link" href="#nav-cron" data-nav="cron-status-section">Cron Jobs</a>
+        <a class="section-nav-link" href="#nav-history" data-nav="cron-history-section">History</a>
+        <a class="section-nav-link" href="#unified-activity-card" data-nav="unified-activity-section">Activity</a>
+        <a class="section-nav-link" href="#nav-comments" data-nav="posted-comments-section">Comments</a>
+        <a class="section-nav-link" href="#nav-engagement" data-nav="engagement-section">Engagement</a>
+        <a class="section-nav-link" href="#nav-logs" data-nav="logs-section">Logs</a>
+        <a class="section-nav-link" href="#nav-config" data-nav="config-section">Config</a>
+      </div>
+    </nav>
+
+    <!-- Platform Accounts Section -->
+    <div class="section pa-section" id="nav-accounts">
+      <div class="section-header section-toggle" onclick="toggleSection(this)">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <svg class="section-chevron" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+          <h2>Platform Accounts</h2>
+          <span class="text-muted hide-collapsed">Manage cookie logins for each platform</span>
+        </div>
+      </div>
+
+      <div class="section-body">
+        <div class="pa-tabs" id="pa-tabs">
+          <button class="pa-tab active" data-pa-platform="twitter" onclick="setPaTab('twitter', this)">
+            <span class="cookie-tab-icon tw-icon">&#x1D54F;</span> Twitter / X
+            <span class="pa-dot" id="pa-dot-twitter"></span>
+          </button>
+          <button class="pa-tab" data-pa-platform="facebook" onclick="setPaTab('facebook', this)">
+            <span class="cookie-tab-icon fb-icon">f</span> Facebook
+            <span class="pa-dot" id="pa-dot-facebook"></span>
+          </button>
+          <button class="pa-tab" data-pa-platform="reddit" onclick="setPaTab('reddit', this)">
+            <span class="cookie-tab-icon rd-icon">r/</span> Reddit
+            <span class="pa-dot" id="pa-dot-reddit"></span>
+          </button>
+          <button class="pa-tab" data-pa-platform="quora" onclick="setPaTab('quora', this)">
+            <span class="qa-icon">Q</span> Quora
+            <span class="pa-dot" id="pa-dot-quora"></span>
+          </button>
+          <button class="pa-tab" data-pa-platform="pinterest" onclick="setPaTab('pinterest', this)">
+            <span class="pi-icon">P</span> Pinterest
+            <span class="pa-dot" id="pa-dot-pinterest"></span>
+          </button>
+          <button class="pa-tab" data-pa-platform="youtube" onclick="setPaTab('youtube', this)">
+            <span class="yt-icon">▶</span> YouTube
+            <span class="pa-dot" id="pa-dot-youtube"></span>
+          </button>
+          <span id="pa-custom-tabs"></span>
+          <button class="pa-tabs-add-btn" onclick="showAddPlatformModal()" title="Add a new social platform">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add Platform
+          </button>
+        </div>
+        <div id="pa-content">
+          <div class="empty-state">Checking account status...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Cron Jobs Status -->
+    <div class="section cron-status-section" id="nav-cron">
+      <div class="section-header section-toggle" onclick="toggleSection(this)">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <svg class="section-chevron" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+          <h2>Cron Jobs</h2>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span class="cron-timer-badge" id="cron-next-timer">Next run in —</span>
+          <span class="text-muted hide-collapsed">Auto-scheduled every 15 min</span>
+        </div>
+      </div>
+      <div class="section-body">
+        <div class="cron-grid" id="cron-grid">
+          <div class="cron-card" id="cron-card-twitter">
+            <div class="cron-card-header">
+              <span class="cookie-tab-icon tw-icon">&#x1D54F;</span>
+              <span class="cron-platform-name">Twitter</span>
+              <span class="cron-status-badge" id="cron-badge-twitter">idle</span>
+            </div>
+            <div class="cron-card-body">
+              <div class="cron-row"><span class="cron-label">Account</span><span class="cron-value cron-account" id="cron-account-twitter">&mdash;</span></div>
+              <div class="cron-row"><span class="cron-label">Last started</span><span class="cron-value" id="cron-started-twitter">&mdash;</span></div>
+              <div class="cron-row"><span class="cron-label">Last finished</span><span class="cron-value" id="cron-finished-twitter">&mdash;</span></div>
+              <div class="cron-row"><span class="cron-label">Result</span><span class="cron-value" id="cron-result-twitter">&mdash;</span></div>
+              <div class="cron-message" id="cron-msg-twitter"></div>
+            </div>
+          </div>
+          <div class="cron-card" id="cron-card-facebook">
+            <div class="cron-card-header">
+              <span class="cookie-tab-icon fb-icon">f</span>
+              <span class="cron-platform-name">Facebook</span>
+              <span class="cron-status-badge" id="cron-badge-facebook">idle</span>
+            </div>
+            <div class="cron-card-body">
+              <div class="cron-row"><span class="cron-label">Account</span><span class="cron-value cron-account" id="cron-account-facebook">&mdash;</span></div>
+              <div class="cron-row"><span class="cron-label">Last started</span><span class="cron-value" id="cron-started-facebook">&mdash;</span></div>
+              <div class="cron-row"><span class="cron-label">Last finished</span><span class="cron-value" id="cron-finished-facebook">&mdash;</span></div>
+              <div class="cron-row"><span class="cron-label">Result</span><span class="cron-value" id="cron-result-facebook">&mdash;</span></div>
+              <div class="cron-message" id="cron-msg-facebook"></div>
+            </div>
+          </div>
+          <div class="cron-card" id="cron-card-reddit">
+            <div class="cron-card-header">
+              <span class="cookie-tab-icon rd-icon">r/</span>
+              <span class="cron-platform-name">Reddit</span>
+              <span class="cron-status-badge" id="cron-badge-reddit">idle</span>
+            </div>
+            <div class="cron-card-body">
+              <div class="cron-row"><span class="cron-label">Account</span><span class="cron-value cron-account" id="cron-account-reddit">&mdash;</span></div>
+              <div class="cron-row"><span class="cron-label">Last started</span><span class="cron-value" id="cron-started-reddit">&mdash;</span></div>
+              <div class="cron-row"><span class="cron-label">Last finished</span><span class="cron-value" id="cron-finished-reddit">&mdash;</span></div>
+              <div class="cron-row"><span class="cron-label">Result</span><span class="cron-value" id="cron-result-reddit">&mdash;</span></div>
+              <div class="cron-message" id="cron-msg-reddit"></div>
+            </div>
+          </div>
+          <div class="cron-card" id="cron-card-quora">
+            <div class="cron-card-header">
+              <span class="qa-icon">Q</span>
+              <span class="cron-platform-name">Quora</span>
+              <span class="cron-status-badge" id="cron-badge-quora">Idle</span>
+            </div>
+            <div class="cron-card-body">
+              <div class="cron-row"><span class="cron-label">Account</span><span class="cron-value" id="cron-account-quora">&mdash;</span></div>
+              <div class="cron-row"><span class="cron-label">Last started</span><span class="cron-value" id="cron-started-quora">&mdash;</span></div>
+              <div class="cron-row"><span class="cron-label">Last finished</span><span class="cron-value" id="cron-finished-quora">&mdash;</span></div>
+              <div class="cron-row"><span class="cron-label">Result</span><span class="cron-value" id="cron-result-quora">&mdash;</span></div>
+              <div class="cron-message" id="cron-msg-quora"></div>
+            </div>
+          </div>
+          <div class="cron-card" id="cron-card-pinterest">
+            <div class="cron-card-header">
+              <span class="pi-icon">P</span>
+              <span class="cron-platform-name">Pinterest</span>
+              <span class="cron-status-badge" id="cron-badge-pinterest">Idle</span>
+            </div>
+            <div class="cron-card-body">
+              <div class="cron-row"><span class="cron-label">Account</span><span class="cron-value cron-account" id="cron-account-pinterest">&mdash;</span></div>
+              <div class="cron-row"><span class="cron-label">Last started</span><span class="cron-value" id="cron-started-pinterest">&mdash;</span></div>
+              <div class="cron-row"><span class="cron-label">Last finished</span><span class="cron-value" id="cron-finished-pinterest">&mdash;</span></div>
+              <div class="cron-row"><span class="cron-label">Result</span><span class="cron-value" id="cron-result-pinterest">&mdash;</span></div>
+              <div class="cron-message" id="cron-msg-pinterest"></div>
+            </div>
+          </div>
+          <div class="cron-card" id="cron-card-youtube">
+            <div class="cron-card-header">
+              <span class="yt-icon">▶</span>
+              <span class="cron-platform-name">YouTube</span>
+              <span class="cron-status-badge" id="cron-badge-youtube">Idle</span>
+            </div>
+            <div class="cron-card-body">
+              <div class="cron-row"><span class="cron-label">Account</span><span class="cron-value cron-account" id="cron-account-youtube">&mdash;</span></div>
+              <div class="cron-row"><span class="cron-label">Last started</span><span class="cron-value" id="cron-started-youtube">&mdash;</span></div>
+              <div class="cron-row"><span class="cron-label">Last finished</span><span class="cron-value" id="cron-finished-youtube">&mdash;</span></div>
+              <div class="cron-row"><span class="cron-label">Result</span><span class="cron-value" id="cron-result-youtube">&mdash;</span></div>
+              <div class="cron-message" id="cron-msg-youtube"></div>
+            </div>
+          </div>
+          <div id="cron-custom-cards"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Cron Run History -->
+    <div class="section cron-history-section" id="nav-history">
+      <div class="section-header section-toggle" onclick="toggleSection(this)">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <svg class="section-chevron" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+          <h2>Cron Run History</h2>
+          <span id="cron-log-count" class="badge badge-idle">0 runs</span>
+        </div>
+        <div class="hide-collapsed" style="display:flex;align-items:center;gap:8px;">
+          <div class="activity-filters" id="cron-log-filters">
+            <button class="btn btn-sm active" onclick="event.stopPropagation(); setCronLogFilter(null, this)">All</button>
+            <button class="btn btn-sm" onclick="event.stopPropagation(); setCronLogFilter('facebook', this)">
+              <span class="fb-icon" style="font-size:11px;">f</span> FB
+            </button>
+            <button class="btn btn-sm" onclick="event.stopPropagation(); setCronLogFilter('twitter', this)">
+              <span class="tw-icon" style="font-size:11px;">&#x1D54F;</span> TW
+            </button>
+            <button class="btn btn-sm" onclick="event.stopPropagation(); setCronLogFilter('reddit', this)">
+              <span class="rd-icon" style="font-size:11px;">r/</span> RD
+            </button>
+            <button class="btn btn-sm" onclick="event.stopPropagation(); setCronLogFilter('quora', this)">
+              <span class="qa-icon" style="font-size:11px;width:18px;height:18px;">Q</span> QA
+            </button>
+            <button class="btn btn-sm" onclick="event.stopPropagation(); setCronLogFilter('pinterest', this)">
+              <span class="pi-icon" style="font-size:10px;width:18px;height:18px;">P</span> PI
+            </button>
+            <button class="btn btn-sm" onclick="event.stopPropagation(); setCronLogFilter('youtube', this)">
+              <span class="yt-icon" style="font-size:9px;width:18px;height:18px;">▶</span> YT
+            </button>
+          </div>
+          <button class="btn btn-sm" onclick="event.stopPropagation(); refreshCronLog()">&#8635; Refresh</button>
+        </div>
+      </div>
+      <div class="section-body">
+        <div id="cron-log-feed" class="cron-log-feed">
+          <div class="empty-state">Loading cron history...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Unified Platform Activity -->
+    <div class="section unified-activity-section" id="unified-activity-card">
+      <div class="section-header section-toggle" onclick="toggleSection(this)">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <svg class="section-chevron" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+          <h2>Platform Activity</h2>
+          <span id="ua-session-badge" class="badge badge-idle">Checking...</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span id="ua-daily-info" class="text-muted">— / — today</span>
+          <button id="ua-cron-btn" class="btn btn-sm" onclick="event.stopPropagation(); runActiveCron()">Run Cron</button>
+        </div>
+      </div>
+      <div class="section-body">
+        <div class="platform-tabs">
+          <button class="platform-tab active" data-platform="facebook" onclick="setActivityTab('facebook', this)">
+            <span class="cookie-tab-icon fb-icon">f</span> Facebook
+          </button>
+          <button class="platform-tab" data-platform="twitter" onclick="setActivityTab('twitter', this)">
+            <span class="cookie-tab-icon tw-icon">𝕏</span> Twitter / X
+          </button>
+          <button class="platform-tab" data-platform="reddit" onclick="setActivityTab('reddit', this)">
+            <span class="cookie-tab-icon rd-icon">r/</span> Reddit
+          </button>
+          <button class="platform-tab" data-platform="quora" onclick="setActivityTab('quora', this)"><span class="qa-icon" style="width:20px;height:20px;font-size:10px;">Q</span> Quora</button>
+          <button class="platform-tab" data-platform="pinterest" onclick="setActivityTab('pinterest', this)"><span class="pi-icon" style="width:20px;height:20px;font-size:10px;">P</span> Pinterest</button>
+          <button class="platform-tab" data-platform="youtube" onclick="setActivityTab('youtube', this)"><span class="yt-icon" style="width:20px;height:20px;font-size:9px;">▶</span> YouTube</button>
+          <span id="activity-custom-tabs"></span>
+        </div>
+        <div class="ua-mini-stats">
+          <div class="ua-stat">
+            <div class="ua-stat-val" id="ua-total">—</div>
+            <div class="ua-stat-lbl">Total Posts</div>
+          </div>
+          <div class="ua-stat">
+            <div class="ua-stat-val" id="ua-evaluated">—</div>
+            <div class="ua-stat-lbl">Evaluated</div>
+          </div>
+          <div class="ua-stat ua-stat-posted">
+            <div class="ua-stat-val" id="ua-posted">—</div>
+            <div class="ua-stat-lbl">Total Posted</div>
+          </div>
+          <div class="ua-stat">
+            <div class="ua-stat-val" id="ua-extra">—</div>
+            <div class="ua-stat-lbl" id="ua-extra-lbl">New</div>
+          </div>
+        </div>
+        <div id="ua-keywords-row" class="ua-keywords-row"></div>
+        <div id="ua-posts-feed" class="activity-feed" style="margin-top:16px;">
+          <div class="empty-state">Loading activity...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Posted Comments History -->
+    <div class="section posted-comments-section" id="nav-comments">
+      <div class="section-header section-toggle" onclick="toggleSection(this)">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <svg class="section-chevron" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+          <h2>Posted Comments</h2>
+          <span id="posted-count-badge" class="pc-count-pill">0</span>
+        </div>
+        <div class="pc-controls hide-collapsed" onclick="event.stopPropagation()">
+          <div class="pc-filter-group" id="posted-time-filters">
+            <button class="pc-filter active" onclick="setPostedFilter('today', this)">Today</button>
+            <button class="pc-filter" onclick="setPostedFilter('all', this)">All</button>
+          </div>
+          <div class="pc-filter-group" id="posted-platform-filters">
+            <button class="pc-filter active" onclick="setPostedPlatform(null, this)">All</button>
+            <button class="pc-filter" onclick="setPostedPlatform('facebook', this)"><span class="fb-icon" style="font-size:11px;">f</span></button>
+            <button class="pc-filter" onclick="setPostedPlatform('twitter', this)"><span class="tw-icon" style="font-size:11px;">&#x1D54F;</span></button>
+            <button class="pc-filter" onclick="setPostedPlatform('reddit', this)"><span class="rd-icon" style="font-size:11px;">r/</span></button>
+            <button class="pc-filter" onclick="setPostedPlatform('quora', this)"><span class="qa-icon" style="width:18px;height:18px;font-size:11px;">Q</span></button>
+            <button class="pc-filter" onclick="setPostedPlatform('pinterest', this)"><span class="pi-icon" style="width:18px;height:18px;font-size:10px;">P</span></button>
+            <button class="pc-filter" onclick="setPostedPlatform('youtube', this)"><span class="yt-icon" style="width:18px;height:18px;font-size:9px;">▶</span></button>
+          </div>
+        </div>
+      </div>
+      <div class="section-body">
+        <div id="posted-comments-feed" class="posted-comments-feed">
+          <div class="empty-state">Loading posted comments...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Engagement Monitor -->
+    <div class="section engagement-section" id="nav-engagement">
+      <div class="section-header section-toggle" onclick="toggleSection(this)">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <svg class="section-chevron" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+          <h2>Engagement Monitor</h2>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn btn-sm" onclick="event.stopPropagation(); runEngagementMonitor()">Check Now</button>
+        </div>
+      </div>
+      <div class="section-body">
+        <div class="em-feed" id="em-feed">
+          <div class="empty-state">No engagement data available yet.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Logs -->
+    <div class="section logs-section" id="nav-logs">
+      <div class="section-header section-toggle" onclick="toggleSection(this)">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <svg class="section-chevron" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+          <h2>Logs</h2>
+        </div>
+        <div class="log-filters hide-collapsed" onclick="event.stopPropagation()">
+          <button class="btn btn-sm active" onclick="filterLogs(null, null, this)">All</button>
+          <button class="btn btn-sm" onclick="filterLogs('error', null, this)">Errors</button>
+          <button class="btn btn-sm" onclick="filterLogs('warn', null, this)">Warnings</button>
+          <button class="btn btn-sm" onclick="filterLogs('info', null, this)">Info</button>
+          <span style="color:var(--border);margin:0 4px;">|</span>
+          <button class="btn btn-sm" onclick="filterLogs(null, 'facebook', this)"><span class="fb-icon" style="font-size:10px;">f</span></button>
+          <button class="btn btn-sm" onclick="filterLogs(null, 'twitter', this)"><span class="tw-icon" style="font-size:10px;">&#x1D54F;</span></button>
+          <button class="btn btn-sm" onclick="filterLogs(null, 'reddit', this)"><span class="rd-icon" style="font-size:10px;">r/</span></button>
+          <button class="btn btn-sm" onclick="filterLogs(null, 'quora', this)"><span style="font-size:10px;font-weight:800;color:#B92B27;">Q</span></button>
+          <button class="btn btn-sm" onclick="filterLogs(null, 'pinterest', this)"><span class="pi-icon" style="font-size:10px;">P</span></button>
+          <button class="btn btn-sm" onclick="filterLogs(null, 'youtube', this)"><span class="yt-icon" style="font-size:9px;">&#x25B6;</span></button>
+        </div>
+      </div>
+      <div class="section-body">
+        <div id="log-feed" class="log-feed">
+          <div class="empty-state">Loading logs...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Config Info -->
+    <div class="section config-section" id="nav-config">
+      <div class="section-header section-toggle" onclick="toggleSection(this)">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <svg class="section-chevron" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+          <h2>Configuration</h2>
+        </div>
+      </div>
+      <div class="section-body">
+        <div id="config-info" class="config-grid"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

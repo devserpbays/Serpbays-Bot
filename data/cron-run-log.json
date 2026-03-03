@@ -1,0 +1,602 @@
+[
+  {
+    "id": "1772515820074-62ab1a",
+    "platform": "youtube",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T05:30:20.074Z",
+    "finishedAt": "2026-03-03T05:30:52.971Z",
+    "exitCode": 1,
+    "message": "",
+    "status": "failed"
+  },
+  {
+    "id": "1772515819919-e71974",
+    "platform": "reddit",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T05:30:19.919Z",
+    "finishedAt": "2026-03-03T05:31:36.072Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772515819409-d090c2",
+    "platform": "facebook",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T05:30:19.409Z",
+    "finishedAt": "2026-03-03T05:30:25.952Z",
+    "exitCode": 1,
+    "message": "",
+    "status": "failed"
+  },
+  {
+    "id": "1772515819398-b14155",
+    "platform": "pinterest",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T05:30:19.398Z",
+    "finishedAt": "2026-03-03T05:31:55.476Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772515819343-6059c2",
+    "platform": "quora",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T05:30:19.343Z",
+    "finishedAt": "2026-03-03T05:32:26.728Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772515819161-d78f06",
+    "platform": "pinterest",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T05:30:19.161Z",
+    "finishedAt": "2026-03-03T05:31:48.729Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772515818974-e7a66b",
+    "platform": "reddit",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T05:30:18.987Z",
+    "finishedAt": "2026-03-03T05:31:37.349Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772515818833-800e20",
+    "platform": "twitter",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T05:30:18.833Z",
+    "finishedAt": "2026-03-03T05:30:19.687Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772515818796-328cd8",
+    "platform": "facebook",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T05:30:18.796Z",
+    "finishedAt": "2026-03-03T05:30:24.053Z",
+    "exitCode": 1,
+    "message": "",
+    "status": "failed"
+  },
+  {
+    "id": "1772515818683-40f6c1",
+    "platform": "quora",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T05:30:18.683Z",
+    "finishedAt": "2026-03-03T05:32:26.418Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772515817490-1d89d2",
+    "platform": "twitter",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T05:30:17.490Z",
+    "finishedAt": "2026-03-03T05:30:18.053Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772514919244-5001ae",
+    "platform": "youtube",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T05:15:19.244Z",
+    "finishedAt": "2026-03-03T05:15:47.724Z",
+    "exitCode": 1,
+    "message": "",
+    "status": "failed"
+  },
+  {
+    "id": "1772514918574-05470c",
+    "platform": "reddit",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T05:15:18.574Z",
+    "finishedAt": "2026-03-03T05:16:29.668Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772514917764-9fbd23",
+    "platform": "reddit",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T05:15:17.784Z",
+    "finishedAt": "2026-03-03T05:16:26.199Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772514917769-8e5fdf",
+    "platform": "facebook",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T05:15:17.769Z",
+    "finishedAt": "2026-03-03T05:15:24.098Z",
+    "exitCode": 1,
+    "message": "",
+    "status": "failed"
+  },
+  {
+    "id": "1772514917346-d211de",
+    "platform": "twitter",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T05:15:17.346Z",
+    "finishedAt": "2026-03-03T05:15:31.270Z",
+    "exitCode": 1,
+    "message": "",
+    "status": "failed"
+  },
+  {
+    "id": "1772514917062-de29dc",
+    "platform": "twitter",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T05:15:17.062Z",
+    "finishedAt": "2026-03-03T05:17:37.364Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772514917026-5a0efa",
+    "platform": "facebook",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T05:15:17.026Z",
+    "finishedAt": "2026-03-03T05:15:22.631Z",
+    "exitCode": 1,
+    "message": "",
+    "status": "failed"
+  },
+  {
+    "id": "1772514917012-270324",
+    "platform": "quora",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T05:15:17.012Z",
+    "finishedAt": "2026-03-03T05:17:27.422Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772514916927-b6253c",
+    "platform": "pinterest",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T05:15:16.927Z",
+    "finishedAt": "2026-03-03T05:15:17.154Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772514916368-4447d4",
+    "platform": "pinterest",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T05:15:16.368Z",
+    "finishedAt": "2026-03-03T05:15:17.210Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772514916298-68ad6b",
+    "platform": "quora",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T05:15:16.298Z",
+    "finishedAt": "2026-03-03T05:17:22.803Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772514915962-886331",
+    "platform": "youtube",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T05:15:15.962Z",
+    "finishedAt": "2026-03-03T05:15:42.159Z",
+    "exitCode": 1,
+    "message": "",
+    "status": "failed"
+  },
+  {
+    "id": "1772514032170-be9542",
+    "platform": "youtube",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T05:00:32.170Z",
+    "finishedAt": "2026-03-03T05:01:11.629Z",
+    "exitCode": 1,
+    "message": "",
+    "status": "failed"
+  },
+  {
+    "id": "1772514031022-f4b754",
+    "platform": "facebook",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T05:00:31.022Z",
+    "finishedAt": "2026-03-03T05:05:48.765Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772514030542-445425",
+    "platform": "quora",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T05:00:30.542Z",
+    "finishedAt": "2026-03-03T05:04:58.694Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772514028612-80039c",
+    "platform": "pinterest",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T05:00:28.612Z",
+    "finishedAt": "2026-03-03T05:07:15.793Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772514027561-f13e7b",
+    "platform": "reddit",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T05:00:27.561Z",
+    "finishedAt": "2026-03-03T05:04:08.630Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772514027293-0caf2e",
+    "platform": "facebook",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T05:00:27.293Z",
+    "finishedAt": "2026-03-03T05:05:47.064Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772514027288-f63f62",
+    "platform": "quora",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T05:00:27.288Z",
+    "finishedAt": "2026-03-03T05:04:57.641Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772514027057-c82450",
+    "platform": "youtube",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T05:00:27.057Z",
+    "finishedAt": "2026-03-03T05:01:02.423Z",
+    "exitCode": 1,
+    "message": "",
+    "status": "failed"
+  },
+  {
+    "id": "1772514027013-6497da",
+    "platform": "twitter",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T05:00:27.013Z",
+    "finishedAt": "2026-03-03T05:00:40.582Z",
+    "exitCode": 1,
+    "message": "",
+    "status": "failed"
+  },
+  {
+    "id": "1772514026913-75c537",
+    "platform": "reddit",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T05:00:26.913Z",
+    "finishedAt": "2026-03-03T05:04:05.814Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772514026494-601c21",
+    "platform": "pinterest",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T05:00:26.494Z",
+    "finishedAt": "2026-03-03T05:07:41.760Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772514025352-0e013f",
+    "platform": "twitter",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T05:00:25.352Z",
+    "finishedAt": "2026-03-03T05:07:43.224Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772513116772-f0075e",
+    "platform": "pinterest",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T04:45:16.772Z",
+    "finishedAt": "2026-03-03T04:45:16.840Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772513116585-69a1fb",
+    "platform": "pinterest",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T04:45:16.585Z",
+    "finishedAt": "2026-03-03T04:45:16.727Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772513116352-a2c452",
+    "platform": "twitter",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T04:45:16.353Z",
+    "finishedAt": "2026-03-03T04:45:16.614Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772513116223-8b5f97",
+    "platform": "quora",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T04:45:16.223Z",
+    "finishedAt": "2026-03-03T04:45:16.635Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772513116138-4bea07",
+    "platform": "youtube",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T04:45:16.138Z",
+    "finishedAt": "2026-03-03T04:45:16.434Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772513116055-e00915",
+    "platform": "quora",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T04:45:16.055Z",
+    "finishedAt": "2026-03-03T04:45:16.446Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772513115999-f23e61",
+    "platform": "reddit",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T04:45:16.008Z",
+    "finishedAt": "2026-03-03T04:45:16.359Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772513116002-4c20a4",
+    "platform": "facebook",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T04:45:16.002Z",
+    "finishedAt": "2026-03-03T04:45:16.416Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772513115536-133169",
+    "platform": "reddit",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T04:45:15.536Z",
+    "finishedAt": "2026-03-03T04:45:15.880Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772513114558-aaddb6",
+    "platform": "facebook",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T04:45:14.559Z",
+    "finishedAt": "2026-03-03T04:45:14.982Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772513114171-7849a3",
+    "platform": "youtube",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T04:45:14.171Z",
+    "finishedAt": "2026-03-03T04:45:14.726Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772513113527-b00220",
+    "platform": "twitter",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T04:45:13.527Z",
+    "finishedAt": "2026-03-03T04:45:14.046Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772512221115-e47f55",
+    "platform": "youtube",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T04:30:21.116Z",
+    "finishedAt": "2026-03-03T04:30:21.287Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772512220894-eb1c8e",
+    "platform": "reddit",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T04:30:20.894Z",
+    "finishedAt": "2026-03-03T04:30:21.170Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772512220738-8ae519",
+    "platform": "youtube",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T04:30:20.738Z",
+    "finishedAt": "2026-03-03T04:30:21.076Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772512220725-0df726",
+    "platform": "reddit",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T04:30:20.725Z",
+    "finishedAt": "2026-03-03T04:30:21.111Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772512220719-1eb980",
+    "platform": "twitter",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T04:30:20.719Z",
+    "finishedAt": "2026-03-03T04:30:21.123Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772512220430-3ae243",
+    "platform": "pinterest",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T04:30:20.430Z",
+    "finishedAt": "2026-03-03T04:30:20.820Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772512220377-5cd056",
+    "platform": "pinterest",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T04:30:20.377Z",
+    "finishedAt": "2026-03-03T04:30:20.807Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772512220343-a835b6",
+    "platform": "facebook",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T04:30:20.343Z",
+    "finishedAt": "2026-03-03T04:30:20.735Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772512220293-09a78f",
+    "platform": "facebook",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T04:30:20.293Z",
+    "finishedAt": "2026-03-03T04:30:20.771Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772512219556-fd20c2",
+    "platform": "quora",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T04:30:19.556Z",
+    "finishedAt": "2026-03-03T04:30:19.925Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772512219069-112c8a",
+    "platform": "twitter",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T04:30:19.070Z",
+    "finishedAt": "2026-03-03T04:30:19.512Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772512218007-5dc5ab",
+    "platform": "quora",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T04:30:18.007Z",
+    "finishedAt": "2026-03-03T04:30:18.708Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  },
+  {
+    "id": "1772511696313-dc0436",
+    "platform": "quora",
+    "trigger": "auto",
+    "startedAt": "2026-03-03T04:21:36.313Z",
+    "finishedAt": "2026-03-03T04:23:25.743Z",
+    "exitCode": 0,
+    "message": "",
+    "status": "ok"
+  }
+]
