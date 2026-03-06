@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { API_BASE } from '@/lib/apiBase';
 import type { IPost, SocialAccount } from '@/lib/types';
 
 /* ── Platform metadata ─────────────────────────────────────── */
@@ -33,40 +34,40 @@ const PLATFORM_META: Record<string, { label: string; color: string; icon: React.
 };
 
 const TIME_FILTERS = [
-    { value: 'today',    label: 'Today' },
-    { value: 'yesterday',label: 'Yesterday' },
-    { value: '7days',    label: '7 Days' },
-    { value: '15days',   label: '15 Days' },
-    { value: '30days',   label: '30 Days' },
-    { value: 'all',      label: 'All Time' },
+    { value: 'today', label: 'Today' },
+    { value: 'yesterday', label: 'Yesterday' },
+    { value: '7days', label: '7 Days' },
+    { value: '15days', label: '15 Days' },
+    { value: '30days', label: '30 Days' },
+    { value: 'all', label: 'All Time' },
 ];
 
 function getDateRange(filter: string): { from?: Date; to?: Date } {
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     switch (filter) {
-        case 'today':     return { from: startOfToday };
+        case 'today': return { from: startOfToday };
         case 'yesterday': {
             const from = new Date(startOfToday); from.setDate(from.getDate() - 1);
             return { from, to: startOfToday };
         }
-        case '7days':  { const d = new Date(startOfToday); d.setDate(d.getDate() - 6);  return { from: d }; }
+        case '7days': { const d = new Date(startOfToday); d.setDate(d.getDate() - 6); return { from: d }; }
         case '15days': { const d = new Date(startOfToday); d.setDate(d.getDate() - 14); return { from: d }; }
         case '30days': { const d = new Date(startOfToday); d.setDate(d.getDate() - 29); return { from: d }; }
-        default:       return {};
+        default: return {};
     }
 }
 
 function timeAgo(date: Date): string {
     const diff = Date.now() - date.getTime();
     const m = Math.floor(diff / 60000);
-    if (m < 1)  return 'just now';
+    if (m < 1) return 'just now';
     if (m < 60) return `${m}m ago`;
     const h = Math.floor(m / 60);
     if (h < 24) return `${h}h ago`;
     const d = Math.floor(h / 24);
     if (d === 1) return 'yesterday';
-    if (d < 7)  return `${d}d ago`;
+    if (d < 7) return `${d}d ago`;
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
@@ -83,25 +84,25 @@ const POLL_MS = 15_000;
 interface PostsResponse { posts: IPost[]; total: number; page: number; limit: number; }
 
 export default function PlatformPage() {
-    const params  = useParams();
-    const router  = useRouter();
+    const params = useParams();
+    const router = useRouter();
     const platformId = params.platform as string;
-    const meta    = PLATFORM_META[platformId];
+    const meta = PLATFORM_META[platformId];
 
-    const [posts, setPosts]           = useState<IPost[]>([]);
-    const [total, setTotal]           = useState(0);
-    const [page, setPage]             = useState(1);
+    const [posts, setPosts] = useState<IPost[]>([]);
+    const [total, setTotal] = useState(0);
+    const [page, setPage] = useState(1);
     const [timeFilter, setTimeFilter] = useState('today');
     const [expandedId, setExpandedId] = useState<string | null>(null);
-    const [accounts, setAccounts]     = useState<SocialAccount[]>([]);
-    const [loading, setLoading]       = useState(true);
+    const [accounts, setAccounts] = useState<SocialAccount[]>([]);
+    const [loading, setLoading] = useState(true);
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     useEffect(() => { if (!meta) router.replace('/dashboard'); }, [meta, router]);
 
     const fetchAccounts = useCallback(async () => {
         try {
-            const res  = await fetch('/api/social-accounts');
+            const res = await fetch(`${API_BASE}/api/social-accounts`);
             const data = await res.json();
             setAccounts((data.accounts ?? []).filter((a: SocialAccount) => a.platform === platformId));
         } catch { /* silent */ }
@@ -111,9 +112,9 @@ export default function PlatformPage() {
         const p = new URLSearchParams({ status: 'posted', platform: platformId, limit: String(LIMIT), page: String(page) });
         const { from, to } = getDateRange(timeFilter);
         if (from) p.set('from', from.toISOString());
-        if (to)   p.set('to',   to.toISOString());
+        if (to) p.set('to', to.toISOString());
         try {
-            const res  = await fetch(`/api/posts?${p}`);
+            const res = await fetch(`${API_BASE}/api/posts?${p}`);
             const data: PostsResponse = await res.json();
             setPosts(data.posts ?? []);
             setTotal(data.total ?? 0);
@@ -131,10 +132,10 @@ export default function PlatformPage() {
     if (!meta) return null;
 
     const { label, color, icon } = meta;
-    const totalPages  = Math.ceil(total / LIMIT);
-    const replyLabel  = REPLY_LABEL[platformId] || 'Comment';
-    const startItem   = (page - 1) * LIMIT + 1;
-    const endItem     = Math.min(page * LIMIT, total);
+    const totalPages = Math.ceil(total / LIMIT);
+    const replyLabel = REPLY_LABEL[platformId] || 'Comment';
+    const startItem = (page - 1) * LIMIT + 1;
+    const endItem = Math.min(page * LIMIT, total);
 
     /* page numbers to show */
     const pageNumbers: number[] = [];
@@ -296,11 +297,11 @@ export default function PlatformPage() {
                 ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 1, background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 14, overflow: 'hidden' }}>
                         {posts.map((post, idx) => {
-                            const expanded  = expandedId === post._id;
-                            const reply     = post.editedReply || post.aiReply || '';
-                            const postedAt  = post.postedAt ? new Date(post.postedAt) : null;
-                            const score     = post.aiRelevanceScore;
-                            const isLast    = idx === posts.length - 1;
+                            const expanded = expandedId === post._id;
+                            const reply = post.editedReply || post.aiReply || '';
+                            const postedAt = post.postedAt ? new Date(post.postedAt) : null;
+                            const score = post.aiRelevanceScore;
+                            const isLast = idx === posts.length - 1;
 
                             return (
                                 <div key={post._id} style={{ borderBottom: isLast ? 'none' : '1px solid var(--border-subtle)' }}>

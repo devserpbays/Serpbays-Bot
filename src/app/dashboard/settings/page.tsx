@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { API_BASE } from '@/lib/apiBase';
 import type { ISettings } from '@/lib/types';
 
 const PLATFORM_OPTIONS = [
@@ -49,7 +50,7 @@ export default function SettingsPage() {
 
     const fetchSettings = useCallback(async () => {
         try {
-            const res = await fetch('/api/settings');
+            const res = await fetch(`${API_BASE}/api/settings`);
             const data = await res.json();
             if (data.settings) {
                 setSettings((prev) => ({ ...prev, ...data.settings }));
@@ -63,7 +64,7 @@ export default function SettingsPage() {
         setSaving(true);
         setMessage('');
         try {
-            const res = await fetch('/api/settings', {
+            const res = await fetch(`${API_BASE}/api/settings`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(settings),

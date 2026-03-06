@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
+import { API_BASE } from '@/lib/apiBase';
 import type { SocialAccount, ISettings } from '@/lib/types';
 
 /* ── Types ───────────────────────────────────────────────────────── */
@@ -262,7 +263,7 @@ export default function OverviewPage() {
     /* Fetchers */
     const fetchStats = useCallback(async () => {
         try {
-            const res = await fetch('/api/stats');
+            const res = await fetch(`${API_BASE}/api/stats`);
             const data = await res.json();
             setStats({
                 total: data.total ?? 0,
@@ -281,8 +282,8 @@ export default function OverviewPage() {
     const fetchSettings = useCallback(async () => {
         try {
             const [settRes, accRes] = await Promise.all([
-                fetch('/api/settings'),
-                fetch('/api/social-accounts'),
+                fetch(`${API_BASE}/api/settings`),
+                fetch(`${API_BASE}/api/social-accounts`),
             ]);
             const settData = await settRes.json();
             const accData = await accRes.json();
@@ -307,7 +308,7 @@ export default function OverviewPage() {
         setObSaving(true);
         try {
             const kw = obKeywords.split(',').map((s) => s.trim()).filter(Boolean);
-            await fetch('/api/settings', {
+            await fetch(`${API_BASE}/api/settings`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -325,7 +326,7 @@ export default function OverviewPage() {
     /* Save platform-specific settings */
     const handlePlatformSave = async (partial: Partial<ISettings>) => {
         try {
-            await fetch('/api/settings', {
+            await fetch(`${API_BASE}/api/settings`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(partial),

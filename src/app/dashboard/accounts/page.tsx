@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { API_BASE } from '@/lib/apiBase';
 import type { SocialAccount } from '@/lib/types';
 
 /* ── Platform config ─────────────────────────────────────────────── */
@@ -70,8 +71,8 @@ export default function AccountsPage() {
     const fetchSettings = useCallback(async () => {
         try {
             const [accRes, settRes] = await Promise.all([
-                fetch('/api/social-accounts'),
-                fetch('/api/settings'),
+                fetch(`${API_BASE}/api/social-accounts`),
+                fetch(`${API_BASE}/api/settings`),
             ]);
             const accData = await accRes.json();
             const settData = await settRes.json();
@@ -116,7 +117,7 @@ export default function AccountsPage() {
 
     const handleRemoveAccount = async (accountId: string) => {
         try {
-            await fetch('/api/social-accounts', {
+            await fetch(`${API_BASE}/api/social-accounts`, {
                 method: 'DELETE',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ accountId }),
