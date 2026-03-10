@@ -9,11 +9,16 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@clerk/nextjs": "^7.0.1",
+    "@clerk/themes": "^2.4.57",
+    "jose": "^6.2.0",
     "mongoose": "^9.2.1",
     "next": "16.1.6",
     "playwright": "^1.58.2",
     "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react-dom": "19.2.3",
+    "react-toastify": "^11.0.5",
+    "stripe": "^20.4.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

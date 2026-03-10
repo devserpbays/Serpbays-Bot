@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import { getAuthUserId } from '@/lib/apiAuth';
+import { connectDB } from '@/lib/mongodb';
+import Settings from '@/models/Settings';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,20 +31,19 @@ function readVerified(profileDir: string): AccountInfo | null {
 }
 
 export async function GET() {
+  const userId = await getAuthUserId();
+  if (userId instanceof NextResponse) return userId;
+
+  await connectDB();
+  const settings = await Settings.findOne({ userId }).lean();
+  const socialAccounts = (settings?.socialAccounts || []) as Array<{ platform: string; profileDir: string; active?: boolean }>;
+
   const accounts: Record<string, AccountInfo> = {};
 
-  const platforms: Array<{ key: string; dir: string }> = [
-    { key: 'facebook',  dir: '.fb-profile' },
-    { key: 'twitter',   dir: '.twitter-profile' },
-    { key: 'reddit',    dir: '.reddit-profile' },
-    { key: 'quora',     dir: '.quora-profile' },
-    { key: 'pinterest', dir: '.pinterest-profile' },
-    { key: 'youtube',   dir: '.youtube-profile' },
-  ];
-
-  for (const { key, dir } of platforms) {
-    const info = readVerified(dir);
-    if (info) accounts[key] = info;
+  for (const acc of socialAccounts) {
+    if (acc.active === false || !acc.profileDir) continue;
+    const info = readVerified(acc.profileDir);
+    if (info) accounts[acc.platform] = info;
   }
 
   return NextResponse.json({ accounts });

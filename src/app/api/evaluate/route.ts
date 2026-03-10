@@ -3,16 +3,20 @@ import { connectDB } from '@/lib/mongodb';
 import Post from '@/models/Post';
 import Settings from '@/models/Settings';
 import { evaluatePost } from '@/lib/openclaw';
+import { getAuthUserId } from '@/lib/apiAuth';
 
 export async function POST() {
+  const userId = await getAuthUserId();
+  if (userId instanceof NextResponse) return userId;
+
   await connectDB();
 
-  const settings = await Settings.findOne();
+  const settings = await Settings.findOne({ userId });
   if (!settings) {
     return NextResponse.json({ error: 'Settings not configured' }, { status: 400 });
   }
 
-  const posts = await Post.find({ status: 'new' }).limit(10);
+  const posts = await Post.find({ userId, status: 'new' }).limit(10);
 
   if (posts.length === 0) {
     return NextResponse.json({ message: 'No new posts to evaluate', evaluated: 0 });

@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Speech bubble shape -->
+  <rect x="4" y="4" width="56" height="46" rx="14" fill="url(#grad)" />
+  <polygon points="18,50 28,50 20,60" fill="#7c3aed" />
+  <!-- Letter G -->
+  <text x="32" y="37" text-anchor="middle" dominant-baseline="central"
+    font-family="system-ui, -apple-system, sans-serif" font-size="32" font-weight="800" fill="#ffffff"
+    letter-spacing="-1">G</text>
+  <!-- @ dot accent -->
+  <circle cx="44" cy="14" r="4" fill="#a78bfa" opacity="0.9" />
+  <defs>
+    <linearGradient id="grad" x1="0" y1="0" x2="64" y2="56" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#7c3aed" />
+      <stop offset="100%" stop-color="#2563eb" />
+    </linearGradient>
+  </defs>
+</svg>

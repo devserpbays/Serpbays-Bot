@@ -1,10 +1,21 @@
 import { NextResponse } from 'next/server';
 import { readCronStatus } from '@/lib/cronState';
+import { getAuthUserId } from '@/lib/apiAuth';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
-  const crons = readCronStatus();
+  const userId = await getAuthUserId();
+  if (userId instanceof NextResponse) return userId;
+  const allCrons = readCronStatus();
+  // Filter to only show this user's statuses
+  const crons: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(allCrons)) {
+    // Keys are "userId:platform" or legacy "platform"
+    if (key.startsWith(`${userId}:`)) {
+      crons[key.replace(`${userId}:`, '')] = value;
+    }
+  }
 
   // Calculate next */15 cron slot
   const now = new Date();

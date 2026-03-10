@@ -10,23 +10,31 @@
 import { config } from 'dotenv';
 config({ path: '.env.local' });
 
-import { writeFileSync, mkdirSync } from 'fs';
+const CRON_USER_ID = process.env.CRON_USER_ID;
+
+import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { execSync } from 'child_process';
 import { chromium, type BrowserContext, type Page } from 'playwright';
 import { connectDB } from '../src/lib/mongodb';
-import { cronStart, cronFinish } from '../src/lib/cronState';
+import { cronStart, cronFinish, acquireCronLock, releaseCronLock } from '../src/lib/cronState';
 import { evaluatePost, askOpenClaw } from '../src/lib/openclaw';
 import { isWithinSchedule } from '../src/lib/schedule';
+import { logActivity } from '../src/lib/activityLog';
 import Post from '../src/models/Post';
 import Settings from '../src/models/Settings';
 
-const PROFILE_DIR = join(process.cwd(), '.youtube-profile');
+if (CRON_USER_ID && !process.env.YOUTUBE_PROFILE_DIR) {
+  console.log('No YouTube account connected for this user, skipping.');
+  process.exit(0);
+}
+const PROFILE_DIR = process.env.YOUTUBE_PROFILE_DIR
+  ? join(process.cwd(), process.env.YOUTUBE_PROFILE_DIR)
+  : join(process.cwd(), '.youtube-profile');
 const VERIFIED_FILE = join(PROFILE_DIR, '.verified');
 const NAVIGATION_TIMEOUT = 30000;
 const SLOW_WAIT = 4000;
 
-const DEFAULT_KEYWORDS = ['Serpbays', 'guest post', 'backlinks', 'link building', 'seo'];
 const DEFAULT_DAILY_LIMIT = 5;
 const DEFAULT_AUTO_POST_THRESHOLD = 70;
 
@@ -157,7 +165,7 @@ async function scrapeYouTubeVideos(keywords: string[]): Promise<Array<{ url: str
   return results;
 }
 
-async function postYouTubeComment(videoUrl: string, comment: string): Promise<boolean> {
+async function postYouTubeComment(videoUrl: string, comment: string): Promise<{ success: boolean; error?: string }> {
   const page = await getPage();
   try {
     await page.goto(videoUrl, { waitUntil: 'domcontentloaded' });
@@ -176,7 +184,7 @@ async function postYouTubeComment(videoUrl: string, comment: string): Promise<bo
     }).catch(() => false);
     if (needsSignIn) {
       console.error('  YouTube not logged in — "Sign in" prompt in comment section. Refresh cookies via dashboard.');
-      return false;
+      return { success: false, error: 'Not logged in — "Sign in" prompt detected in comment section. Re-set cookies from dashboard.' };
     }
 
     // Click on the comment box placeholder
@@ -204,7 +212,7 @@ async function postYouTubeComment(videoUrl: string, comment: string): Promise<bo
 
     if (!commentBox) {
       console.log('  No comment box found on video');
-      return false;
+      return { success: false, error: 'Comment box not found — video may have comments disabled, or login session expired' };
     }
 
     await commentBox.click();
@@ -221,10 +229,11 @@ async function postYouTubeComment(videoUrl: string, comment: string): Promise<bo
     }
     await sleep(3000);
 
-    return true;
+    return { success: true };
   } catch (err) {
-    console.error('  YouTube comment error:', (err as Error).message);
-    return false;
+    const msg = (err as Error).message;
+    console.error('  YouTube comment error:', msg);
+    return { success: false, error: msg };
   }
 }
 
@@ -235,11 +244,11 @@ async function generateYouTubeComment(
 ): Promise<string> {
   const randomSeed = Math.floor(Math.random() * 1000);
   const styles = [
-    'share how serpbays helped you with SEO and backlinks',
-    'mention serpbays guest posting as a resource for the topic',
-    'give a helpful comment and naturally reference serpbays for link building',
-    'express appreciation for the video and briefly mention serpbays niche edits',
-    'provide a useful insight and suggest serpbays for backlink opportunities',
+    `share how ${companyName} helped you`,
+    `mention ${companyName} as a resource for the topic`,
+    `give a helpful comment and naturally reference ${companyName}`,
+    `express appreciation for the video and briefly mention ${companyName}`,
+    `provide a useful insight and suggest ${companyName}`,
   ];
   const style = styles[randomSeed % styles.length];
 
@@ -256,7 +265,7 @@ RULES:
 - Write ONLY the comment text, nothing else
 - Sound like a genuine YouTube viewer sharing a real experience
 - Mention "${companyName}" naturally once — tie it to backlinks, guest posting, or link building
-- NEVER include website URLs or "serpbays.com" — just the brand name
+- NEVER include website URLs or domains — just the brand name
 - Keep it concise and YouTube-appropriate
 - Do NOT include any code, errors, JSON, or technical output
 - Company context: ${companyDescription}
@@ -282,7 +291,7 @@ Write the comment now:`;
       .replace(/^["'`]+|["'`]+$/g, '')
       .replace(/^(Comment|Reply|Response|Here'?s?\s*(the|my|a)?\s*(comment|reply)?:?\s*)/i, '')
       .replace(/https?:\/\/\S+/gi, '')
-      .replace(/serpbays\.com/gi, 'Serpbays')
+      .replace(new RegExp(companyName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\.com', 'gi'), companyName)
       .replace(/\s{2,}/g, ' ')
       .trim();
 
@@ -308,38 +317,57 @@ async function getTodayCommentCount(accountId: string): Promise<number> {
     postedAt: { $gte: startOfDayUTC },
   };
   if (accountId) query.postedByAccount = accountId;
+  if (CRON_USER_ID) query.userId = CRON_USER_ID;
   return Post.countDocuments(query);
 }
 
 async function main() {
-  console.log(`[${new Date().toISOString()}] YouTube Cron: starting`);
-  const _cronId = cronStart('youtube', 'auto');
-  process.on('exit', (code) => cronFinish(_cronId, 'youtube', code));
+  if (!acquireCronLock('youtube', CRON_USER_ID || undefined)) {
+    console.log(`[${new Date().toISOString()}] YouTube Cron: already running for user ${CRON_USER_ID || 'default'}, exiting`);
+    process.exit(0);
+  }
+  process.on('exit', () => releaseCronLock('youtube', CRON_USER_ID || undefined));
+
+  console.log(`[${new Date().toISOString()}] YouTube Cron: starting (user: ${CRON_USER_ID || 'default'})`);
+  if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'youtube', 'info', 'cron_start', 'YouTube cron started');
+  const _cronId = cronStart('youtube', 'auto', CRON_USER_ID || undefined);
+  process.on('exit', (code) => cronFinish(_cronId, 'youtube', code, '', CRON_USER_ID || undefined));
 
   await connectDB();
 
-  const settings = await Settings.findOne();
+  const settings = await Settings.findOne(CRON_USER_ID ? { userId: CRON_USER_ID } : {});
   if (!settings) {
     console.error('No settings configured, exiting');
     process.exit(0);
   }
 
+  if (!settings.companyName) {
+    console.log('No company name configured. Set it in dashboard settings.');
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'youtube', 'error', 'config_error', 'No company name configured');
+    process.exit(0);
+  }
+
   // Schedule guard
   const schedule = settings.platformSchedules?.get('youtube');
-  if (!isWithinSchedule(schedule)) {
+  if (!process.env.CRON_MANUAL && !isWithinSchedule(schedule)) {
     console.log('Outside scheduled hours, exiting');
     process.exit(0);
   }
 
   // Pause guard — dashboard "Pause Cron" button sets this flag
-  if (settings.autoPostingPaused) {
+  if (!process.env.CRON_MANUAL && settings.autoPostingPaused) {
     console.log('Auto-posting is paused via dashboard, exiting');
     process.exit(0);
   }
 
   const keywords: string[] = (settings as any).youtubeKeywords?.length
     ? (settings as any).youtubeKeywords
-    : (settings.keywords?.length ? settings.keywords : DEFAULT_KEYWORDS);
+    : (settings.keywords?.length ? settings.keywords : []);
+  if (keywords.length === 0) {
+    console.log('No YouTube keywords configured. Add keywords in dashboard settings.');
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'youtube', 'warn', 'config_error', 'No YouTube keywords configured');
+    process.exit(0);
+  }
   const dailyLimit: number = (settings as any).youtubeDailyLimit ?? DEFAULT_DAILY_LIMIT;
   const autoPostThreshold: number = (settings as any).youtubeAutoPostThreshold ?? DEFAULT_AUTO_POST_THRESHOLD;
 
@@ -350,21 +378,24 @@ async function main() {
   const todayCount = await getTodayCommentCount(accountId);
   if (todayCount >= dailyLimit) {
     console.log(`Daily limit reached: ${todayCount}/${dailyLimit} comments posted today`);
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'youtube', 'info', 'limit', `Daily limit reached (${todayCount}/${dailyLimit}). Will resume tomorrow.`);
     process.exit(0);
   }
   console.log(`Comments posted today: ${todayCount}/${dailyLimit}`);
 
-  // 15-minute cooldown
-  const MIN_COMMENT_GAP_MS = 15 * 60 * 1000;
-  const lastPosted = await Post.findOne({ platform: 'youtube', status: 'posted', postedAt: { $exists: true } })
-    .sort({ postedAt: -1 })
-    .select('postedAt');
-  if (lastPosted?.postedAt) {
-    const elapsed = Date.now() - new Date(lastPosted.postedAt).getTime();
-    if (elapsed < MIN_COMMENT_GAP_MS) {
-      const remainMin = Math.ceil((MIN_COMMENT_GAP_MS - elapsed) / 60000);
-      console.log(`Cooldown: last comment was ${Math.floor(elapsed / 60000)}m ago, need ${remainMin}m more. Skipping.`);
-      process.exit(0);
+  // 15-minute cooldown (skipped for manual runs)
+  if (!process.env.CRON_MANUAL) {
+    const MIN_COMMENT_GAP_MS = 15 * 60 * 1000;
+    const lastPosted = await Post.findOne({ platform: 'youtube', status: 'posted', postedAt: { $exists: true }, ...(CRON_USER_ID && { userId: CRON_USER_ID }) })
+      .sort({ postedAt: -1 })
+      .select('postedAt');
+    if (lastPosted?.postedAt) {
+      const elapsed = Date.now() - new Date(lastPosted.postedAt).getTime();
+      if (elapsed < MIN_COMMENT_GAP_MS) {
+        const remainMin = Math.ceil((MIN_COMMENT_GAP_MS - elapsed) / 60000);
+        console.log(`Cooldown: last comment was ${Math.floor(elapsed / 60000)}m ago, need ${remainMin}m more. Skipping.`);
+        process.exit(0);
+      }
     }
   }
 
@@ -379,6 +410,8 @@ async function main() {
       }));
     } catch {}
     console.error('Not logged in to YouTube. Use cookie login from the dashboard.');
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'youtube', 'error', 'auth_error', 'Not logged in to YouTube — re-set cookies from dashboard');
+    await closeBrowser();
     process.exit(1);
   }
   console.log('YouTube login confirmed');
@@ -390,11 +423,12 @@ async function main() {
   // Save new videos to DB
   let newVideoCount = 0;
   for (const video of allVideos) {
-    const exists = await Post.findOne({ url: video.url });
+    const exists = await Post.findOne({ url: video.url, ...(CRON_USER_ID && { userId: CRON_USER_ID }) });
     if (!exists) {
       await Post.create({
         url: video.url,
         platform: 'youtube',
+        ...(CRON_USER_ID && { userId: CRON_USER_ID }),
         author: video.author,
         content: video.content,
         keywordsMatched: keywords.filter(kw => video.content.toLowerCase().includes(kw.toLowerCase())),
@@ -406,7 +440,7 @@ async function main() {
   console.log(`Saved ${newVideoCount} new videos to DB`);
 
   // Evaluate unevaluated videos
-  const unevaluatedVideos = await Post.find({ platform: 'youtube', status: 'new' }).limit(10);
+  const unevaluatedVideos = await Post.find({ platform: 'youtube', status: 'new', ...(CRON_USER_ID && { userId: CRON_USER_ID }) }).limit(10);
   console.log(`Evaluating ${unevaluatedVideos.length} new YouTube videos`);
 
   for (const video of unevaluatedVideos) {
@@ -437,6 +471,7 @@ async function main() {
   const recheck = await getTodayCommentCount(accountId);
   if (recheck >= dailyLimit) {
     console.log('Daily limit reached after evaluation, skipping auto-post');
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'youtube', 'info', 'limit', `Daily limit reached (${recheck}/${dailyLimit}). Will resume tomorrow.`);
     await closeBrowser();
     process.exit(0);
   }
@@ -446,6 +481,8 @@ async function main() {
     status: 'evaluated',
     aiRelevanceScore: { $gte: autoPostThreshold },
     aiReply: { $exists: true, $ne: '' },
+    postAttempts: { $not: { $gte: 3 } },
+    ...(CRON_USER_ID && { userId: CRON_USER_ID }),
   }).sort({ _id: -1 });
 
   if (candidate) {
@@ -456,6 +493,12 @@ async function main() {
         settings.companyName,
         settings.companyDescription
       );
+    }
+
+    // Fallback to existing AI reply if fresh generation failed
+    if (!replyText && candidate.aiReply) {
+      console.log('Using existing aiReply as fallback');
+      replyText = candidate.aiReply;
     }
 
     // Safety check — block JSON/debug garbage and empty/error text
@@ -473,8 +516,8 @@ async function main() {
       console.log(`Auto-posting comment on ${candidate.url} (score: ${candidate.aiRelevanceScore})`);
       console.log(`Comment: "${replyText}"`);
 
-      const success = await postYouTubeComment(candidate.url, replyText);
-      if (success) {
+      const result = await postYouTubeComment(candidate.url, replyText);
+      if (result.success) {
         await Post.findByIdAndUpdate(candidate._id, {
           status: 'posted',
           postedAt: new Date(),
@@ -482,15 +525,20 @@ async function main() {
           postedByAccount: accountId,
         });
         console.log(`Comment posted successfully (account: ${accountId})`);
+        if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'youtube', 'success', 'post', `Comment posted on ${candidate.url}`, { score: candidate.aiRelevanceScore });
       } else {
-        console.error('Failed to post comment, will retry next run');
+        await Post.findByIdAndUpdate(candidate._id, { $inc: { postAttempts: 1 } });
+        console.error('Failed to post YouTube comment:', result.error);
+        if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'youtube', 'error', 'post_failed', `Failed to post YouTube comment: ${result.error || 'Unknown error'}`, { url: candidate.url });
       }
     }
   } else {
     console.log('No videos above auto-post threshold, skipping');
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'youtube', 'info', 'skip', 'No posts above auto-post threshold');
   }
 
   console.log(`[${new Date().toISOString()}] YouTube Cron: complete`);
+  if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'youtube', 'info', 'cron_end', 'YouTube cron completed');
   await closeBrowser();
   process.exit(0);
 }

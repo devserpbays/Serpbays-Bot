@@ -40,10 +40,30 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# facebook browser profile (contains login cookies)
+# browser profiles (contain login cookies — sensitive)
 .fb-profile/
 .reddit-profile/
 .youtube-profile/
 .twitter-profile/
 .quora-profile/
 .pinterest-profile/
+.linkedin-profile/
+
+# per-user browser profiles (SaaS multi-user)
+profiles/
+
+# runtime data
+data/
+.twitter-account
+
+# debug screenshots
+*.png
+
+# scratch / test files
+test-*.js
+yt-signup*.ts
+scripts/test-eval.ts
+scripts/instantly-to-sheets.ts
+
+# Claude Code workspace
+.claude/

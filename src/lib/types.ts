@@ -60,6 +60,11 @@ export interface ISettings {
   pinterestKeywords?: string[];
   pinterestDailyLimit?: number;
   pinterestAutoPostThreshold?: number;
+  cronTimezone?: string;
+  cronStartHour?: number;
+  cronEndHour?: number;
+  cronDays?: number[];
+  cronIntervalMinutes?: number;
 }
 
 export interface AIEvaluation {

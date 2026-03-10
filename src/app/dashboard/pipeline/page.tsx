@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { API_BASE } from '@/lib/apiBase';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import UpgradeBanner from '@/components/UpgradeBanner';
 
 interface PipelineResult {
     scraped: number;
@@ -37,14 +37,32 @@ interface StatsData {
     postedByPlatform: Record<string, number>;
 }
 
-const PLATFORM_LABELS: Record<string, string> = {
-    twitter: 'Twitter / X',
-    reddit: 'Reddit',
-    facebook: 'Facebook',
-    quora: 'Quora',
-    youtube: 'YouTube',
-    pinterest: 'Pinterest',
-};
+interface CronPlatformStatus {
+    running: boolean;
+    lastStarted: string | null;
+    lastFinished: string | null;
+    lastExitCode: number | null;
+    lastMessage: string;
+    lastTrigger: 'auto' | 'manual' | null;
+}
+
+const ALL_PLATFORMS = [
+    { id: 'twitter', label: 'Twitter / X', icon: 'X' },
+    { id: 'reddit', label: 'Reddit', icon: 'R' },
+    { id: 'facebook', label: 'Facebook', icon: 'f' },
+    { id: 'quora', label: 'Quora', icon: 'Q' },
+    { id: 'youtube', label: 'YouTube', icon: 'Y' },
+    { id: 'pinterest', label: 'Pinterest', icon: 'P' },
+];
+
+function timeAgo(dateStr: string | null): string {
+    if (!dateStr) return 'never';
+    const diff = Date.now() - new Date(dateStr).getTime();
+    if (diff < 60000) return 'just now';
+    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+    return `${Math.floor(diff / 86400000)}d ago`;
+}
 
 const PLATFORM_ICONS: Record<string, string> = {
     twitter: '𝕏',
@@ -87,47 +105,55 @@ export default function PipelinePage() {
     const [pipelineStep, setPipelineStep] = useState('');
     const [pipelineResult, setPipelineResult] = useState<PipelineResult | null>(null);
 
-    const [enabledPlatforms, setEnabledPlatforms] = useState<string[]>([]);
+    const [cronStatuses, setCronStatuses] = useState<Record<string, CronPlatformStatus>>({});
+    const [runningPlatforms, setRunningPlatforms] = useState<Set<string>>(new Set());
+    const [nextRunAt, setNextRunAt] = useState<string | null>(null);
+    const [connectedPlatforms, setConnectedPlatforms] = useState<string[]>([]);
+    const [upgradeMessage, setUpgradeMessage] = useState('');
 
-    const isAnyRunning = pipelineRunning;
+    const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     const fetchSettings = useCallback(async () => {
         try {
             const res = await fetch(`${API_BASE}/api/settings`);
             const data = await res.json();
-            if (data.settings) setEnabledPlatforms(data.settings.platforms ?? []);
+            if (data.settings?.socialAccounts) {
+                const connected = data.settings.socialAccounts
+                    .filter((a: any) => a.active !== false)
+                    .map((a: any) => a.platform);
+                setConnectedPlatforms([...new Set(connected)] as string[]);
+            }
         } catch { /* silent */ }
     }, []);
 
     const fetchCronControl = useCallback(async () => {
         try {
-            const res = await fetch(`${API_BASE}/api/cron-control`);
-            const data = await res.json();
-            setCronPaused(data.paused ?? false);
-        } catch { /* silent */ }
-    }, []);
+            const [controlRes, statusRes] = await Promise.all([
+                fetch('/api/cron-control'),
+                fetch('/api/cron-status'),
+            ]);
+            const controlData = await controlRes.json();
+            const statusData = await statusRes.json();
+            setCronPaused(controlData.paused ?? false);
+            setCronStatuses(statusData.crons ?? {});
+            setNextRunAt(statusData.nextRunAt ?? null);
 
-    const fetchCronStatus = useCallback(async () => {
-        try {
-            const res = await fetch(`${API_BASE}/api/cron-status`);
-            const data = await res.json();
-            setCronStatus(data);
-        } catch { /* silent */ }
-    }, []);
-
-    const fetchStats = useCallback(async () => {
-        try {
-            const res = await fetch(`${API_BASE}/api/stats`);
-            const data = await res.json();
-            setStats(data);
+            // Track which platforms are currently running
+            const running = new Set<string>();
+            for (const [platform, status] of Object.entries(statusData.crons ?? {})) {
+                if ((status as CronPlatformStatus).running) running.add(platform);
+            }
+            setRunningPlatforms(running);
         } catch { /* silent */ }
     }, []);
 
     useEffect(() => {
-        fetchSettings(); fetchCronControl(); fetchCronStatus(); fetchStats();
-        const interval = setInterval(() => { fetchCronStatus(); fetchStats(); }, 30000);
-        return () => clearInterval(interval);
-    }, [fetchSettings, fetchCronControl, fetchCronStatus, fetchStats]);
+        fetchSettings();
+        fetchCronStatus();
+        // Poll cron status every 5s
+        pollingRef.current = setInterval(fetchCronStatus, 5000);
+        return () => { if (pollingRef.current) clearInterval(pollingRef.current); };
+    }, [fetchSettings, fetchCronStatus]);
 
     /* ── Handlers ── */
     const handleToggleCron = async () => {
@@ -140,15 +166,43 @@ export default function PipelinePage() {
         setCronToggling(false);
     };
 
+    const handleRunPlatform = async (platform: string) => {
+        setRunningPlatforms(prev => new Set(prev).add(platform));
+        try {
+            const res = await fetch('/api/run-cron', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ platform }),
+            });
+            if (res.status === 403) {
+                const data = await res.json();
+                if (data.upgrade) {
+                    setUpgradeMessage(data.error);
+                    setRunningPlatforms(prev => { const next = new Set(prev); next.delete(platform); return next; });
+                    return;
+                }
+            }
+        } catch { /* silent */ }
+        // Poll will pick up the running state
+        setTimeout(fetchCronStatus, 1000);
+    };
+
     const handlePipeline = async () => {
         setPipelineRunning(true);
         setPipelineResult(null);
-        const names = enabledPlatforms.length
-            ? enabledPlatforms.map((p) => PLATFORM_LABELS[p] ?? p).join(', ')
-            : 'all platforms';
-        setPipelineStep(`Processing ${names}…`);
+        setUpgradeMessage('');
+        setPipelineStep('Scraping all platforms…');
         try {
-            const res = await fetch(`${API_BASE}/api/run-pipeline`, { method: 'POST' });
+            const res = await fetch('/api/run-pipeline', { method: 'POST' });
+            if (res.status === 403) {
+                const data = await res.json();
+                if (data.upgrade) {
+                    setUpgradeMessage(data.error);
+                    setPipelineStep('');
+                    setPipelineRunning(false);
+                    return;
+                }
+            }
             const data: PipelineResult = await res.json();
             setPipelineResult(data);
             setPipelineStep('');
@@ -165,9 +219,18 @@ export default function PipelinePage() {
         setPipelineRunning(false);
     };
 
-    const anyPlatformRunning = cronStatus
-        ? Object.values(cronStatus.crons).some(c => c.running)
-        : false;
+    const handleRunAll = async () => {
+        const platforms = connectedPlatforms.length > 0
+            ? connectedPlatforms
+            : ALL_PLATFORMS.map(p => p.id);
+        for (const p of platforms) {
+            await handleRunPlatform(p);
+            // Small stagger
+            await new Promise(r => setTimeout(r, 300));
+        }
+    };
+
+    const anyPlatformRunning = runningPlatforms.size > 0;
 
     return (
         <div className="animate-fade-in">
@@ -178,28 +241,9 @@ export default function PipelinePage() {
 
             <div className="page-body" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
 
-                {/* ── Quick Stats Strip ── */}
-                {stats && (
-                    <div style={{
-                        display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
-                        gap: 12,
-                    }}>
-                        {[
-                            { label: 'Total Posts', value: stats.total, color: 'var(--accent)' },
-                            { label: 'Evaluated', value: stats.byStatus.evaluated ?? 0, color: 'var(--text-secondary)' },
-                            { label: 'Posted', value: stats.byStatus.posted ?? 0, color: 'var(--status-approved)' },
-                            { label: 'Pending', value: (stats.byStatus.new ?? 0) + (stats.byStatus.evaluating ?? 0), color: 'var(--status-pending)' },
-                            { label: 'Rejected', value: stats.byStatus.rejected ?? 0, color: 'var(--status-rejected)' },
-                        ].map(({ label, value, color }) => (
-                            <div key={label} className="card" style={{ padding: '16px 14px', textAlign: 'center' }}>
-                                <div style={{ fontSize: 22, fontWeight: 700, color }}>{value}</div>
-                                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>{label}</div>
-                            </div>
-                        ))}
-                    </div>
-                )}
+                {upgradeMessage && <UpgradeBanner message={upgradeMessage} />}
 
-                {/* ── Cron Status ── */}
+                {/* ── Automation Status ── */}
                 <div className="card">
                     <div className="card-header">
                         <span className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -214,25 +258,25 @@ export default function PipelinePage() {
                             )}
                         </span>
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                            {cronStatus?.nextRunAt && (
+                            {nextRunAt && !cronPaused && (
                                 <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                                    Next run: {new Date(cronStatus.nextRunAt).toLocaleTimeString()}
+                                    Next run: {new Date(nextRunAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                 </span>
                             )}
                             <button
-                                className={`btn btn-sm ${cronPaused ? 'btn-danger' : 'btn-success'}`}
+                                className={`btn btn-sm ${cronPaused ? 'btn-success' : 'btn-danger'}`}
                                 disabled={cronToggling}
                                 onClick={handleToggleCron}
                             >
-                                {cronToggling ? 'Updating…' : cronPaused ? 'Resume Cron' : 'Pause Cron'}
+                                {cronToggling ? 'Updating…' : cronPaused ? 'Resume All' : 'Pause All'}
                             </button>
                         </div>
                     </div>
                     <div className="card-body">
                         <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>
                             {cronPaused
-                                ? 'Cron jobs are currently paused. No automatic posting will occur.'
-                                : 'Cron jobs are active and running on schedule. Posts will be automatically processed.'}
+                                ? 'All cron jobs are paused. No automatic scraping or posting will occur.'
+                                : 'Cron jobs are active. Posts are automatically scraped, evaluated, and posted on schedule.'}
                         </p>
 
                         {/* Per-platform status grid */}
@@ -280,31 +324,146 @@ export default function PipelinePage() {
                     </div>
                 </div>
 
-                {/* ── Full Pipeline ── */}
+                {/* ── Per-Platform Cron Controls ── */}
+                <div className="card">
+                    <div className="card-header">
+                        <span className="card-title">Platform Cron Jobs</span>
+                        <button
+                            className="btn btn-sm btn-primary"
+                            disabled={anyPlatformRunning || cronPaused}
+                            onClick={handleRunAll}
+                            title={cronPaused ? 'Resume automation first' : 'Run all platform crons'}
+                        >
+                            <svg style={{ width: 14, height: 14 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 3l14 9-14 9V3z" />
+                            </svg>
+                            {' '}Run All
+                        </button>
+                    </div>
+                    <div className="card-body" style={{ padding: 0 }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                            <thead>
+                                <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                                    <th style={{ padding: '10px 16px', textAlign: 'left', fontSize: 11, color: 'var(--text-muted)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Platform</th>
+                                    <th style={{ padding: '10px 16px', textAlign: 'left', fontSize: 11, color: 'var(--text-muted)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Status</th>
+                                    <th style={{ padding: '10px 16px', textAlign: 'left', fontSize: 11, color: 'var(--text-muted)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Last Run</th>
+                                    <th style={{ padding: '10px 16px', textAlign: 'right', fontSize: 11, color: 'var(--text-muted)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {ALL_PLATFORMS.map(({ id, label, icon }) => {
+                                    const status = cronStatuses[id];
+                                    const isRunning = runningPlatforms.has(id) || status?.running;
+                                    const isConnected = connectedPlatforms.includes(id);
+                                    const lastExit = status?.lastExitCode;
+                                    const lastFinished = status?.lastFinished;
+
+                                    let statusBadge: { text: string; color: string; bg: string };
+                                    if (isRunning) {
+                                        statusBadge = { text: 'Running', color: 'var(--status-evaluating)', bg: 'var(--status-evaluating-bg)' };
+                                    } else if (!isConnected) {
+                                        statusBadge = { text: 'Not Connected', color: 'var(--text-muted)', bg: 'rgba(255,255,255,0.03)' };
+                                    } else if (cronPaused) {
+                                        statusBadge = { text: 'Paused', color: 'var(--status-rejected)', bg: 'var(--status-rejected-bg)' };
+                                    } else if (lastExit === 0) {
+                                        statusBadge = { text: 'Idle', color: 'var(--status-approved)', bg: 'var(--status-approved-bg)' };
+                                    } else if (lastExit !== null && lastExit !== undefined && lastExit !== 0) {
+                                        statusBadge = { text: 'Error', color: 'var(--status-rejected)', bg: 'var(--status-rejected-bg)' };
+                                    } else {
+                                        statusBadge = { text: 'Ready', color: 'var(--text-secondary)', bg: 'rgba(255,255,255,0.04)' };
+                                    }
+
+                                    return (
+                                        <tr key={id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                                            <td style={{ padding: '12px 16px' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                                    <span style={{
+                                                        width: 28, height: 28, borderRadius: 6,
+                                                        background: 'var(--accent-bg)', border: '1px solid var(--accent-border)',
+                                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                        fontSize: 13, fontWeight: 700, color: 'var(--accent-light)',
+                                                    }}>
+                                                        {icon}
+                                                    </span>
+                                                    <span style={{ fontSize: 13, fontWeight: 500 }}>{label}</span>
+                                                </div>
+                                            </td>
+                                            <td style={{ padding: '12px 16px' }}>
+                                                <span style={{
+                                                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                                                    fontSize: 11, fontWeight: 500, padding: '3px 10px',
+                                                    borderRadius: 20, color: statusBadge.color, background: statusBadge.bg,
+                                                }}>
+                                                    {isRunning && (
+                                                        <svg className="animate-spin" style={{ width: 10, height: 10 }} fill="none" viewBox="0 0 24 24">
+                                                            <circle style={{ opacity: 0.25 }} cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                                            <path style={{ opacity: 0.75 }} fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                                                        </svg>
+                                                    )}
+                                                    {statusBadge.text}
+                                                </span>
+                                            </td>
+                                            <td style={{ padding: '12px 16px', fontSize: 12, color: 'var(--text-secondary)' }}>
+                                                {lastFinished ? (
+                                                    <span title={new Date(lastFinished).toLocaleString()}>
+                                                        {timeAgo(lastFinished)}
+                                                        {status?.lastTrigger === 'manual' && (
+                                                            <span style={{ marginLeft: 4, fontSize: 10, color: 'var(--text-muted)' }}>(manual)</span>
+                                                        )}
+                                                    </span>
+                                                ) : (
+                                                    <span style={{ color: 'var(--text-muted)' }}>—</span>
+                                                )}
+                                            </td>
+                                            <td style={{ padding: '12px 16px', textAlign: 'right' }}>
+                                                <button
+                                                    className={`btn btn-sm ${isRunning ? 'btn-outline' : 'btn-primary'}`}
+                                                    disabled={isRunning || (!isConnected && id !== 'twitter')}
+                                                    onClick={() => handleRunPlatform(id)}
+                                                    style={{ minWidth: 70 }}
+                                                >
+                                                    {isRunning ? (
+                                                        <><svg className="animate-spin" style={{ width: 12, height: 12 }} fill="none" viewBox="0 0 24 24">
+                                                            <circle style={{ opacity: 0.25 }} cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                                            <path style={{ opacity: 0.75 }} fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                                                        </svg> Running</>
+                                                    ) : (
+                                                        <><svg style={{ width: 12, height: 12 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 3l14 9-14 9V3z" />
+                                                        </svg> Run</>
+                                                    )}
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                {/* ── Full Pipeline (Scrape + Evaluate) ── */}
                 <div className="card">
                     <div className="card-header">
                         <div>
-                            <span className="card-title">Run Full Job</span>
+                            <span className="card-title">Scrape & Evaluate Pipeline</span>
                             <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                                Evaluates {enabledPlatforms.length > 0
-                                    ? enabledPlatforms.map((p) => PLATFORM_LABELS[p] ?? p).join(', ')
-                                    : 'all platforms'}, then processes every new post with AI.
+                                Scrapes all connected platforms for new posts, then evaluates each with AI.
                             </p>
                         </div>
                         <button
-                            className="btn btn-primary btn-lg"
-                            disabled={isAnyRunning}
+                            className="btn btn-primary"
+                            disabled={pipelineRunning}
                             onClick={handlePipeline}
                         >
                             {pipelineRunning ? (
-                                <><svg className="animate-spin" style={{ width: 16, height: 16 }} fill="none" viewBox="0 0 24 24"><circle style={{ opacity: 0.25 }} cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path style={{ opacity: 0.75 }} fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" /></svg> Running…</>
+                                <><svg className="animate-spin" style={{ width: 14, height: 14 }} fill="none" viewBox="0 0 24 24"><circle style={{ opacity: 0.25 }} cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path style={{ opacity: 0.75 }} fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" /></svg> Running…</>
                             ) : (
-                                <><svg style={{ width: 16, height: 16 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 3l14 9-14 9V3z" /></svg> Start Job</>
+                                <><svg style={{ width: 14, height: 14 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg> Scrape & Evaluate</>
                             )}
                         </button>
                     </div>
 
-                    {/* Progress */}
                     {pipelineStep && (
                         <div className="card-body" style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 14, paddingBottom: 14 }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: 'var(--text-secondary)' }}>
@@ -317,7 +476,6 @@ export default function PipelinePage() {
                         </div>
                     )}
 
-                    {/* Result */}
                     {pipelineResult && !pipelineRunning && (
                         <div className="card-body" style={{ borderTop: '1px solid var(--border-subtle)' }}>
                             <div style={{
@@ -329,7 +487,7 @@ export default function PipelinePage() {
                                     fontWeight: 600, fontSize: 14, marginBottom: 12,
                                     color: pipelineResult.errors.length ? 'var(--status-rejected)' : 'var(--status-approved)',
                                 }}>
-                                    Job Complete{pipelineResult.duration ? ` — ${pipelineResult.duration}` : ''}
+                                    Pipeline Complete
                                 </p>
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: 12 }}>
                                     {[
@@ -356,45 +514,6 @@ export default function PipelinePage() {
                         </div>
                     )}
                 </div>
-
-                {/* ── Posts by Platform ── */}
-                {stats && (
-                    <div className="card">
-                        <div className="card-header">
-                            <span className="card-title">Posts by Platform</span>
-                        </div>
-                        <div className="card-body">
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                {Object.entries(stats.byPlatform).map(([platform, count]) => {
-                                    const posted = stats.postedByPlatform?.[platform] ?? 0;
-                                    const pct = stats.total > 0 ? Math.round((count / stats.total) * 100) : 0;
-                                    return (
-                                        <div key={platform}>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                                                <span style={{ fontSize: 13, fontWeight: 500 }}>
-                                                    {PLATFORM_ICONS[platform] ?? '●'} {PLATFORM_LABELS[platform] ?? platform}
-                                                </span>
-                                                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                                                    {count} scraped · <span style={{ color: 'var(--status-approved)' }}>{posted} posted</span>
-                                                </span>
-                                            </div>
-                                            <div style={{
-                                                height: 6, background: 'rgba(255,255,255,0.06)',
-                                                borderRadius: 3, overflow: 'hidden',
-                                            }}>
-                                                <div style={{
-                                                    height: '100%', width: `${pct}%`,
-                                                    background: 'linear-gradient(90deg, var(--accent), var(--status-approved))',
-                                                    borderRadius: 3, transition: 'width 0.5s ease',
-                                                }} />
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    </div>
-                )}
 
             </div>
         </div>

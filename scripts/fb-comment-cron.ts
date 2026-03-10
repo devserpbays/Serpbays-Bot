@@ -12,11 +12,13 @@
 import { config } from 'dotenv';
 config({ path: '.env.local' });
 
+const CRON_USER_ID = process.env.CRON_USER_ID;
+
 import { readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { connectDB } from '../src/lib/mongodb';
 import { evaluatePost, askOpenClaw } from '../src/lib/openclaw';
-import { cronStart, cronFinish } from '../src/lib/cronState';
+import { cronStart, cronFinish, acquireCronLock, releaseCronLock } from '../src/lib/cronState';
 import {
   ensureFacebookLoggedIn,
   scrapeProfileIdentity,
@@ -27,17 +29,22 @@ import {
   closeBrowser,
 } from '../src/lib/facebook';
 import { isWithinSchedule } from '../src/lib/schedule';
+import { logActivity } from '../src/lib/activityLog';
 import Post from '../src/models/Post';
 import Settings from '../src/models/Settings';
 
-const DEFAULT_KEYWORDS = ['Serpbays', 'Guest post', 'backlinks', 'backlink', 'guest posting', 'link building', 'seo'];
 const DEFAULT_DAILY_LIMIT = 5;
 const DEFAULT_AUTO_POST_THRESHOLD = 10;
+
+if (CRON_USER_ID && !process.env.FACEBOOK_PROFILE_DIR) {
+  console.log('No Facebook account connected for this user, skipping.');
+  process.exit(0);
+}
 
 // --- Read current Facebook account identity ---
 function getVerifiedData(): Record<string, string> {
   try {
-    const raw = readFileSync(join(process.cwd(), '.fb-profile', '.verified'), 'utf8');
+    const raw = readFileSync(join(process.cwd(), process.env.FACEBOOK_PROFILE_DIR || '.fb-profile', '.verified'), 'utf8');
     return JSON.parse(raw);
   } catch {
     return {};
@@ -67,11 +74,12 @@ async function getTodayCommentCount(accountId: string): Promise<number> {
   if (accountId) {
     query.postedByAccount = accountId;
   }
+  if (CRON_USER_ID) query.userId = CRON_USER_ID;
 
   return Post.countDocuments(query);
 }
 
-// --- Generate a unique, natural comment mentioning Serpbays ---
+// --- Generate a unique, natural comment mentioning the company ---
 async function generateVariedComment(
   postContent: string,
   companyName: string,
@@ -79,11 +87,11 @@ async function generateVariedComment(
 ): Promise<string> {
   const randomSeed = Math.floor(Math.random() * 1000);
   const styles = [
-    'share personal experience using serpbays for backlinks',
-    'casually recommend serpbays guest posting to solve the poster\'s problem',
-    'mention you found serpbays helpful for link building in a similar situation',
-    'ask a follow-up question then briefly mention serpbays niche edits or guest posts',
-    'give a tip and suggest serpbays as a resource for backlinks or guest post opportunities',
+    `share personal experience using ${companyName}`,
+    `casually recommend ${companyName} to solve the poster's problem`,
+    `mention you found ${companyName} helpful in a similar situation`,
+    `ask a follow-up question then briefly mention ${companyName}`,
+    `give a tip and suggest ${companyName} as a resource`,
   ];
   const style = styles[randomSeed % styles.length];
 
@@ -100,7 +108,7 @@ RULES:
 - Write ONLY the comment text, nothing else (no quotes, no labels, no explanation)
 - Sound like a genuine group member sharing a real recommendation from experience
 - Mention "${companyName}" naturally — tie it specifically to backlinks, guest posting, or link building (whichever fits)
-- NEVER include website URLs, domains, or "serpbays.com" — just the brand name
+- NEVER include website URLs or domains — just the brand name
 - Vary your opening — do NOT always start with "Hey" or "I"
 - Use natural, conversational language — no buzzwords, no excessive emojis, no hashtags
 - Do NOT write generic praise — connect the mention to the post topic
@@ -141,7 +149,7 @@ Write the comment now:`;
       .replace(/\n/g, ' ')
       // Remove any URLs/domains that may have slipped through
       .replace(/https?:\/\/\S+/gi, '')
-      .replace(/serpbays\.com/gi, 'Serpbays')
+      .replace(new RegExp(companyName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\.com', 'gi'), companyName)
       .replace(/\s{2,}/g, ' ')
       .trim();
 
@@ -159,35 +167,53 @@ Write the comment now:`;
 }
 
 async function main() {
-  console.log(`[${new Date().toISOString()}] FB Comment Cron: starting`);
-  const _cronId = cronStart('facebook', 'auto');
-  process.on('exit', (code) => cronFinish(_cronId, 'facebook', code));
+  if (!acquireCronLock('facebook', CRON_USER_ID || undefined)) {
+    console.log(`[${new Date().toISOString()}] FB Comment Cron: already running for user ${CRON_USER_ID || 'default'}, exiting`);
+    process.exit(0);
+  }
+  process.on('exit', () => releaseCronLock('facebook', CRON_USER_ID || undefined));
+
+  console.log(`[${new Date().toISOString()}] FB Comment Cron: starting (user: ${CRON_USER_ID || 'default'})`);
+  if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'facebook', 'info', 'cron_start', 'Facebook cron started');
+  const _cronId = cronStart('facebook', 'auto', CRON_USER_ID || undefined);
+  process.on('exit', (code) => cronFinish(_cronId, 'facebook', code, '', CRON_USER_ID || undefined));
 
   await connectDB();
 
   // Step 1: Load settings
-  const settings = await Settings.findOne();
+  const settings = await Settings.findOne(CRON_USER_ID ? { userId: CRON_USER_ID } : {});
   if (!settings) {
     console.error('No settings configured, exiting');
     process.exit(0);
   }
 
+  if (!settings.companyName) {
+    console.log('No company name configured. Set it in dashboard settings.');
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'facebook', 'error', 'config_error', 'No company name configured');
+    process.exit(0);
+  }
+
   // Step 1b: Schedule guard (uses per-platform schedule if configured)
   const schedule = settings.platformSchedules?.get('facebook');
-  if (!isWithinSchedule(schedule)) {
+  if (!process.env.CRON_MANUAL && !isWithinSchedule(schedule)) {
     console.log('Outside scheduled hours, exiting');
     process.exit(0);
   }
 
   // Pause guard — dashboard "Pause Cron" button sets this flag
-  if (settings.autoPostingPaused) {
+  if (!process.env.CRON_MANUAL && settings.autoPostingPaused) {
     console.log('Auto-posting is paused via dashboard, exiting');
     process.exit(0);
   }
 
   const keywords: string[] = settings.facebookKeywords?.length
     ? settings.facebookKeywords
-    : DEFAULT_KEYWORDS;
+    : (settings.keywords?.length ? settings.keywords : []);
+  if (keywords.length === 0) {
+    console.log('No Facebook keywords configured. Add keywords in dashboard settings.');
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'facebook', 'warn', 'config_error', 'No Facebook keywords configured');
+    process.exit(0);
+  }
   const dailyLimit: number = settings.facebookDailyLimit ?? DEFAULT_DAILY_LIMIT;
   const autoPostThreshold: number =
     settings.facebookAutoPostThreshold ?? DEFAULT_AUTO_POST_THRESHOLD;
@@ -202,21 +228,25 @@ async function main() {
   const todayCount = await getTodayCommentCount(accountId);
   if (todayCount >= dailyLimit) {
     console.log(`Daily limit reached: ${todayCount}/${dailyLimit} comments posted today${accountId ? ` (account: ${accountId})` : ''}`);
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'facebook', 'info', 'limit', `Daily limit reached (${todayCount}/${dailyLimit}). Will resume tomorrow.`);
     process.exit(0);
   }
   console.log(`Comments posted today: ${todayCount}/${dailyLimit}${accountId ? ` (account: ${accountId})` : ''}`);
 
   // Step 3b: 15-minute cooldown — skip if last Facebook post was < 15 min ago
-  const MIN_COMMENT_GAP_MS = 15 * 60 * 1000; // 15 minutes
-  const lastPosted = await Post.findOne({ platform: 'facebook', status: 'posted', postedAt: { $exists: true } })
-    .sort({ postedAt: -1 })
-    .select('postedAt platform');
-  if (lastPosted?.postedAt) {
-    const elapsed = Date.now() - new Date(lastPosted.postedAt).getTime();
-    if (elapsed < MIN_COMMENT_GAP_MS) {
-      const remainMin = Math.ceil((MIN_COMMENT_GAP_MS - elapsed) / 60000);
-      console.log(`Cooldown: last comment (${lastPosted.platform}) was ${Math.floor(elapsed / 60000)}m ago, need ${remainMin}m more. Skipping.`);
-      process.exit(0);
+  // 15-minute cooldown (skipped for manual runs)
+  if (!process.env.CRON_MANUAL) {
+    const MIN_COMMENT_GAP_MS = 15 * 60 * 1000;
+    const lastPosted = await Post.findOne({ platform: 'facebook', status: 'posted', postedAt: { $exists: true }, ...(CRON_USER_ID && { userId: CRON_USER_ID }) })
+      .sort({ postedAt: -1 })
+      .select('postedAt platform');
+    if (lastPosted?.postedAt) {
+      const elapsed = Date.now() - new Date(lastPosted.postedAt).getTime();
+      if (elapsed < MIN_COMMENT_GAP_MS) {
+        const remainMin = Math.ceil((MIN_COMMENT_GAP_MS - elapsed) / 60000);
+        console.log(`Cooldown: last comment (${lastPosted.platform}) was ${Math.floor(elapsed / 60000)}m ago, need ${remainMin}m more. Skipping.`);
+        process.exit(0);
+      }
     }
   }
 
@@ -224,9 +254,11 @@ async function main() {
   const loggedIn = await ensureFacebookLoggedIn();
   if (!loggedIn) {
     try {
-      writeFileSync(join(process.cwd(), '.fb-profile', '.verified'), JSON.stringify({ loggedIn: false, ts: new Date().toISOString(), message: 'Session expired — cron detected not logged in' }));
+      writeFileSync(join(process.cwd(), process.env.FACEBOOK_PROFILE_DIR || '.fb-profile', '.verified'), JSON.stringify({ loggedIn: false, ts: new Date().toISOString(), message: 'Session expired — cron detected not logged in' }));
     } catch {}
-    console.error('Not logged in to Facebook. Run: openclaw browser open https://facebook.com');
+    console.error('Not logged in to Facebook. Re-set cookies from dashboard.');
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'facebook', 'error', 'auth_error', 'Not logged in to Facebook — re-set cookies from dashboard');
+    await closeBrowser();
     process.exit(1);
   }
   console.log('Facebook login confirmed');
@@ -243,7 +275,7 @@ async function main() {
       dn = dn || scraped.displayName;
       un = un || scraped.username;
     }
-    writeFileSync(join(process.cwd(), '.fb-profile', '.verified'), JSON.stringify({
+    writeFileSync(join(process.cwd(), process.env.FACEBOOK_PROFILE_DIR || '.fb-profile', '.verified'), JSON.stringify({
       loggedIn: true, ts: new Date().toISOString(),
       message: 'Facebook session verified by cron',
       accountId: aid, displayName: dn, username: un,
@@ -286,11 +318,12 @@ async function main() {
   // Step 7: Save new posts to DB
   let newPostCount = 0;
   for (const post of allPosts) {
-    const exists = await Post.findOne({ url: post.url });
+    const exists = await Post.findOne({ url: post.url, ...(CRON_USER_ID && { userId: CRON_USER_ID }) });
     if (!exists) {
       await Post.create({
         url: post.url,
         platform: 'facebook',
+        ...(CRON_USER_ID && { userId: CRON_USER_ID }),
         author: post.author,
         content: post.content,
         keywordsMatched: keywords.filter((kw) =>
@@ -307,6 +340,7 @@ async function main() {
   const unevaluatedPosts = await Post.find({
     platform: 'facebook',
     status: 'new',
+    ...(CRON_USER_ID && { userId: CRON_USER_ID }),
   }).limit(10);
 
   console.log(`Evaluating ${unevaluatedPosts.length} new Facebook posts`);
@@ -342,6 +376,7 @@ async function main() {
   const recheck = await getTodayCommentCount(accountId);
   if (recheck >= dailyLimit) {
     console.log('Daily limit reached after evaluation, skipping auto-post');
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'facebook', 'info', 'limit', `Daily limit reached (${recheck}/${dailyLimit}). Will resume tomorrow.`);
     await closeBrowser();
     process.exit(0);
   }
@@ -351,6 +386,8 @@ async function main() {
     status: 'evaluated',
     aiRelevanceScore: { $gte: autoPostThreshold },
     aiReply: { $exists: true, $ne: '' },
+    postAttempts: { $not: { $gte: 3 } },
+    ...(CRON_USER_ID && { userId: CRON_USER_ID }),
   }).sort({ _id: -1 }); // newest first
 
   if (autoPostCandidate) {
@@ -363,6 +400,12 @@ async function main() {
         settings.companyName,
         settings.companyDescription
       );
+    }
+
+    // Fallback to existing AI reply if fresh generation failed
+    if (!replyText && autoPostCandidate.aiReply) {
+      console.log('Using existing aiReply as fallback');
+      replyText = autoPostCandidate.aiReply;
     }
 
     // Final safety check — block JSON/debug garbage and empty/error text
@@ -392,9 +435,9 @@ async function main() {
         } catch (e) { console.warn('Like failed, continuing:', (e as Error).message); }
       }
 
-      const success = await postComment(autoPostCandidate.url, replyText);
+      const result = await postComment(autoPostCandidate.url, replyText);
 
-      if (success) {
+      if (result.success) {
         await Post.findByIdAndUpdate(autoPostCandidate._id, {
           status: 'posted',
           postedAt: new Date(),
@@ -402,15 +445,20 @@ async function main() {
           postedByAccount: accountId,
         });
         console.log(`Comment posted successfully${accountId ? ` (account: ${accountId})` : ''}`);
+        if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'facebook', 'success', 'post', `Comment posted on ${autoPostCandidate.url}`, { score: autoPostCandidate.aiRelevanceScore });
       } else {
-        console.error('Failed to post comment, will retry next run');
+        await Post.findByIdAndUpdate(autoPostCandidate._id, { $inc: { postAttempts: 1 } });
+        console.error('Failed to post Facebook comment:', result.error);
+        if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'facebook', 'error', 'post_failed', `Failed to post Facebook comment: ${result.error || 'Unknown error'}`, { url: autoPostCandidate.url });
       }
     }
   } else {
     console.log('No posts above auto-post threshold, skipping');
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'facebook', 'info', 'skip', 'No posts above auto-post threshold');
   }
 
   console.log(`[${new Date().toISOString()}] FB Comment Cron: complete`);
+  if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'facebook', 'info', 'cron_end', 'Facebook cron completed');
   await closeBrowser();
   process.exit(0);
 }

@@ -11,33 +11,42 @@
 import { config } from 'dotenv';
 config({ path: '.env.local' });
 
+const CRON_USER_ID = process.env.CRON_USER_ID;
+
 import { connectDB } from '../src/lib/mongodb';
 import { runScraper } from '../src/lib/scraper';
 import { evaluatePost } from '../src/lib/openclaw';
 import Post from '../src/models/Post';
 import Settings from '../src/models/Settings';
+import { acquireCronLock, releaseCronLock } from '../src/lib/cronState';
 
 async function main() {
+  if (!acquireCronLock('scrape', CRON_USER_ID || undefined)) {
+    console.log(`[${new Date().toISOString()}] Scrape Cron: already running for user ${CRON_USER_ID || 'default'}, exiting`);
+    process.exit(0);
+  }
+  process.on('exit', () => releaseCronLock('scrape', CRON_USER_ID || undefined));
+
   console.log(`[${new Date().toISOString()}] Starting scrape + evaluate cycle`);
 
   await connectDB();
 
   // Step 1: Scrape
   try {
-    const scrapeResult = await runScraper();
+    const scrapeResult = await runScraper(undefined, CRON_USER_ID || undefined);
     console.log(`Scrape complete: ${scrapeResult.totalScraped} found, ${scrapeResult.newPosts} new`);
   } catch (err) {
     console.error('Scrape failed:', (err as Error).message);
   }
 
   // Step 2: Evaluate new posts
-  const settings = await Settings.findOne();
+  const settings = await Settings.findOne(CRON_USER_ID ? { userId: CRON_USER_ID } : {});
   if (!settings) {
     console.log('No settings configured, skipping evaluation');
     return;
   }
 
-  const newPosts = await Post.find({ status: 'new' }).limit(10);
+  const newPosts = await Post.find({ status: 'new', ...(CRON_USER_ID && { userId: CRON_USER_ID }) }).limit(10);
   console.log(`Evaluating ${newPosts.length} new posts`);
 
   for (const post of newPosts) {

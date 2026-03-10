@@ -1,16 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { connectDB } from '@/lib/mongodb';
 import Settings from '@/models/Settings';
+import { getAuthUserId } from '@/lib/apiAuth';
+import { checkPlanLimit } from '@/lib/featureGate';
 
 export async function GET() {
+  const userId = await getAuthUserId();
+  if (userId instanceof NextResponse) return userId;
+
   await connectDB();
-  const settings = await Settings.findOne().lean();
+  const settings = await Settings.findOne({ userId }).lean();
   return NextResponse.json({ settings });
 }
 
 export async function PUT(req: NextRequest) {
+  const userId = await getAuthUserId();
+  if (userId instanceof NextResponse) return userId;
+
   await connectDB();
   const body = await req.json();
+
+  // Enforce plan limits on platforms and keywords
+  if (body.platforms) {
+    const blocked = await checkPlanLimit(userId, 'platforms', body.platforms.length);
+    if (blocked) return blocked;
+  }
+  if (body.keywords) {
+    const blocked = await checkPlanLimit(userId, 'keywords', body.keywords.length);
+    if (blocked) return blocked;
+  }
 
   const {
     companyName,
@@ -39,9 +57,13 @@ export async function PUT(req: NextRequest) {
     pinterestKeywords,
     pinterestDailyLimit,
     pinterestAutoPostThreshold,
+    cronTimezone,
+    cronStartHour,
+    cronEndHour,
+    cronDays,
   } = body;
 
-  let settings = await Settings.findOne();
+  let settings = await Settings.findOne({ userId });
 
   if (settings) {
     settings.companyName = companyName ?? settings.companyName;
@@ -70,13 +92,18 @@ export async function PUT(req: NextRequest) {
     if (pinterestKeywords !== undefined) settings.pinterestKeywords = pinterestKeywords;
     if (pinterestDailyLimit !== undefined) settings.pinterestDailyLimit = pinterestDailyLimit;
     if (pinterestAutoPostThreshold !== undefined) settings.pinterestAutoPostThreshold = pinterestAutoPostThreshold;
+    if (cronTimezone !== undefined) settings.cronTimezone = cronTimezone;
+    if (cronStartHour !== undefined) settings.cronStartHour = cronStartHour;
+    if (cronEndHour !== undefined) settings.cronEndHour = cronEndHour;
+    if (cronDays !== undefined) settings.cronDays = cronDays;
     await settings.save();
   } else {
     settings = await Settings.create({
-      companyName: companyName || 'My Company',
+      userId,
+      companyName: companyName || '',
       companyDescription: companyDescription || '',
       keywords: keywords || [],
-      platforms: platforms || ['twitter', 'reddit'],
+      platforms: platforms || [],
       subreddits: subreddits || [],
       promptTemplate: promptTemplate || '',
       socialAccounts: socialAccounts || [],
@@ -99,6 +126,10 @@ export async function PUT(req: NextRequest) {
       pinterestKeywords: pinterestKeywords || [],
       pinterestDailyLimit: pinterestDailyLimit ?? 5,
       pinterestAutoPostThreshold: pinterestAutoPostThreshold ?? 70,
+      cronTimezone: cronTimezone || '',
+      cronStartHour: cronStartHour ?? 9,
+      cronEndHour: cronEndHour ?? 18,
+      cronDays: cronDays ?? [0, 1, 2, 3, 4, 5, 6],
     });
   }
 

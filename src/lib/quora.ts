@@ -7,9 +7,11 @@
 
 import { chromium, type BrowserContext, type Page } from 'playwright';
 import { join } from 'path';
-import { unlinkSync } from 'fs';
+import { unlinkSync, existsSync, readFileSync } from 'fs';
 
-const PROFILE_DIR = join(process.cwd(), '.quora-profile');
+const PROFILE_DIR = process.env.QUORA_PROFILE_DIR
+  ? join(process.cwd(), process.env.QUORA_PROFILE_DIR)
+  : join(process.cwd(), '.quora-profile');
 const NAVIGATION_TIMEOUT = 30000;
 const SLOW_WAIT = 4000;
 
@@ -42,6 +44,19 @@ async function getPage(): Promise<Page> {
     viewport: { width: 1280, height: 900 },
     locale: 'en-US',
   });
+
+  // Inject cookies from cookies.json if available
+  const cookiesJsonPath = join(PROFILE_DIR, 'cookies.json');
+  if (existsSync(cookiesJsonPath)) {
+    try {
+      const savedCookies = JSON.parse(readFileSync(cookiesJsonPath, 'utf8'));
+      if (Array.isArray(savedCookies) && savedCookies.length > 0) {
+        await _context.addCookies(savedCookies);
+      }
+    } catch (e) {
+      console.error('Failed to load cookies.json:', e);
+    }
+  }
 
   _page = _context.pages()[0] || (await _context.newPage());
   _page.setDefaultTimeout(NAVIGATION_TIMEOUT);
@@ -252,10 +267,10 @@ function isValidComment(text: string): boolean {
 export async function postQuoraAnswer(
   questionUrl: string,
   answer: string
-): Promise<boolean> {
+): Promise<{ success: boolean; error?: string }> {
   if (!isValidComment(answer)) {
     console.error('Invalid answer text (error/code detected), refusing to post:', answer.slice(0, 100));
-    return false;
+    return { success: false, error: 'Invalid answer text detected (contains code/error patterns)' };
   }
 
   try {
@@ -314,7 +329,7 @@ export async function postQuoraAnswer(
     if (!editor) {
       console.error('Could not find answer editor on question:', questionUrl);
       await page.screenshot({ path: '/tmp/quora-answer-failed.png', fullPage: false }).catch(() => {});
-      return false;
+      return { success: false, error: 'Answer editor not found — question may be closed, or login session expired' };
     }
 
     // Click to focus
@@ -359,14 +374,15 @@ export async function postQuoraAnswer(
 
     if (posted) {
       console.log(`Answer posted successfully on: ${questionUrl}`);
+      return { success: true };
     } else {
       console.warn(`Answer may NOT have posted on: ${questionUrl}`);
       await page.screenshot({ path: '/tmp/quora-post-failed.png', fullPage: false }).catch(() => {});
+      return { success: false, error: 'Answer not confirmed on page — Quora may have blocked it or session expired' };
     }
-
-    return posted;
   } catch (err) {
-    console.error(`Failed to post answer on ${questionUrl}:`, (err as Error).message);
-    return false;
+    const msg = (err as Error).message;
+    console.error(`Failed to post answer on ${questionUrl}:`, msg);
+    return { success: false, error: msg };
   }
 }

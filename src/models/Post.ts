@@ -1,7 +1,8 @@
 import mongoose, { Schema } from 'mongoose';
 
 const PostSchema = new Schema({
-  url: { type: String, required: true, unique: true },
+  userId: { type: String, index: true, sparse: true },
+  url: { type: String, required: true },
   platform: { type: String, default: 'facebook' },
   author: { type: String, default: 'Unknown' },
   content: { type: String, required: true },
@@ -49,9 +50,12 @@ const PostSchema = new Schema({
   monitorUntil: Date,
 }, { timestamps: true });
 
+PostSchema.index({ userId: 1, url: 1 }, { unique: true, sparse: true });
 PostSchema.index({ status: 1 });
 PostSchema.index({ aiRelevanceScore: -1 });
 PostSchema.index({ scrapedAt: -1 });
 PostSchema.index({ platform: 1, postedByAccount: 1, postedAt: -1 });
+PostSchema.index({ platform: 1, status: 1, postedAt: -1 });
+PostSchema.index({ userId: 1, platform: 1, status: 1 });
 
 export default mongoose.models.Post || mongoose.model('Post', PostSchema);

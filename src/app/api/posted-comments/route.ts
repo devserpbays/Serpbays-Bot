@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { connectDB } from '@/lib/mongodb';
 import Post from '@/models/Post';
+import { getAuthUserId } from '@/lib/apiAuth';
 
 export const dynamic = 'force-dynamic';
 
 const ALL_PLATFORMS = ['twitter', 'facebook', 'reddit', 'quora', 'pinterest', 'youtube'];
 
 export async function GET(req: NextRequest) {
+  const userId = await getAuthUserId();
+  if (userId instanceof NextResponse) return userId;
+
   await connectDB();
 
   const { searchParams } = req.nextUrl;
@@ -14,7 +18,7 @@ export async function GET(req: NextRequest) {
   const filter = searchParams.get('filter') || 'all'; // 'today' | 'all'
   const limit = Math.min(parseInt(searchParams.get('limit') || '200'), 500);
 
-  const query: Record<string, unknown> = { status: 'posted' };
+  const query: Record<string, unknown> = { status: 'posted', userId };
   if (platform) {
     query.platform = platform;
   } else {

@@ -1,188 +1,199 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { chromium } from 'playwright';
+import { writeFileSync, mkdirSync, unlinkSync } from 'fs';
 import { join } from 'path';
-import { verifyCredentials, closeBrowser } from '@/lib/twitter';
+import { execSync } from 'child_process';
+import { connectDB } from '@/lib/mongodb';
+import Settings from '@/models/Settings';
+import { getAuthUserId } from '@/lib/apiAuth';
+import { checkPlanLimit } from '@/lib/featureGate';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
-function parseCookieString(str: string): Record<string, string> {
-  const result: Record<string, string> = {};
-  str.split(';').forEach((part) => {
-    const idx = part.indexOf('=');
-    if (idx === -1) return;
-    const name = part.slice(0, idx).trim();
-    const value = part.slice(idx + 1).trim();
-    if (name) result[name] = value;
-  });
-  return result;
+const FALLBACK_EXPIRES = () => Math.floor(Date.now() / 1000) + 90 * 24 * 60 * 60;
+
+function normalizeSameSite(v: string | undefined): 'Strict' | 'Lax' | 'None' | undefined {
+  if (!v) return undefined;
+  const map: Record<string, 'Strict' | 'Lax' | 'None'> = {
+    strict: 'Strict', lax: 'Lax', none: 'None',
+    no_restriction: 'None', unspecified: 'Lax',
+  };
+  return map[v.toLowerCase()] ?? 'Lax';
 }
 
 export async function POST(req: NextRequest) {
-  let body: { cookies: unknown; accountIndex?: number };
+  const userId = await getAuthUserId();
+  if (userId instanceof NextResponse) return userId;
+
+  // Enforce platform connection limit
+  await connectDB();
+  const existingSettings = await Settings.findOne({ userId }).lean();
+  const connectedPlatforms = (existingSettings?.socialAccounts || []).filter(
+    (a: { active?: boolean }) => a.active !== false
+  ).length;
+  const platformBlocked = await checkPlanLimit(userId, 'platforms', connectedPlatforms + 1);
+  if (platformBlocked) return platformBlocked;
+
+  let body: { cookies: unknown };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const { cookies, accountIndex = 0 } = body;
+  const { cookies } = body;
   if (!cookies) {
     return NextResponse.json({ error: 'cookies field required' }, { status: 400 });
   }
 
-  let parsed: Record<string, string>;
-  if (typeof cookies === 'string') {
-    // Handle JSON string from Cookie Editor extension
-    const trimmed = (cookies as string).trim();
+  // Parse cookies into Playwright format
+  let cookieList: Array<{ name: string; value: string; domain: string; path: string; expires?: number; secure?: boolean; httpOnly?: boolean; sameSite?: 'Strict' | 'Lax' | 'None' }>;
+  let cookiesInput = cookies;
+  if (typeof cookiesInput === 'string') {
+    const trimmed = cookiesInput.trim();
     if (trimmed.startsWith('[')) {
-      // JSON array → extract name/value pairs into a flat object
-      try {
-        const arr = JSON.parse(trimmed) as Array<{ name: string; value: string }>;
-        parsed = {};
-        for (const c of arr) {
-          if (c.name) parsed[c.name] = c.value ?? '';
-        }
-      } catch {
+      try { cookiesInput = JSON.parse(trimmed); } catch {
         return NextResponse.json({ error: 'Invalid JSON cookie array' }, { status: 400 });
       }
-    } else {
-      parsed = parseCookieString(cookies as string);
     }
-  } else if (Array.isArray(cookies)) {
-    // Array of { name, value } objects
-    parsed = {};
-    for (const c of cookies as Array<{ name: string; value: string }>) {
-      if (c.name) parsed[c.name] = c.value ?? '';
-    }
-  } else if (typeof cookies === 'object' && !Array.isArray(cookies)) {
-    parsed = cookies as Record<string, string>;
+  }
+  if (typeof cookiesInput === 'string') {
+    cookieList = cookiesInput.split(';').map(part => {
+      const [name, ...rest] = part.trim().split('=');
+      return { name: name.trim(), value: rest.join('=').trim(), domain: '.x.com', path: '/', expires: FALLBACK_EXPIRES(), secure: true };
+    }).filter(c => c.name && c.value);
+  } else if (Array.isArray(cookiesInput)) {
+    cookieList = (cookiesInput as Record<string, unknown>[]).map(c => ({
+      name: String(c.name),
+      value: String(c.value),
+      domain: String(c.domain || '.x.com'),
+      path: String(c.path || '/'),
+      expires: Number(c.expirationDate ?? c.expires ?? 0) > 0 ? Math.floor(Number(c.expirationDate ?? c.expires)) : FALLBACK_EXPIRES(),
+      secure: Boolean(c.secure ?? true),
+      httpOnly: Boolean(c.httpOnly ?? false),
+      sameSite: normalizeSameSite(c.sameSite as string | undefined),
+    }));
   } else {
-    return NextResponse.json(
-      { error: 'cookies must be a cookie string or key-value object' },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: 'cookies must be a string or array' }, { status: 400 });
   }
 
-  // Map common cookie names → env var names
-  const authToken =
-    parsed['auth_token'] || parsed['TWITTER_AUTH_TOKEN'] || '';
-  const ct0 =
-    parsed['ct0'] || parsed['TWITTER_CT0'] || '';
-  const twid =
-    parsed['twid'] || parsed['TWITTER_TWID'] || '';
-  const guestId =
-    parsed['guest_id'] || parsed['guest_id_marketing'] || parsed['TWITTER_GUEST_ID'] || '';
-  const kdt =
-    parsed['kdt'] || parsed['TWITTER_KDT'] || '';
-  const personalizationId =
-    parsed['personalization_id'] || parsed['TWITTER_PERSONALIZATION_ID'] || '';
-
-  if (!authToken || !ct0) {
-    return NextResponse.json(
-      {
-        error: 'auth_token and ct0 are required',
-        foundKeys: Object.keys(parsed),
-      },
-      { status: 400 }
-    );
+  if (cookieList.length === 0) {
+    return NextResponse.json({ error: 'No valid cookies parsed' }, { status: 400 });
   }
 
-  // Apply to process.env immediately so verifyCredentials() picks them up
-  process.env.TWITTER_AUTH_TOKEN = authToken;
-  process.env.TWITTER_CT0 = ct0;
-  if (twid) process.env.TWITTER_TWID = twid;
-  if (guestId) process.env.TWITTER_GUEST_ID = guestId;
-  if (kdt) process.env.TWITTER_KDT = kdt;
-  if (personalizationId) process.env.TWITTER_PERSONALIZATION_ID = personalizationId;
+  const authTokenCookie = cookieList.find(c => c.name === 'auth_token');
+  const ct0Cookie = cookieList.find(c => c.name === 'ct0');
+  if (!authTokenCookie || !ct0Cookie) {
+    return NextResponse.json({ error: 'auth_token and ct0 cookies are required', foundKeys: cookieList.map(c => c.name) }, { status: 400 });
+  }
 
-  // Persist to .env.local
+  const PROFILE_DIR = join(process.cwd(), 'profiles', userId, 'twitter');
+  mkdirSync(PROFILE_DIR, { recursive: true });
+
+  try { execSync(`pkill -f "${PROFILE_DIR}" 2>/dev/null || true`, { stdio: 'ignore' }); } catch {}
+  await new Promise(r => setTimeout(r, 600));
+  try { unlinkSync(join(PROFILE_DIR, 'SingletonLock')); } catch {}
+
+  let context;
   try {
-    const envPath = join(process.cwd(), '.env.local');
-    let envContent = readFileSync(envPath, 'utf8');
+    context = await chromium.launchPersistentContext(PROFILE_DIR, {
+      executablePath: '/usr/bin/chromium-browser',
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-blink-features=AutomationControlled'],
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      viewport: { width: 1280, height: 900 },
+      locale: 'en-US',
+    });
 
-    const updates: Record<string, string> = {
-      TWITTER_AUTH_TOKEN: authToken,
-      TWITTER_CT0: ct0,
-      ...(twid && { TWITTER_TWID: twid }),
-      ...(guestId && { TWITTER_GUEST_ID: guestId }),
-      ...(kdt && { TWITTER_KDT: kdt }),
-      ...(personalizationId && { TWITTER_PERSONALIZATION_ID: personalizationId }),
-    };
+    await context.addCookies(cookieList);
+    const page = context.pages()[0] || (await context.newPage());
+    await page.goto('https://x.com/home', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.waitForTimeout(3000);
 
-    for (const [key, val] of Object.entries(updates)) {
-      const regex = new RegExp(`^${key}=.*$`, 'm');
-      if (regex.test(envContent)) {
-        // Use a replacer function to prevent $ in cookie values being interpreted as regex back-references
-        envContent = envContent.replace(regex, () => `${key}=${val}`);
-      } else {
-        envContent += `\n${key}=${val}`;
-      }
+    const currentUrl = page.url();
+    if (currentUrl.includes('/login') || currentUrl.includes('/i/flow/login')) {
+      await context.close();
+      return NextResponse.json({ success: false, loggedIn: false, message: 'Cookies invalid or expired — redirected to login page' });
     }
 
-    writeFileSync(envPath, envContent, 'utf8');
-  } catch (err) {
-    console.error('Failed to persist to .env.local:', (err as Error).message);
-  }
+    // Extract username and display name
+    const username = await page.evaluate(() => {
+      const profileLink = document.querySelector('a[data-testid="AppTabBar_Profile_Link"]') as HTMLAnchorElement | null;
+      if (profileLink?.href) {
+        const parts = profileLink.href.split('/').filter(Boolean);
+        return parts[parts.length - 1] || '';
+      }
+      return '';
+    }).catch(() => '');
 
-  // Close any existing browser context so verifyCredentials() opens a fresh one
-  // that actually uses the new cookies — not the old cached session.
-  await closeBrowser();
+    const displayName = await page.evaluate(() => {
+      const switcher = document.querySelector('[data-testid="SideNav_AccountSwitcher_Button"]');
+      if (switcher) {
+        const spans = switcher.querySelectorAll('span');
+        for (const span of spans) {
+          const text = span.textContent?.trim() || '';
+          if (text && !text.startsWith('@')) return text;
+        }
+      }
+      return '';
+    }).catch(() => '');
 
-  // Verify the credentials work, then always close the browser so the
-  // profile dir is free when the cron process opens it moments later.
-  try {
-    const user = await verifyCredentials();
-    const accountId = `tw_${user.username}`;
-    const profileDir = join(process.cwd(), accountIndex === 0 ? '.twitter-profile' : `.twitter-profile-${accountIndex}`);
+    const cookies2 = await context.cookies('https://x.com');
+    const twid = cookies2.find(c => c.name === 'twid')?.value || '';
+    const twitterUserId = twid ? decodeURIComponent(twid).replace('u=', '') : '';
 
-    // Write .verified file so /api/social-accounts can discover this account
+    const accountId = username ? `tw_${username}` : `tw_${twitterUserId || userId}`;
+
+    // Save cookies to JSON so cron scripts can re-inject them into fresh browser contexts
     try {
-      mkdirSync(profileDir, { recursive: true });
-      writeFileSync(
-        join(profileDir, '.verified'),
-        JSON.stringify({ loggedIn: true, ts: new Date().toISOString(), accountId, username: user.username, displayName: user.name }),
-        'utf8'
-      );
+      writeFileSync(join(PROFILE_DIR, 'cookies.json'), JSON.stringify(cookies2, null, 2), 'utf8');
+    } catch (e) { console.error('Failed to save cookies.json:', e); }
+
+    await context.close();
+
+    // Write .verified file
+    try {
+      writeFileSync(join(PROFILE_DIR, '.verified'), JSON.stringify({ loggedIn: true, ts: new Date().toISOString(), accountId, username, displayName }), 'utf8');
     } catch {}
 
-    // Persist account identity for cron scripts to read
+    // Save to Settings.socialAccounts (per-user in MongoDB)
     try {
-      writeFileSync(
-        join(process.cwd(), '.twitter-account'),
-        JSON.stringify({ accountId, username: user.username, name: user.name, ts: new Date().toISOString() }),
-        'utf8'
-      );
-    } catch {}
-
-    // Persist per-account credentials file for multi-account support
-    try {
-      const credsFile = accountIndex === 0
-        ? join(process.cwd(), '.twitter-account')
-        : join(process.cwd(), `.twitter-account-${accountIndex}`);
-      writeFileSync(
-        credsFile,
-        JSON.stringify({ accountId, username: user.username, name: user.name, ts: new Date().toISOString(), accountIndex }),
-        'utf8'
-      );
-    } catch {}
+      await connectDB();
+      const profileDirRelative = `profiles/${userId}/twitter`;
+      const newAccount = {
+        id: accountId,
+        platform: 'twitter',
+        username: username || '',
+        displayName: displayName || username || '',
+        profileDir: profileDirRelative,
+        accountIndex: 0,
+        addedAt: new Date().toISOString(),
+        active: true,
+      };
+      let settings = await Settings.findOne({ userId });
+      if (!settings) {
+        settings = await Settings.create({ userId, companyName: '', companyDescription: '', socialAccounts: [newAccount] });
+      } else {
+        settings.socialAccounts = (settings.socialAccounts || []).filter(
+          (a: { platform: string }) => a.platform !== 'twitter'
+        );
+        settings.socialAccounts.push(newAccount);
+        await settings.save();
+      }
+    } catch (e) { console.error('Failed to save account to settings:', e); }
 
     return NextResponse.json({
       success: true,
-      user,
+      loggedIn: true,
       accountId,
-      accountIndex,
-      profileDir: join(process.cwd(), accountIndex === 0 ? '.twitter-account' : `.twitter-account-${accountIndex}`),
-      message: `Twitter credentials verified — logged in as @${user.username} (${user.name})`,
+      username,
+      displayName,
+      profileDir: PROFILE_DIR,
+      message: `Twitter credentials verified — logged in as @${username || accountId}`,
     });
   } catch (err) {
-    return NextResponse.json(
-      {
-        success: false,
-        error: `Cookies saved but verification failed: ${(err as Error).message}`,
-      },
-      { status: 422 }
-    );
-  } finally {
-    await closeBrowser();
+    await context?.close().catch(() => {});
+    return NextResponse.json({ success: false, error: (err as Error).message }, { status: 500 });
   }
 }

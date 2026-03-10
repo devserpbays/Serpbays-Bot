@@ -1,18 +1,35 @@
 import { NextResponse } from 'next/server';
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
+import { getAuthUserId } from '@/lib/apiAuth';
+import { connectDB } from '@/lib/mongodb';
+import Settings from '@/models/Settings';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
-  const PROFILE_DIR = join(process.cwd(), '.quora-profile');
-  const verifiedFile = join(PROFILE_DIR, '.verified');
+  const userId = await getAuthUserId();
+  if (userId instanceof NextResponse) return userId;
+
+  await connectDB();
+  const settings = await Settings.findOne({ userId }).lean();
+  const account = ((settings?.socialAccounts || []) as Array<{ platform: string; profileDir: string }>)
+    .find(a => a.platform === 'quora');
+
+  if (!account?.profileDir) {
+    return NextResponse.json({
+      loggedIn: false,
+      message: 'Not connected. Add your Quora account to get started.',
+    });
+  }
+
+  const verifiedFile = join(process.cwd(), account.profileDir, '.verified');
 
   try {
     if (!existsSync(verifiedFile)) {
       return NextResponse.json({
         loggedIn: false,
-        profileDir: PROFILE_DIR,
+        profileDir: account.profileDir,
         message: 'Not logged in. Use cookie login to authenticate.',
       });
     }
@@ -20,7 +37,7 @@ export async function GET() {
     const data = JSON.parse(readFileSync(verifiedFile, 'utf-8'));
     return NextResponse.json({
       loggedIn: data.loggedIn ?? false,
-      profileDir: PROFILE_DIR,
+      profileDir: account.profileDir,
       verifiedAt: data.ts,
       message: data.loggedIn
         ? 'Quora session is active'
@@ -29,7 +46,7 @@ export async function GET() {
   } catch {
     return NextResponse.json({
       loggedIn: false,
-      profileDir: PROFILE_DIR,
+      profileDir: account.profileDir,
       message: 'Not logged in. Use cookie login to authenticate.',
     });
   }

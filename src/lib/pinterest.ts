@@ -7,7 +7,7 @@
 
 import { chromium, type BrowserContext, type Page } from 'playwright';
 import { join } from 'path';
-import { unlinkSync } from 'fs';
+import { unlinkSync, existsSync, readFileSync } from 'fs';
 
 const NAVIGATION_TIMEOUT = 30000;
 const SLOW_WAIT = 4000;
@@ -42,6 +42,19 @@ async function getPage(profileDir: string): Promise<Page> {
     viewport: { width: 1280, height: 900 },
     locale: 'en-US',
   });
+
+  // Inject cookies from cookies.json if available
+  const cookiesJsonPath = join(profileDir, 'cookies.json');
+  if (existsSync(cookiesJsonPath)) {
+    try {
+      const savedCookies = JSON.parse(readFileSync(cookiesJsonPath, 'utf8'));
+      if (Array.isArray(savedCookies) && savedCookies.length > 0) {
+        await context.addCookies(savedCookies);
+      }
+    } catch (e) {
+      console.error('Failed to load cookies.json:', e);
+    }
+  }
 
   _contexts.set(profileDir, context);
   const page = context.pages()[0] || (await context.newPage());
@@ -225,10 +238,10 @@ export async function scrapePinterestPins(keywords: string[], profileDir: string
 }
 
 // --- Post a comment on a Pinterest pin ---
-export async function postPinterestComment(pinUrl: string, comment: string, profileDir: string): Promise<boolean> {
+export async function postPinterestComment(pinUrl: string, comment: string, profileDir: string): Promise<{ success: boolean; error?: string }> {
   if (!comment || comment.trim().length < 5) {
     console.error('Invalid comment text, refusing to post.');
-    return false;
+    return { success: false, error: 'Comment too short (less than 5 characters)' };
   }
 
   try {
@@ -240,39 +253,42 @@ export async function postPinterestComment(pinUrl: string, comment: string, prof
     await page.mouse.wheel(0, 400);
     await sleep(1500);
 
-    // Click comment box
+    // Pinterest uses a DraftJS editor for comments
     const commentBoxSelectors = [
-      '[data-test-id="comment-box-input"]',
-      '[data-test-id="CommentBox"] textarea',
-      'textarea[placeholder*="comment" i]',
-      'textarea[placeholder*="Add a comment" i]',
+      'div.public-DraftEditor-content[contenteditable="true"]',
+      '[aria-label*="Add a comment"][contenteditable="true"]',
+      '[data-test-id="inline-comment-composer-container"] div[contenteditable="true"]',
+      '[data-test-id="comment-editor-container"] div[contenteditable="true"]',
     ];
 
-    let focused = false;
+    let commentBox = null;
     for (const sel of commentBoxSelectors) {
       const el = page.locator(sel).first();
       if (await el.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await el.click({ force: true });
-        focused = true;
-        await sleep(1000);
+        commentBox = el;
         break;
       }
     }
 
-    if (!focused) {
+    if (!commentBox) {
       console.error('Could not find Pinterest comment box on:', pinUrl);
       await page.screenshot({ path: '/tmp/pinterest-comment-failed.png', fullPage: false }).catch(() => {});
-      return false;
+      return { success: false, error: 'Comment box not found — pin may not allow comments, or login session expired' };
     }
+
+    // Click to focus
+    await commentBox.click({ force: true });
+    await sleep(1000);
 
     // Type the comment
     await page.keyboard.type(comment, { delay: 30 });
-    await sleep(1000);
+    await sleep(1500);
 
-    // Submit — try button first, then Enter
+    // Pinterest shows a "Post" button (aria-label="Post") after typing
     const submitSelectors = [
-      '[data-test-id="comment-box-submit-button"]',
-      'button[type="submit"]',
+      'button[aria-label="Post"]',
+      'button[aria-label="post"]',
+      '[data-test-id="comment-submit-button"]',
       'button:has-text("Post")',
     ];
 
@@ -290,21 +306,31 @@ export async function postPinterestComment(pinUrl: string, comment: string, prof
       await page.keyboard.press('Enter');
     }
 
-    await sleep(4000);
+    await sleep(5000);
+
+    // Verify: check if "No comments yet" is gone or our text appears
+    const noComments = await page.evaluate(() => {
+      const h2s = document.querySelectorAll('h2');
+      for (const h of h2s) {
+        if (h.textContent && /no comments yet/i.test(h.textContent)) return true;
+      }
+      return false;
+    }).catch(() => false);
 
     const pageText = await page.textContent('body').catch(() => '');
-    const posted = pageText?.includes(comment.slice(0, 20)) ?? false;
+    const textFound = !!(pageText && pageText.includes(comment.slice(0, 25)));
 
-    if (posted) {
+    if (textFound || !noComments) {
       console.log(`Pinterest comment posted successfully on: ${pinUrl}`);
+      return { success: true };
     } else {
-      console.warn(`Pinterest comment may NOT have posted on: ${pinUrl}`);
+      console.warn(`Pinterest comment not confirmed on: ${pinUrl}`);
       await page.screenshot({ path: '/tmp/pinterest-post-failed.png', fullPage: false }).catch(() => {});
+      return { success: false, error: 'Comment not confirmed — "No comments yet" still showing. Pinterest may have blocked it.' };
     }
-
-    return posted;
   } catch (err) {
-    console.error(`Failed to post Pinterest comment on ${pinUrl}:`, (err as Error).message);
-    return false;
+    const msg = (err as Error).message;
+    console.error(`Failed to post Pinterest comment on ${pinUrl}:`, msg);
+    return { success: false, error: msg };
   }
 }

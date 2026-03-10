@@ -11,14 +11,16 @@
 
 import { chromium, type BrowserContext, type Page } from 'playwright';
 import { join } from 'path';
-import { unlinkSync } from 'fs';
+import { unlinkSync, readFileSync, existsSync } from 'fs';
 import { execSync } from 'child_process';
 
 const TWITTER_GRAPHQL_BASE = 'https://x.com/i/api/graphql';
 const BEARER =
   'Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA';
 
-const PROFILE_DIR = join(process.cwd(), '.twitter-profile');
+const PROFILE_DIR = process.env.TWITTER_PROFILE_DIR
+  ? join(process.cwd(), process.env.TWITTER_PROFILE_DIR)
+  : join(process.cwd(), '.twitter-profile');
 const NAVIGATION_TIMEOUT = 30000;
 
 interface TweetResponse {
@@ -77,10 +79,25 @@ async function getPage(): Promise<Page> {
     locale: 'en-US',
   });
 
-  // Inject Twitter cookies into the browser context from env vars
-  const cookies = buildCookies();
-  if (cookies.length > 0) {
-    await _context.addCookies(cookies);
+  // Inject cookies: prefer cookies.json from profile dir, fall back to env vars
+  const cookiesJsonPath = join(PROFILE_DIR, 'cookies.json');
+  let injectedCookies = false;
+  if (existsSync(cookiesJsonPath)) {
+    try {
+      const savedCookies = JSON.parse(readFileSync(cookiesJsonPath, 'utf8'));
+      if (Array.isArray(savedCookies) && savedCookies.length > 0) {
+        await _context.addCookies(savedCookies);
+        injectedCookies = true;
+      }
+    } catch (e) {
+      console.error('Failed to load cookies.json:', e);
+    }
+  }
+  if (!injectedCookies) {
+    const cookies = buildCookies();
+    if (cookies.length > 0) {
+      await _context.addCookies(cookies);
+    }
   }
 
   _page = _context.pages()[0] || (await _context.newPage());
@@ -99,7 +116,13 @@ export async function closeBrowser(): Promise<void> {
 
 // --- Check if Twitter credentials are configured ---
 export function isTwitterConfigured(): boolean {
-  return !!(process.env.TWITTER_AUTH_TOKEN && process.env.TWITTER_CT0);
+  if (process.env.TWITTER_AUTH_TOKEN && process.env.TWITTER_CT0) return true;
+  if (existsSync(join(PROFILE_DIR, 'cookies.json'))) return true;
+  if (existsSync(join(PROFILE_DIR, 'Default'))) return true;
+  try {
+    const data = JSON.parse(readFileSync(join(PROFILE_DIR, '.verified'), 'utf8'));
+    return data.loggedIn === true;
+  } catch { return false; }
 }
 
 // --- Extract tweet ID from a Twitter/X URL ---
@@ -261,10 +284,96 @@ const CREATE_TWEET_FEATURES = {
   responsive_web_enhance_cards_enabled: false,
 };
 
+// --- Dynamic query ID cache ---
+let _cachedCreateTweetQueryId: string | null = null;
+let _cachedFavoriteTweetQueryId: string | null = null;
+
+const FALLBACK_CREATE_TWEET_ID = 'a1p9RWpkYKBjWv_I3WzS-A';
+const FALLBACK_FAVORITE_TWEET_ID = 'lI07N6Otwv1PhnEgXILM7A';
+
+/**
+ * Dynamically extract GraphQL query IDs from Twitter's JS bundles.
+ * Twitter rotates these IDs periodically, so hardcoding them breaks.
+ */
+async function fetchQueryIds(page: Page): Promise<void> {
+  if (_cachedCreateTweetQueryId) return;
+
+  try {
+    // Get all script src URLs from the page
+    const scriptSrcs: string[] = await page.evaluate(() => {
+      return Array.from(document.querySelectorAll('script[src]'))
+        .map(s => (s as HTMLScriptElement).src)
+        .filter(s => s.includes('/client-web/') || s.includes('api.'));
+    });
+
+    // Fetch each script and look for CreateTweet query ID pattern
+    for (const src of scriptSrcs) {
+      try {
+        const content: string = await page.evaluate(async (url: string) => {
+          const r = await fetch(url);
+          return r.text();
+        }, src);
+
+        // Pattern: queryId:"<id>",operationName:"CreateTweet"
+        // or: {queryId:"<id>",...operationName:"CreateTweet"}
+        const createMatch = content.match(/queryId:\s*"([^"]+)"[^}]*operationName:\s*"CreateTweet"/);
+        if (createMatch) {
+          _cachedCreateTweetQueryId = createMatch[1];
+          console.log(`[twitter] Found CreateTweet queryId: ${_cachedCreateTweetQueryId}`);
+        }
+
+        const favMatch = content.match(/queryId:\s*"([^"]+)"[^}]*operationName:\s*"FavoriteTweet"/);
+        if (favMatch) {
+          _cachedFavoriteTweetQueryId = favMatch[1];
+          console.log(`[twitter] Found FavoriteTweet queryId: ${_cachedFavoriteTweetQueryId}`);
+        }
+
+        if (_cachedCreateTweetQueryId && _cachedFavoriteTweetQueryId) break;
+      } catch { /* skip this script */ }
+    }
+  } catch (err) {
+    console.error('[twitter] Failed to extract query IDs:', (err as Error).message);
+  }
+
+  // Fallback to hardcoded if extraction failed
+  if (!_cachedCreateTweetQueryId) {
+    _cachedCreateTweetQueryId = FALLBACK_CREATE_TWEET_ID;
+    console.log(`[twitter] Using fallback CreateTweet queryId: ${FALLBACK_CREATE_TWEET_ID}`);
+  }
+  if (!_cachedFavoriteTweetQueryId) {
+    _cachedFavoriteTweetQueryId = FALLBACK_FAVORITE_TWEET_ID;
+  }
+}
+
+function getCreateTweetQueryId(): string {
+  return _cachedCreateTweetQueryId || FALLBACK_CREATE_TWEET_ID;
+}
+
+function getFavoriteTweetQueryId(): string {
+  return _cachedFavoriteTweetQueryId || FALLBACK_FAVORITE_TWEET_ID;
+}
+
+/** Exported so twitterHttp.ts can use the resolved ID */
+export { getCreateTweetQueryId, getFavoriteTweetQueryId };
+
 // --- Internal helper: call CreateTweet GraphQL inside Chromium ---
 async function createTweet(variables: Record<string, unknown>): Promise<TweetResponse> {
-  const ct0 = process.env.TWITTER_CT0 || '';
   const page = await getPage();
+
+  // Navigate to x.com if not already there (needed to load JS bundles)
+  const currentUrl = page.url();
+  if (!currentUrl.includes('x.com')) {
+    await page.goto('https://x.com/home', { waitUntil: 'domcontentloaded', timeout: NAVIGATION_TIMEOUT });
+    await new Promise(r => setTimeout(r, 2000));
+  }
+
+  // Dynamically resolve query IDs from loaded JS bundles
+  await fetchQueryIds(page);
+  const queryId = getCreateTweetQueryId();
+
+  // Get ct0 from browser context cookies (works for per-user profiles)
+  const contextCookies = await _context!.cookies('https://x.com');
+  const ct0 = contextCookies.find(c => c.name === 'ct0')?.value || process.env.TWITTER_CT0 || '';
 
   const data = await page.evaluate(
     async ({
@@ -297,13 +406,13 @@ async function createTweet(variables: Record<string, unknown>): Promise<TweetRes
       return res.json();
     },
     {
-      url: `${TWITTER_GRAPHQL_BASE}/a1p9RWpkYKBjWv_I3WzS-A/CreateTweet`,
+      url: `${TWITTER_GRAPHQL_BASE}/${queryId}/CreateTweet`,
       bearer: BEARER,
       csrfToken: ct0,
       body: JSON.stringify({
         variables,
         features: CREATE_TWEET_FEATURES,
-        queryId: 'a1p9RWpkYKBjWv_I3WzS-A',
+        queryId,
       }),
     }
   );
@@ -347,8 +456,11 @@ export async function replyToTweet(text: string, inReplyToTweetId: string): Prom
 
 // --- Like a tweet ---
 export async function likeTweet(tweetId: string): Promise<void> {
-  const ct0 = process.env.TWITTER_CT0 || '';
   const page = await getPage();
+  await fetchQueryIds(page);
+  const favQueryId = getFavoriteTweetQueryId();
+  const contextCookies = await _context!.cookies('https://x.com');
+  const ct0 = contextCookies.find(c => c.name === 'ct0')?.value || process.env.TWITTER_CT0 || '';
 
   await page.evaluate(
     async ({
@@ -379,12 +491,12 @@ export async function likeTweet(tweetId: string): Promise<void> {
       }
     },
     {
-      url: `${TWITTER_GRAPHQL_BASE}/lI07N6Otwv1PhnEgXILM7A/FavoriteTweet`,
+      url: `${TWITTER_GRAPHQL_BASE}/${favQueryId}/FavoriteTweet`,
       bearer: BEARER,
       csrfToken: ct0,
       body: JSON.stringify({
         variables: { tweet_id: tweetId },
-        queryId: 'lI07N6Otwv1PhnEgXILM7A',
+        queryId: favQueryId,
       }),
     }
   );

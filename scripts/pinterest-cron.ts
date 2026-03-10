@@ -10,25 +10,31 @@
 import { config } from 'dotenv';
 config({ path: '.env.local' });
 
-import { writeFileSync, mkdirSync } from 'fs';
+const CRON_USER_ID = process.env.CRON_USER_ID;
+
+import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { execSync } from 'child_process';
 import { chromium, type BrowserContext, type Page } from 'playwright';
 import { connectDB } from '../src/lib/mongodb';
-import { cronStart, cronFinish } from '../src/lib/cronState';
+import { cronStart, cronFinish, acquireCronLock, releaseCronLock } from '../src/lib/cronState';
 import { evaluatePost, askOpenClaw } from '../src/lib/openclaw';
 import { isWithinSchedule } from '../src/lib/schedule';
+import { logActivity } from '../src/lib/activityLog';
 import Post from '../src/models/Post';
 import Settings from '../src/models/Settings';
 
-const PROFILE_DIR = join(process.cwd(), '.pinterest-profile');
+if (CRON_USER_ID && !process.env.PINTEREST_PROFILE_DIR) {
+  console.log('No Pinterest account connected for this user, skipping.');
+  process.exit(0);
+}
+const PROFILE_DIR = process.env.PINTEREST_PROFILE_DIR
+  ? join(process.cwd(), process.env.PINTEREST_PROFILE_DIR)
+  : join(process.cwd(), '.pinterest-profile');
 const VERIFIED_FILE = join(PROFILE_DIR, '.verified');
 const NAVIGATION_TIMEOUT = 30000;
 const SLOW_WAIT = 4000;
 
-// Pinterest-specific defaults — platform is visual/lifestyle, so use topics that exist on Pinterest
-// and allow a lower threshold since SEO niche has thin coverage there
-const DEFAULT_KEYWORDS = ['SEO tips', 'digital marketing strategy', 'content marketing', 'online business growth', 'blogging tips'];
 const DEFAULT_DAILY_LIMIT = 5;
 const DEFAULT_AUTO_POST_THRESHOLD = 15;  // Pinterest has lower relevance ceiling for SEO content
 
@@ -81,9 +87,8 @@ async function getPage(): Promise<Page> {
 }
 
 async function closeBrowser(): Promise<void> {
-  if (_browser) {
-    await _browser.close().catch(() => {});
-    _browser = null;
+  if (_ctx) {
+    await _ctx.close().catch(() => {});
     _ctx = null;
     _page = null;
   }
@@ -116,7 +121,7 @@ async function scrapePinterestPins(keywords: string[]): Promise<Array<{ url: str
 
   // Use SEO-specific compound search terms that Pinterest handles better
   const searchTerms = keywords.slice(0, 3).map(kw => {
-    if (['serpbays', 'backlink', 'backlinks'].includes(kw.toLowerCase())) return `${kw} SEO`;
+    if (['backlink', 'backlinks'].includes(kw.toLowerCase())) return `${kw} SEO`;
     if (kw.toLowerCase() === 'seo') return 'SEO tips digital marketing';
     return kw;
   });
@@ -171,17 +176,18 @@ async function scrapePinterestPins(keywords: string[]): Promise<Array<{ url: str
   return results;
 }
 
-async function postPinterestComment(pinUrl: string, comment: string): Promise<boolean> {
+async function postPinterestComment(pinUrl: string, comment: string): Promise<{ success: boolean; error?: string }> {
   const page = await getPage();
   try {
     await page.goto(pinUrl, { waitUntil: 'domcontentloaded' });
     await sleep(SLOW_WAIT);
 
+    // Pinterest uses a DraftJS editor for comments
     const commentSelectors = [
-      '[data-test-id="comment-field"]',
-      '[aria-label*="comment" i]',
-      'div[contenteditable="true"]',
-      'textarea[placeholder*="comment" i]',
+      'div.public-DraftEditor-content[contenteditable="true"]',
+      '[aria-label*="Add a comment"][contenteditable="true"]',
+      '[data-test-id="comment-field"] div[contenteditable="true"]',
+      '[data-test-id="inline-comment-composer-container"] div[contenteditable="true"]',
     ];
 
     let commentBox = null;
@@ -195,43 +201,65 @@ async function postPinterestComment(pinUrl: string, comment: string): Promise<bo
 
     if (!commentBox) {
       console.log('  No comment box found on pin');
-      return false;
+      await page.screenshot({ path: '/tmp/pinterest-comment-failed.png' }).catch(() => {});
+      return { success: false, error: 'Comment box not found — pin may not allow comments, or login session expired' };
     }
 
     await commentBox.click();
     await sleep(1000);
-    await commentBox.type(comment, { delay: 50 });
-    await sleep(1000);
+    await page.keyboard.type(comment, { delay: 50 });
+    await sleep(1500);
 
-    // Try submit button, fallback to Enter
-    const submitBtn = await page.$('[data-test-id="comment-submit-button"], button[type="submit"]').catch(() => null);
-    if (submitBtn && await submitBtn.isVisible().catch(() => false)) {
-      await submitBtn.click();
-    } else {
-      // Try clicking any visible button near the comment box before falling back to Enter
-      const anyBtn = await page.$('div[data-test-id="comment-field"] ~ button, form button[type="submit"]').catch(() => null);
-      if (anyBtn && await anyBtn.isVisible().catch(() => false)) {
-        await anyBtn.click();
-      } else {
-        await page.keyboard.press('Enter');
+    // Pinterest shows a "Post" button (aria-label="Post") after typing
+    const submitSelectors = [
+      'button[aria-label="Post"]',
+      'button[aria-label="post"]',
+      '[data-test-id="comment-submit-button"]',
+    ];
+
+    let submitted = false;
+    for (const sel of submitSelectors) {
+      const btn = await page.$(sel).catch(() => null);
+      if (btn && await btn.isVisible().catch(() => false)) {
+        await btn.click();
+        submitted = true;
+        console.log('  Clicked Post button');
+        break;
       }
     }
-    await sleep(5000);
 
-    // Verify the comment appeared on the page
-    const pageText = await page.textContent('body').catch(() => '');
-    const posted = !!(pageText && pageText.includes(comment.slice(0, 30)));
-
-    if (!posted) {
-      console.warn('  Pinterest comment submit appeared to fail (text not found after 5s), marking as attempted');
-      await page.screenshot({ path: '/tmp/pinterest-post-debug.png' }).catch(() => {});
+    if (!submitted) {
+      // Fallback: try Enter
+      await page.keyboard.press('Enter');
+      console.log('  Used Enter key as fallback');
     }
 
-    // Return true if we got past the comment box — Pinterest may delay rendering
-    return true;
+    await sleep(5000);
+
+    // Verify: check if "No comments yet" is gone or our text appears
+    const noComments = await page.evaluate(() => {
+      const h2s = document.querySelectorAll('h2');
+      for (const h of h2s) {
+        if (h.textContent && /no comments yet/i.test(h.textContent)) return true;
+      }
+      return false;
+    }).catch(() => false);
+
+    const pageText = await page.textContent('body').catch(() => '');
+    const textFound = !!(pageText && pageText.includes(comment.slice(0, 25)));
+
+    if (textFound || !noComments) {
+      console.log('  Pinterest comment posted successfully');
+      return { success: true };
+    } else {
+      console.warn('  Pinterest comment not confirmed on page');
+      await page.screenshot({ path: '/tmp/pinterest-post-debug.png' }).catch(() => {});
+      return { success: false, error: 'Comment not confirmed — "No comments yet" still showing. Pinterest may have blocked it.' };
+    }
   } catch (err) {
-    console.error('  Pinterest comment error:', (err as Error).message);
-    return false;
+    const msg = (err as Error).message;
+    console.error('  Pinterest comment error:', msg);
+    return { success: false, error: msg };
   }
 }
 
@@ -242,11 +270,11 @@ async function generatePinterestComment(
 ): Promise<string> {
   const randomSeed = Math.floor(Math.random() * 1000);
   const styles = [
-    'share how serpbays helped with your SEO and link building strategy',
-    'naturally mention serpbays guest posting as a solution to the topic',
-    'give a helpful tip and briefly reference serpbays for backlinks',
-    'comment enthusiastically and mention serpbays niche edits or guest posts',
-    'provide value and suggest serpbays as a resource for link building',
+    `share how ${companyName} helped with your strategy`,
+    `naturally mention ${companyName} as a solution to the topic`,
+    `give a helpful tip and briefly reference ${companyName}`,
+    `comment enthusiastically and mention ${companyName}`,
+    `provide value and suggest ${companyName} as a resource`,
   ];
   const style = styles[randomSeed % styles.length];
 
@@ -263,7 +291,7 @@ RULES:
 - Write ONLY the comment text, nothing else
 - Sound like a genuine Pinterest user sharing a real tip
 - Mention "${companyName}" naturally once — tie it to backlinks, guest posting, or link building
-- NEVER include website URLs or "serpbays.com" — just the brand name
+- NEVER include website URLs or domains — just the brand name
 - Keep it concise and Pinterest-friendly
 - Do NOT include any code, errors, JSON, or technical output
 - Company context: ${companyDescription}
@@ -289,7 +317,7 @@ Write the comment now:`;
       .replace(/^["'`]+|["'`]+$/g, '')
       .replace(/^(Comment|Reply|Response|Here'?s?\s*(the|my|a)?\s*(comment|reply)?:?\s*)/i, '')
       .replace(/https?:\/\/\S+/gi, '')
-      .replace(/serpbays\.com/gi, 'Serpbays')
+      .replace(new RegExp(companyName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\.com', 'gi'), companyName)
       .replace(/\s{2,}/g, ' ')
       .trim();
 
@@ -315,38 +343,57 @@ async function getTodayCommentCount(accountId: string): Promise<number> {
     postedAt: { $gte: startOfDayUTC },
   };
   if (accountId) query.postedByAccount = accountId;
+  if (CRON_USER_ID) query.userId = CRON_USER_ID;
   return Post.countDocuments(query);
 }
 
 async function main() {
-  console.log(`[${new Date().toISOString()}] Pinterest Cron: starting`);
-  const _cronId = cronStart('pinterest', 'auto');
-  process.on('exit', (code) => cronFinish(_cronId, 'pinterest', code));
+  if (!acquireCronLock('pinterest', CRON_USER_ID || undefined)) {
+    console.log(`[${new Date().toISOString()}] Pinterest Cron: already running for user ${CRON_USER_ID || 'default'}, exiting`);
+    process.exit(0);
+  }
+  process.on('exit', () => releaseCronLock('pinterest', CRON_USER_ID || undefined));
+
+  console.log(`[${new Date().toISOString()}] Pinterest Cron: starting (user: ${CRON_USER_ID || 'default'})`);
+  if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'pinterest', 'info', 'cron_start', 'Pinterest cron started');
+  const _cronId = cronStart('pinterest', 'auto', CRON_USER_ID || undefined);
+  process.on('exit', (code) => cronFinish(_cronId, 'pinterest', code, '', CRON_USER_ID || undefined));
 
   await connectDB();
 
-  const settings = await Settings.findOne();
+  const settings = await Settings.findOne(CRON_USER_ID ? { userId: CRON_USER_ID } : {});
   if (!settings) {
     console.error('No settings configured, exiting');
     process.exit(0);
   }
 
+  if (!settings.companyName) {
+    console.log('No company name configured. Set it in dashboard settings.');
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'pinterest', 'error', 'config_error', 'No company name configured');
+    process.exit(0);
+  }
+
   // Schedule guard
   const schedule = settings.platformSchedules?.get('pinterest');
-  if (!isWithinSchedule(schedule)) {
+  if (!process.env.CRON_MANUAL && !isWithinSchedule(schedule)) {
     console.log('Outside scheduled hours, exiting');
     process.exit(0);
   }
 
   // Pause guard — dashboard "Pause Cron" button sets this flag
-  if (settings.autoPostingPaused) {
+  if (!process.env.CRON_MANUAL && settings.autoPostingPaused) {
     console.log('Auto-posting is paused via dashboard, exiting');
     process.exit(0);
   }
 
   const keywords: string[] = (settings as any).pinterestKeywords?.length
     ? (settings as any).pinterestKeywords
-    : (settings.keywords?.length ? settings.keywords : DEFAULT_KEYWORDS);
+    : (settings.keywords?.length ? settings.keywords : []);
+  if (keywords.length === 0) {
+    console.log('No Pinterest keywords configured. Add keywords in dashboard settings.');
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'pinterest', 'warn', 'config_error', 'No Pinterest keywords configured');
+    process.exit(0);
+  }
   const dailyLimit: number = (settings as any).pinterestDailyLimit ?? DEFAULT_DAILY_LIMIT;
   const autoPostThreshold: number = (settings as any).pinterestAutoPostThreshold ?? DEFAULT_AUTO_POST_THRESHOLD;
 
@@ -357,21 +404,24 @@ async function main() {
   const todayCount = await getTodayCommentCount(accountId);
   if (todayCount >= dailyLimit) {
     console.log(`Daily limit reached: ${todayCount}/${dailyLimit} comments posted today`);
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'pinterest', 'info', 'limit', `Daily limit reached (${todayCount}/${dailyLimit}). Will resume tomorrow.`);
     process.exit(0);
   }
   console.log(`Comments posted today: ${todayCount}/${dailyLimit}`);
 
-  // 15-minute cooldown
-  const MIN_COMMENT_GAP_MS = 15 * 60 * 1000;
-  const lastPosted = await Post.findOne({ platform: 'pinterest', status: 'posted', postedAt: { $exists: true } })
-    .sort({ postedAt: -1 })
-    .select('postedAt');
-  if (lastPosted?.postedAt) {
-    const elapsed = Date.now() - new Date(lastPosted.postedAt).getTime();
-    if (elapsed < MIN_COMMENT_GAP_MS) {
-      const remainMin = Math.ceil((MIN_COMMENT_GAP_MS - elapsed) / 60000);
-      console.log(`Cooldown: last comment was ${Math.floor(elapsed / 60000)}m ago, need ${remainMin}m more. Skipping.`);
-      process.exit(0);
+  // 15-minute cooldown (skipped for manual runs)
+  if (!process.env.CRON_MANUAL) {
+    const MIN_COMMENT_GAP_MS = 15 * 60 * 1000;
+    const lastPosted = await Post.findOne({ platform: 'pinterest', status: 'posted', postedAt: { $exists: true }, ...(CRON_USER_ID && { userId: CRON_USER_ID }) })
+      .sort({ postedAt: -1 })
+      .select('postedAt');
+    if (lastPosted?.postedAt) {
+      const elapsed = Date.now() - new Date(lastPosted.postedAt).getTime();
+      if (elapsed < MIN_COMMENT_GAP_MS) {
+        const remainMin = Math.ceil((MIN_COMMENT_GAP_MS - elapsed) / 60000);
+        console.log(`Cooldown: last comment was ${Math.floor(elapsed / 60000)}m ago, need ${remainMin}m more. Skipping.`);
+        process.exit(0);
+      }
     }
   }
 
@@ -386,6 +436,8 @@ async function main() {
       }));
     } catch {}
     console.error('Not logged in to Pinterest. Use cookie login from the dashboard.');
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'pinterest', 'error', 'auth_error', 'Not logged in to Pinterest — re-set cookies from dashboard');
+    await closeBrowser();
     process.exit(1);
   }
   console.log('Pinterest login confirmed');
@@ -397,11 +449,12 @@ async function main() {
   // Save new pins to DB
   let newPinCount = 0;
   for (const pin of allPins) {
-    const exists = await Post.findOne({ url: pin.url });
+    const exists = await Post.findOne({ url: pin.url, ...(CRON_USER_ID && { userId: CRON_USER_ID }) });
     if (!exists) {
       await Post.create({
         url: pin.url,
         platform: 'pinterest',
+        ...(CRON_USER_ID && { userId: CRON_USER_ID }),
         author: pin.author,
         content: pin.content,
         keywordsMatched: keywords.filter(kw => pin.content.toLowerCase().includes(kw.toLowerCase())),
@@ -413,7 +466,7 @@ async function main() {
   console.log(`Saved ${newPinCount} new pins to DB`);
 
   // Evaluate unevaluated pins
-  const unevaluatedPins = await Post.find({ platform: 'pinterest', status: 'new' }).limit(10);
+  const unevaluatedPins = await Post.find({ platform: 'pinterest', status: 'new', ...(CRON_USER_ID && { userId: CRON_USER_ID }) }).limit(10);
   console.log(`Evaluating ${unevaluatedPins.length} new Pinterest pins`);
 
   for (const pin of unevaluatedPins) {
@@ -444,6 +497,7 @@ async function main() {
   const recheck = await getTodayCommentCount(accountId);
   if (recheck >= dailyLimit) {
     console.log('Daily limit reached after evaluation, skipping auto-post');
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'pinterest', 'info', 'limit', `Daily limit reached (${recheck}/${dailyLimit}). Will resume tomorrow.`);
     await closeBrowser();
     process.exit(0);
   }
@@ -453,6 +507,8 @@ async function main() {
     status: 'evaluated',
     aiRelevanceScore: { $gte: autoPostThreshold },
     aiReply: { $exists: true, $ne: '' },
+    postAttempts: { $not: { $gte: 3 } },
+    ...(CRON_USER_ID && { userId: CRON_USER_ID }),
   }).sort({ _id: -1 });
 
   if (candidate) {
@@ -463,6 +519,12 @@ async function main() {
         settings.companyName,
         settings.companyDescription
       );
+    }
+
+    // Fallback to existing AI reply if fresh generation failed
+    if (!replyText && candidate.aiReply) {
+      console.log('Using existing aiReply as fallback');
+      replyText = candidate.aiReply;
     }
 
     // Safety check — block JSON/debug garbage and empty/error text
@@ -480,8 +542,8 @@ async function main() {
       console.log(`Auto-posting comment on ${candidate.url} (score: ${candidate.aiRelevanceScore})`);
       console.log(`Comment: "${replyText}"`);
 
-      const success = await postPinterestComment(candidate.url, replyText);
-      if (success) {
+      const result = await postPinterestComment(candidate.url, replyText);
+      if (result.success) {
         await Post.findByIdAndUpdate(candidate._id, {
           status: 'posted',
           postedAt: new Date(),
@@ -489,15 +551,20 @@ async function main() {
           postedByAccount: accountId,
         });
         console.log(`Comment posted successfully (account: ${accountId})`);
+        if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'pinterest', 'success', 'post', `Comment posted on ${candidate.url}`, { score: candidate.aiRelevanceScore });
       } else {
-        console.error('Failed to post comment, will retry next run');
+        await Post.findByIdAndUpdate(candidate._id, { $inc: { postAttempts: 1 } });
+        console.error('Failed to post Pinterest comment:', result.error);
+        if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'pinterest', 'error', 'post_failed', `Failed to post Pinterest comment: ${result.error || 'Unknown error'}`, { url: candidate.url });
       }
     }
   } else {
     console.log('No pins above auto-post threshold, skipping');
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'pinterest', 'info', 'skip', 'No posts above auto-post threshold');
   }
 
   console.log(`[${new Date().toISOString()}] Pinterest Cron: complete`);
+  if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'pinterest', 'info', 'cron_end', 'Pinterest cron completed');
   await closeBrowser();
   process.exit(0);
 }

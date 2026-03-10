@@ -28,8 +28,6 @@ import { join } from 'path';
 import Post from '../src/models/Post';
 import Settings from '../src/models/Settings';
 
-const DEFAULT_TWITTER_KEYWORDS = ['backlinks', 'guest posting', 'link building', 'seo tools', 'website ranking'];
-const DEFAULT_FB_KEYWORDS = ['Serpbays', 'Guest post', 'backlinks', 'backlink', 'guest posting', 'link building', 'seo'];
 const DEFAULT_TWITTER_DAILY_LIMIT = 10;
 const DEFAULT_FB_DAILY_LIMIT = 5;
 
@@ -129,7 +127,7 @@ RULES:
 - Write ONLY the comment text, nothing else
 - Sound like a genuine group member sharing a real recommendation from experience
 - Mention "${companyName}" naturally — tie it specifically to backlinks, guest posting, or link building
-- NEVER include website URLs, domains, or "serpbays.com" — just the brand name
+- NEVER include website URLs or domains — just the brand name
 - Vary your opening — do NOT always start with "Hey" or "I"
 - Use natural, conversational language — no buzzwords, no excessive emojis, no hashtags
 - Do NOT write generic praise — connect the mention to the post topic
@@ -156,7 +154,7 @@ Write the comment now:`;
       .replace(/^(Comment|Reply|Response|Here'?s?\s*(the|my|a)?\s*(comment|reply)?:?\s*)/i, '')
       .replace(/\n/g, ' ')
       .replace(/https?:\/\/\S+/gi, '')
-      .replace(/serpbays\.com/gi, 'Serpbays')
+      .replace(new RegExp(companyName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\.com', 'gi'), companyName)
       .replace(/\s{2,}/g, ' ')
       .trim();
     if (comment.length > 300) comment = comment.slice(0, 297) + '...';
@@ -179,7 +177,11 @@ async function runTwitter(settings: any) {
 
   const keywords: string[] = settings.twitterKeywords?.length
     ? settings.twitterKeywords
-    : (settings.keywords?.length ? settings.keywords : DEFAULT_TWITTER_KEYWORDS);
+    : (settings.keywords?.length ? settings.keywords : []);
+  if (keywords.length === 0) {
+    console.log('No Twitter keywords configured, skipping Twitter.');
+    return;
+  }
   const dailyLimit: number = settings.twitterDailyLimit ?? DEFAULT_TWITTER_DAILY_LIMIT;
 
   let todayCount = await getTwitterTodayCount();
@@ -320,7 +322,11 @@ async function runFacebook(settings: any) {
 
   const keywords: string[] = settings.facebookKeywords?.length
     ? settings.facebookKeywords
-    : DEFAULT_FB_KEYWORDS;
+    : (settings.keywords?.length ? settings.keywords : []);
+  if (keywords.length === 0) {
+    console.log('No Facebook keywords configured, skipping Facebook.');
+    return;
+  }
   const dailyLimit: number = settings.facebookDailyLimit ?? DEFAULT_FB_DAILY_LIMIT;
 
   let todayCount = await getFBTodayCount();

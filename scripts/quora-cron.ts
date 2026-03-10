@@ -12,11 +12,13 @@
 import { config } from 'dotenv';
 config({ path: '.env.local' });
 
+const CRON_USER_ID = process.env.CRON_USER_ID;
+
 import { readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { connectDB } from '../src/lib/mongodb';
 import { evaluatePost, askOpenClaw } from '../src/lib/openclaw';
-import { cronStart, cronFinish } from '../src/lib/cronState';
+import { cronStart, cronFinish, acquireCronLock, releaseCronLock } from '../src/lib/cronState';
 import {
   ensureQuoraLoggedIn,
   scrapeProfileIdentity,
@@ -25,17 +27,22 @@ import {
   closeBrowser,
 } from '../src/lib/quora';
 import { isWithinSchedule } from '../src/lib/schedule';
+import { logActivity } from '../src/lib/activityLog';
 import Post from '../src/models/Post';
 import Settings from '../src/models/Settings';
 
-const DEFAULT_KEYWORDS = ['Serpbays', 'guest post', 'backlinks', 'backlink', 'guest posting', 'link building', 'seo'];
 const DEFAULT_DAILY_LIMIT = 3;
 const DEFAULT_AUTO_POST_THRESHOLD = 70;
+
+if (CRON_USER_ID && !process.env.QUORA_PROFILE_DIR) {
+  console.log('No Quora account connected for this user, skipping.');
+  process.exit(0);
+}
 
 // --- Read current Quora account identity ---
 function getVerifiedData(): Record<string, string> {
   try {
-    const raw = readFileSync(join(process.cwd(), '.quora-profile', '.verified'), 'utf8');
+    const raw = readFileSync(join(process.cwd(), process.env.QUORA_PROFILE_DIR || '.quora-profile', '.verified'), 'utf8');
     return JSON.parse(raw);
   } catch {
     return {};
@@ -63,11 +70,12 @@ async function getTodayCommentCount(accountId: string): Promise<number> {
   if (accountId) {
     query.postedByAccount = accountId;
   }
+  if (CRON_USER_ID) query.userId = CRON_USER_ID;
 
   return Post.countDocuments(query);
 }
 
-// --- Generate a unique, natural Quora answer mentioning Serpbays ---
+// --- Generate a unique, natural Quora answer mentioning the company ---
 async function generateVariedAnswer(
   postContent: string,
   companyName: string,
@@ -75,11 +83,11 @@ async function generateVariedAnswer(
 ): Promise<string> {
   const randomSeed = Math.floor(Math.random() * 1000);
   const styles = [
-    'share personal experience using serpbays for backlinks',
-    'give a detailed helpful answer then naturally mention serpbays guest posting',
-    'mention you found serpbays helpful for link building in a similar situation',
-    'provide expert advice then briefly reference serpbays niche edits or guest posts',
-    'answer the question thoroughly and suggest serpbays as a resource for backlinks',
+    `share personal experience using ${companyName}`,
+    `give a detailed helpful answer then naturally mention ${companyName}`,
+    `mention you found ${companyName} helpful in a similar situation`,
+    `provide expert advice then briefly reference ${companyName}`,
+    `answer the question thoroughly and suggest ${companyName} as a resource`,
   ];
   const style = styles[randomSeed % styles.length];
 
@@ -97,7 +105,7 @@ RULES:
 - Sound like a real Quora expert sharing genuine knowledge and experience
 - Provide actual value first — the answer should be helpful even without the brand mention
 - Mention "${companyName}" naturally once — tie it specifically to backlinks, guest posting, or link building
-- NEVER include website URLs, domains, or "serpbays.com" — just the brand name
+- NEVER include website URLs or domains — just the brand name
 - Vary your opening — do NOT always start with "Great question" or "I"
 - Use professional but conversational Quora language
 - Do NOT write generic praise — connect the mention to the question topic
@@ -134,7 +142,7 @@ Write the answer now:`;
       .replace(/^["'`]+|["'`]+$/g, '')
       .replace(/^(Answer|Reply|Response|Here'?s?\s*(the|my|a)?\s*(answer|reply)?:?\s*)/i, '')
       .replace(/https?:\/\/\S+/gi, '')
-      .replace(/serpbays\.com/gi, 'Serpbays')
+      .replace(new RegExp(companyName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\.com', 'gi'), companyName)
       .replace(/\s{2,}/g, ' ')
       .trim();
 
@@ -150,28 +158,41 @@ Write the answer now:`;
 }
 
 async function main() {
-  console.log(`[${new Date().toISOString()}] Quora Cron: starting`);
-  const _cronId = cronStart('quora', 'auto');
-  process.on('exit', (code) => cronFinish(_cronId, 'quora', code));
+  if (!acquireCronLock('quora', CRON_USER_ID || undefined)) {
+    console.log(`[${new Date().toISOString()}] Quora Cron: already running for user ${CRON_USER_ID || 'default'}, exiting`);
+    process.exit(0);
+  }
+  process.on('exit', () => releaseCronLock('quora', CRON_USER_ID || undefined));
+
+  console.log(`[${new Date().toISOString()}] Quora Cron: starting (user: ${CRON_USER_ID || 'default'})`);
+  if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'quora', 'info', 'cron_start', 'Quora cron started');
+  const _cronId = cronStart('quora', 'auto', CRON_USER_ID || undefined);
+  process.on('exit', (code) => cronFinish(_cronId, 'quora', code, '', CRON_USER_ID || undefined));
 
   await connectDB();
 
   // Step 1: Load settings
-  const settings = await Settings.findOne();
+  const settings = await Settings.findOne(CRON_USER_ID ? { userId: CRON_USER_ID } : {});
   if (!settings) {
     console.error('No settings configured, exiting');
     process.exit(0);
   }
 
+  if (!settings.companyName) {
+    console.log('No company name configured. Set it in dashboard settings.');
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'quora', 'error', 'config_error', 'No company name configured');
+    process.exit(0);
+  }
+
   // Step 1b: Schedule guard (uses per-platform schedule if configured)
   const schedule = settings.platformSchedules?.get('quora');
-  if (!isWithinSchedule(schedule)) {
+  if (!process.env.CRON_MANUAL && !isWithinSchedule(schedule)) {
     console.log('Outside scheduled hours, exiting');
     process.exit(0);
   }
 
   // Pause guard — dashboard "Pause Cron" button sets this flag
-  if (settings.autoPostingPaused) {
+  if (!process.env.CRON_MANUAL && settings.autoPostingPaused) {
     console.log('Auto-posting is paused via dashboard, exiting');
     process.exit(0);
   }
@@ -179,7 +200,12 @@ async function main() {
   // Step 2: Load Quora-specific settings
   const keywords: string[] = settings.quoraKeywords?.length
     ? settings.quoraKeywords
-    : (settings.keywords?.length ? settings.keywords : DEFAULT_KEYWORDS);
+    : (settings.keywords?.length ? settings.keywords : []);
+  if (keywords.length === 0) {
+    console.log('No Quora keywords configured. Add keywords in dashboard settings.');
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'quora', 'warn', 'config_error', 'No Quora keywords configured');
+    process.exit(0);
+  }
   const dailyLimit: number = settings.quoraDailyLimit ?? DEFAULT_DAILY_LIMIT;
   const autoPostThreshold: number =
     settings.quoraAutoPostThreshold ?? DEFAULT_AUTO_POST_THRESHOLD;
@@ -194,21 +220,24 @@ async function main() {
   const todayCount = await getTodayCommentCount(accountId);
   if (todayCount >= dailyLimit) {
     console.log(`Daily limit reached: ${todayCount}/${dailyLimit} answers posted today${accountId ? ` (account: ${accountId})` : ''}`);
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'quora', 'info', 'limit', `Daily limit reached (${todayCount}/${dailyLimit}). Will resume tomorrow.`);
     process.exit(0);
   }
   console.log(`Answers posted today: ${todayCount}/${dailyLimit}${accountId ? ` (account: ${accountId})` : ''}`);
 
-  // Step 3b: 15-minute cooldown
-  const MIN_COMMENT_GAP_MS = 15 * 60 * 1000;
-  const lastPosted = await Post.findOne({ platform: 'quora', status: 'posted', postedAt: { $exists: true } })
-    .sort({ postedAt: -1 })
-    .select('postedAt platform');
-  if (lastPosted?.postedAt) {
-    const elapsed = Date.now() - new Date(lastPosted.postedAt).getTime();
-    if (elapsed < MIN_COMMENT_GAP_MS) {
-      const remainMin = Math.ceil((MIN_COMMENT_GAP_MS - elapsed) / 60000);
-      console.log(`Cooldown: last answer was ${Math.floor(elapsed / 60000)}m ago, need ${remainMin}m more. Skipping.`);
-      process.exit(0);
+  // Step 3b: 15-minute cooldown (skipped for manual runs)
+  if (!process.env.CRON_MANUAL) {
+    const MIN_COMMENT_GAP_MS = 15 * 60 * 1000;
+    const lastPosted = await Post.findOne({ platform: 'quora', status: 'posted', postedAt: { $exists: true }, ...(CRON_USER_ID && { userId: CRON_USER_ID }) })
+      .sort({ postedAt: -1 })
+      .select('postedAt platform');
+    if (lastPosted?.postedAt) {
+      const elapsed = Date.now() - new Date(lastPosted.postedAt).getTime();
+      if (elapsed < MIN_COMMENT_GAP_MS) {
+        const remainMin = Math.ceil((MIN_COMMENT_GAP_MS - elapsed) / 60000);
+        console.log(`Cooldown: last answer was ${Math.floor(elapsed / 60000)}m ago, need ${remainMin}m more. Skipping.`);
+        process.exit(0);
+      }
     }
   }
 
@@ -216,9 +245,11 @@ async function main() {
   const loggedIn = await ensureQuoraLoggedIn();
   if (!loggedIn) {
     try {
-      writeFileSync(join(process.cwd(), '.quora-profile', '.verified'), JSON.stringify({ loggedIn: false, ts: new Date().toISOString(), message: 'Session expired — cron detected not logged in' }));
+      writeFileSync(join(process.cwd(), process.env.QUORA_PROFILE_DIR || '.quora-profile', '.verified'), JSON.stringify({ loggedIn: false, ts: new Date().toISOString(), message: 'Session expired — cron detected not logged in' }));
     } catch {}
     console.error('Not logged in to Quora. Use cookie login from the dashboard.');
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'quora', 'error', 'auth_error', 'Not logged in to Quora — re-set cookies from dashboard');
+    await closeBrowser();
     process.exit(1);
   }
   console.log('Quora login confirmed');
@@ -235,7 +266,7 @@ async function main() {
       dn = dn || scraped.displayName;
       un = un || scraped.username;
     }
-    writeFileSync(join(process.cwd(), '.quora-profile', '.verified'), JSON.stringify({
+    writeFileSync(join(process.cwd(), process.env.QUORA_PROFILE_DIR || '.quora-profile', '.verified'), JSON.stringify({
       loggedIn: true, ts: new Date().toISOString(),
       message: 'Quora session verified by cron',
       accountId: aid, displayName: dn, username: un,
@@ -249,11 +280,12 @@ async function main() {
   // Step 6: Save new questions to DB
   let newPostCount = 0;
   for (const question of allQuestions) {
-    const exists = await Post.findOne({ url: question.url });
+    const exists = await Post.findOne({ url: question.url, ...(CRON_USER_ID && { userId: CRON_USER_ID }) });
     if (!exists) {
       await Post.create({
         url: question.url,
         platform: 'quora',
+        ...(CRON_USER_ID && { userId: CRON_USER_ID }),
         author: question.author,
         content: question.content,
         keywordsMatched: keywords.filter((kw) =>
@@ -270,6 +302,7 @@ async function main() {
   const unevaluatedPosts = await Post.find({
     platform: 'quora',
     status: 'new',
+    ...(CRON_USER_ID && { userId: CRON_USER_ID }),
   }).limit(10);
 
   console.log(`Evaluating ${unevaluatedPosts.length} new Quora questions`);
@@ -305,6 +338,7 @@ async function main() {
   const recheck = await getTodayCommentCount(accountId);
   if (recheck >= dailyLimit) {
     console.log('Daily limit reached after evaluation, skipping auto-post');
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'quora', 'info', 'limit', `Daily limit reached (${recheck}/${dailyLimit}). Will resume tomorrow.`);
     await closeBrowser();
     process.exit(0);
   }
@@ -314,6 +348,8 @@ async function main() {
     status: 'evaluated',
     aiRelevanceScore: { $gte: autoPostThreshold },
     aiReply: { $exists: true, $ne: '' },
+    postAttempts: { $not: { $gte: 3 } },
+    ...(CRON_USER_ID && { userId: CRON_USER_ID }),
   }).sort({ _id: -1 });
 
   if (autoPostCandidate) {
@@ -325,6 +361,12 @@ async function main() {
         settings.companyName,
         settings.companyDescription
       );
+    }
+
+    // Fallback to existing AI reply if fresh generation failed
+    if (!replyText && autoPostCandidate.aiReply) {
+      console.log('Using existing aiReply as fallback');
+      replyText = autoPostCandidate.aiReply;
     }
 
     // Safety check — block JSON/debug garbage and empty/error text
@@ -344,9 +386,9 @@ async function main() {
       );
       console.log(`Answer: "${replyText.slice(0, 100)}..."`);
 
-      const success = await postQuoraAnswer(autoPostCandidate.url, replyText);
+      const result = await postQuoraAnswer(autoPostCandidate.url, replyText);
 
-      if (success) {
+      if (result.success) {
         await Post.findByIdAndUpdate(autoPostCandidate._id, {
           status: 'posted',
           postedAt: new Date(),
@@ -354,15 +396,20 @@ async function main() {
           postedByAccount: accountId,
         });
         console.log(`Answer posted successfully${accountId ? ` (account: ${accountId})` : ''}`);
+        if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'quora', 'success', 'post', `Comment posted on ${autoPostCandidate.url}`, { score: autoPostCandidate.aiRelevanceScore });
       } else {
-        console.error('Failed to post answer, will retry next run');
+        await Post.findByIdAndUpdate(autoPostCandidate._id, { $inc: { postAttempts: 1 } });
+        console.error('Failed to post Quora answer:', result.error);
+        if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'quora', 'error', 'post_failed', `Failed to post Quora answer: ${result.error || 'Unknown error'}`, { url: autoPostCandidate.url });
       }
     }
   } else {
     console.log('No questions above auto-post threshold, skipping');
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'quora', 'info', 'skip', 'No posts above auto-post threshold');
   }
 
   console.log(`[${new Date().toISOString()}] Quora Cron: complete`);
+  if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'quora', 'info', 'cron_end', 'Quora cron completed');
   await closeBrowser();
   process.exit(0);
 }

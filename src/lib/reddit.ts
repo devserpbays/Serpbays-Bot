@@ -7,9 +7,11 @@
 
 import { chromium, type BrowserContext, type Page } from 'playwright';
 import { join } from 'path';
-import { unlinkSync } from 'fs';
+import { unlinkSync, existsSync, readFileSync } from 'fs';
 
-const PROFILE_DIR = join(process.cwd(), '.reddit-profile');
+const DEFAULT_PROFILE_DIR = process.env.REDDIT_PROFILE_DIR
+  ? join(process.cwd(), process.env.REDDIT_PROFILE_DIR)
+  : join(process.cwd(), '.reddit-profile');
 const NAVIGATION_TIMEOUT = 30000;
 const SLOW_WAIT = 4000;
 
@@ -22,15 +24,36 @@ interface RedditPost {
 
 let _context: BrowserContext | null = null;
 let _page: Page | null = null;
+let _activeProfileDir: string = DEFAULT_PROFILE_DIR;
+
+/**
+ * Set the profile directory for the next browser session.
+ * Must be called BEFORE getPage() if you want a user-specific profile.
+ * If the profile dir changes, the current browser is closed and a new one opened.
+ */
+export function setProfileDir(profileDir: string): void {
+  const resolved = profileDir.startsWith('/') ? profileDir : join(process.cwd(), profileDir);
+  if (resolved !== _activeProfileDir) {
+    // Force close so next getPage() opens with the new profile
+    if (_context) {
+      _context.close().catch(() => {});
+      _context = null;
+      _page = null;
+    }
+    _activeProfileDir = resolved;
+  }
+}
 
 // --- Launch or reuse persistent browser context ---
 async function getPage(): Promise<Page> {
   if (_page && !_page.isClosed()) return _page;
 
-  // Remove stale browser lock from previous crash
-  try { unlinkSync(join(PROFILE_DIR, 'SingletonLock')); } catch {}
+  const profileDir = _activeProfileDir;
 
-  _context = await chromium.launchPersistentContext(PROFILE_DIR, {
+  // Remove stale browser lock from previous crash
+  try { unlinkSync(join(profileDir, 'SingletonLock')); } catch {}
+
+  _context = await chromium.launchPersistentContext(profileDir, {
     headless: true,
     args: [
       '--no-sandbox',
@@ -42,6 +65,19 @@ async function getPage(): Promise<Page> {
     viewport: { width: 1280, height: 900 },
     locale: 'en-US',
   });
+
+  // Inject cookies from cookies.json if available
+  const cookiesJsonPath = join(profileDir, 'cookies.json');
+  if (existsSync(cookiesJsonPath)) {
+    try {
+      const savedCookies = JSON.parse(readFileSync(cookiesJsonPath, 'utf8'));
+      if (Array.isArray(savedCookies) && savedCookies.length > 0) {
+        await _context.addCookies(savedCookies);
+      }
+    } catch (e) {
+      console.error('Failed to load cookies.json:', e);
+    }
+  }
 
   _page = _context.pages()[0] || (await _context.newPage());
   _page.setDefaultTimeout(NAVIGATION_TIMEOUT);
@@ -320,7 +356,7 @@ export async function scrapeRedditSearch(
 // --- Validate comment text before posting ---
 function isValidComment(text: string): boolean {
   if (!text || text.trim().length < 5) return false;
-  if (text.trim().length > 500) return false;
+  if (text.trim().length > 300) return false;
 
   const errorPatterns = [
     /error/i,
@@ -441,10 +477,10 @@ export async function upvoteRedditPost(postUrl: string): Promise<boolean> {
 export async function postRedditComment(
   postUrl: string,
   comment: string
-): Promise<boolean> {
+): Promise<{ success: boolean; error?: string }> {
   if (!isValidComment(comment)) {
     console.error('Invalid comment text (error/code detected), refusing to post:', comment.slice(0, 100));
-    return false;
+    return { success: false, error: 'Invalid comment text detected (contains code/error patterns)' };
   }
 
   try {
@@ -458,11 +494,14 @@ export async function postRedditComment(
     await page.mouse.wheel(0, 500);
     await sleep(2000);
 
-    // Try multiple comment box selectors (new Reddit + old Reddit)
+    // Try multiple comment box selectors (new Reddit Shreddit + old Reddit)
     const commentSelectors = [
-      'shreddit-composer div[contenteditable="true"]',
+      'shreddit-composer [contenteditable="true"]',
+      'shreddit-comment-composer [contenteditable="true"]',
+      'faceplate-tracker[noun="comment_composer"] [contenteditable="true"]',
       'div[contenteditable="true"][data-lexical-editor]',
       'div[contenteditable="true"][role="textbox"]',
+      'div[contenteditable="plaintext-only"]',
       'div[contenteditable="true"]',
       'textarea[name="comment"]',
       'textarea[placeholder*="comment" i]',
@@ -484,6 +523,10 @@ export async function postRedditComment(
     // If not found, try clicking the "Join the conversation" or "Add a comment" placeholder to expand
     if (!commentBox) {
       const placeholderSelectors = [
+        'shreddit-composer',
+        'shreddit-comment-composer',
+        'faceplate-tracker[noun="comment_composer"]',
+        'faceplate-tracker[noun="comment_composer"] div[role="textbox"]',
         'div[data-click-id="text"]',
         '[placeholder*="comment" i]',
         '[placeholder*="conversation" i]',
@@ -491,8 +534,7 @@ export async function postRedditComment(
         'span:has-text("Join the conversation")',
         'p:has-text("Join the conversation")',
         'div:has-text("Join the conversation"):not(:has(div))',
-        'faceplate-tracker[noun="comment_composer"] div[role="textbox"]',
-        'shreddit-composer',
+        'button:has-text("Add a comment")',
       ];
       for (const sel of placeholderSelectors) {
         const phs = await page.$$(sel);
@@ -521,7 +563,7 @@ export async function postRedditComment(
     if (!commentBox) {
       console.error('Could not find comment input box on post:', postUrl);
       await page.screenshot({ path: '/tmp/reddit-comment-failed.png', fullPage: false }).catch(() => {});
-      return false;
+      return { success: false, error: 'Comment box not found on page — post may be locked, archived, or login session expired' };
     }
 
     // Click to focus
@@ -534,9 +576,12 @@ export async function postRedditComment(
 
     // Find and click the submit button
     const submitSelectors = [
+      'button[slot="submit-button"]',
+      'shreddit-composer button[type="submit"]',
+      'shreddit-comment-composer button[type="submit"]',
+      'faceplate-tracker[noun="comment"] button',
       'button[type="submit"]:has-text("Comment")',
       'button:has-text("Comment")',
-      'button[slot="submit-button"]',
     ];
 
     let submitted = false;
@@ -566,14 +611,15 @@ export async function postRedditComment(
 
     if (posted) {
       console.log(`Comment posted successfully on: ${postUrl}`);
+      return { success: true };
     } else {
       console.warn(`Comment may NOT have posted on: ${postUrl}`);
       await page.screenshot({ path: '/tmp/reddit-post-failed.png', fullPage: false }).catch(() => {});
+      return { success: false, error: 'Comment not found on page after posting — may not have submitted. Check if logged in or if Reddit blocked it.' };
     }
-
-    return posted;
   } catch (err) {
-    console.error(`Failed to post comment on ${postUrl}:`, (err as Error).message);
-    return false;
+    const msg = (err as Error).message;
+    console.error(`Failed to post comment on ${postUrl}:`, msg);
+    return { success: false, error: msg };
   }
 }

@@ -14,8 +14,8 @@ import { connectDB } from '../src/lib/mongodb';
 import { askOpenClaw } from '../src/lib/openclaw';
 import { scrapeCommentEngagement as redditScrape, closeBrowser as closeReddit } from '../src/lib/reddit';
 import { scrapeCommentEngagement as facebookScrape, closeBrowser as closeFacebook } from '../src/lib/facebook';
-import { scrapeCommentEngagement as linkedinScrape, closeBrowser as closeLinkedin } from '../src/lib/linkedin';
 import Post from '../src/models/Post';
+import { acquireCronLock, releaseCronLock } from '../src/lib/cronState';
 
 const MONITOR_DAYS = 7;
 const MAX_POSTS_PER_RUN = 10;
@@ -45,7 +45,7 @@ ${replyContent.slice(0, 300)}
 RULES:
 - Write ONLY the follow-up text — no quotes, no labels
 - Be conversational and natural — like a real person continuing a discussion
-- Do NOT repeat Serpbays or any brand mention — you already mentioned it
+- Do NOT repeat the brand name or any brand mention — you already mentioned it
 - Keep it 1-2 sentences max
 - Be helpful and engaging, not pushy
 - Platform: ${platform}
@@ -82,6 +82,12 @@ Write the follow-up now:`;
 }
 
 async function main() {
+  if (!acquireCronLock('engagement-monitor')) {
+    console.log(`[${new Date().toISOString()}] Engagement Monitor: already running, exiting`);
+    process.exit(0);
+  }
+  process.on('exit', () => releaseCronLock('engagement-monitor'));
+
   console.log(`[${new Date().toISOString()}] Engagement Monitor: starting`);
 
   await connectDB();
@@ -124,8 +130,6 @@ async function main() {
         engagement = await redditScrape(post.url, commentText);
       } else if (post.platform === 'facebook') {
         engagement = await facebookScrape(post.url, commentText);
-      } else if (post.platform === 'linkedin') {
-        engagement = await linkedinScrape(post.url, commentText);
       } else if (post.platform === 'twitter') {
         // Twitter uses API — skip Playwright scraping for now
         console.log('  Twitter engagement monitoring via API (skipping Playwright)');
@@ -192,7 +196,6 @@ async function main() {
   await Promise.all([
     closeReddit().catch(() => {}),
     closeFacebook().catch(() => {}),
-    closeLinkedin().catch(() => {}),
   ]);
 
   process.exit(0);
@@ -203,7 +206,6 @@ main().catch(async (err) => {
   await Promise.all([
     closeReddit().catch(() => {}),
     closeFacebook().catch(() => {}),
-    closeLinkedin().catch(() => {}),
   ]);
   process.exit(1);
 });

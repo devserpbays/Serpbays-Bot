@@ -2,8 +2,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import { connectDB } from '@/lib/mongodb';
 import Post from '@/models/Post';
 import { replyToTweet, postTweet, extractTweetId, isTwitterConfigured } from '@/lib/twitter';
+import { getAuthUserId } from '@/lib/apiAuth';
+import { checkDailyPostLimit } from '@/lib/featureGate';
+import { checkRateLimit } from '@/lib/rateLimit';
 
 export async function POST(req: NextRequest) {
+  const userId = await getAuthUserId();
+  if (userId instanceof NextResponse) return userId;
+
+  const rl = checkRateLimit(userId, 'post');
+  if (rl) return NextResponse.json({ error: rl.error }, { status: 429 });
+
   await connectDB();
 
   if (!isTwitterConfigured()) {
@@ -19,7 +28,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Post ID is required' }, { status: 400 });
   }
 
-  const post = await Post.findById(id);
+  const post = await Post.findOne({ _id: id, userId });
   if (!post) {
     return NextResponse.json({ error: 'Post not found' }, { status: 404 });
   }
@@ -32,12 +41,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'This endpoint only supports Twitter/X posts' }, { status: 400 });
   }
 
+  // Enforce daily post limit
+  const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+  const todayCount = await Post.countDocuments({ userId, platform: 'twitter', status: 'posted', postedAt: { $gte: todayStart } });
+  const limitBlocked = await checkDailyPostLimit(userId, todayCount);
+  if (limitBlocked) return limitBlocked;
+
   const replyText = post.editedReply || post.aiReply;
   if (!replyText) {
     return NextResponse.json({ error: 'No reply text available' }, { status: 400 });
   }
 
-  // Truncate to Twitter's 280 character limit
   const tweetText = replyText.length > 280 ? replyText.slice(0, 277) + '...' : replyText;
 
   try {
@@ -45,14 +59,11 @@ export async function POST(req: NextRequest) {
     const tweetId = extractTweetId(post.url);
 
     if (tweetId) {
-      // Reply to the original tweet
       tweetResult = await replyToTweet(tweetText, tweetId);
     } else {
-      // No tweet ID found - post as a standalone tweet
       tweetResult = await postTweet(tweetText);
     }
 
-    // Update post status to 'posted'
     await Post.findByIdAndUpdate(id, {
       status: 'posted',
       postedAt: new Date(),

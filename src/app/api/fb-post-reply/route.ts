@@ -2,8 +2,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import { connectDB } from '@/lib/mongodb';
 import Post from '@/models/Post';
 import { postComment } from '@/lib/facebook';
+import { getAuthUserId } from '@/lib/apiAuth';
+import { checkDailyPostLimit } from '@/lib/featureGate';
+import { checkRateLimit } from '@/lib/rateLimit';
 
 export async function POST(req: NextRequest) {
+  const userId = await getAuthUserId();
+  if (userId instanceof NextResponse) return userId;
+
+  const rl = checkRateLimit(userId, 'post');
+  if (rl) return NextResponse.json({ error: rl.error }, { status: 429 });
+
   await connectDB();
 
   const { id } = await req.json();
@@ -12,7 +21,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Post ID is required' }, { status: 400 });
   }
 
-  const post = await Post.findById(id);
+  const post = await Post.findOne({ _id: id, userId });
   if (!post) {
     return NextResponse.json({ error: 'Post not found' }, { status: 404 });
   }
@@ -28,17 +37,23 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Enforce daily post limit
+  const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+  const todayCount = await Post.countDocuments({ userId, platform: 'facebook', status: 'posted', postedAt: { $gte: todayStart } });
+  const limitBlocked = await checkDailyPostLimit(userId, todayCount);
+  if (limitBlocked) return limitBlocked;
+
   const replyText = post.editedReply || post.aiReply;
   if (!replyText) {
     return NextResponse.json({ error: 'No reply text available' }, { status: 400 });
   }
 
   try {
-    const success = await postComment(post.url, replyText);
+    const result = await postComment(post.url, replyText);
 
-    if (!success) {
+    if (!result.success) {
       return NextResponse.json(
-        { error: 'Failed to post comment on Facebook. Check browser login status.' },
+        { error: result.error || 'Failed to post comment on Facebook. Check browser login status.' },
         { status: 500 }
       );
     }

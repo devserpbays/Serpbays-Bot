@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { connectDB } from '@/lib/mongodb';
 import Post from '@/models/Post';
+import { getAuthUserId } from '@/lib/apiAuth';
 
 export async function GET(req: NextRequest) {
+  const userId = await getAuthUserId();
+  if (userId instanceof NextResponse) return userId;
+
   await connectDB();
 
   const { searchParams } = req.nextUrl;
@@ -15,7 +19,7 @@ export async function GET(req: NextRequest) {
   const from = searchParams.get('from');
   const to = searchParams.get('to');
 
-  const filter: Record<string, unknown> = {};
+  const filter: Record<string, unknown> = { userId };
   if (status) filter.status = status;
   if (platform) filter.platform = platform;
   if (minScore) filter.aiRelevanceScore = { $gte: parseInt(minScore) };
@@ -39,6 +43,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
+  const userId = await getAuthUserId();
+  if (userId instanceof NextResponse) return userId;
+
   await connectDB();
 
   const body = await req.json();
@@ -56,7 +63,7 @@ export async function PATCH(req: NextRequest) {
   }
   if (editedReply !== undefined) update.editedReply = editedReply;
 
-  const post = await Post.findByIdAndUpdate(id, update, { new: true }).lean();
+  const post = await Post.findOneAndUpdate({ _id: id, userId }, update, { new: true }).lean();
 
   if (!post) {
     return NextResponse.json({ error: 'Post not found' }, { status: 404 });

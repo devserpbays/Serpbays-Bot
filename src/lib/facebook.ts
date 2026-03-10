@@ -9,9 +9,11 @@
 
 import { chromium, type BrowserContext, type Page } from 'playwright';
 import { join } from 'path';
-import { unlinkSync } from 'fs';
+import { unlinkSync, existsSync, readFileSync } from 'fs';
 
-const PROFILE_DIR = join(process.cwd(), '.fb-profile');
+const PROFILE_DIR = process.env.FACEBOOK_PROFILE_DIR
+  ? join(process.cwd(), process.env.FACEBOOK_PROFILE_DIR)
+  : join(process.cwd(), '.fb-profile');
 const NAVIGATION_TIMEOUT = 30000;
 const SLOW_WAIT = 4000; // time to let Facebook SPA render
 
@@ -44,6 +46,19 @@ async function getPage(): Promise<Page> {
     viewport: { width: 1280, height: 900 },
     locale: 'en-US',
   });
+
+  // Inject cookies from cookies.json if available
+  const cookiesJsonPath = join(PROFILE_DIR, 'cookies.json');
+  if (existsSync(cookiesJsonPath)) {
+    try {
+      const savedCookies = JSON.parse(readFileSync(cookiesJsonPath, 'utf8'));
+      if (Array.isArray(savedCookies) && savedCookies.length > 0) {
+        await _context.addCookies(savedCookies);
+      }
+    } catch (e) {
+      console.error('Failed to load cookies.json:', e);
+    }
+  }
 
   _page = _context.pages()[0] || (await _context.newPage());
   _page.setDefaultTimeout(NAVIGATION_TIMEOUT);
@@ -441,11 +456,11 @@ function isValidComment(text: string): boolean {
 export async function postComment(
   postUrl: string,
   comment: string
-): Promise<boolean> {
+): Promise<{ success: boolean; error?: string }> {
   // Validate comment before attempting to post
   if (!isValidComment(comment)) {
     console.error('Invalid comment text (error/code detected), refusing to post:', comment.slice(0, 100));
-    return false;
+    return { success: false, error: 'Invalid comment text detected (contains code/error patterns)' };
   }
 
   try {
@@ -518,7 +533,7 @@ export async function postComment(
 
     if (!commentBox) {
       console.error('Could not find comment input box on post:', postUrl);
-      return false;
+      return { success: false, error: 'Comment box not found — post may be restricted, or login session expired' };
     }
 
     // Click to focus (force to bypass any overlay)
@@ -551,15 +566,15 @@ export async function postComment(
 
     if (posted) {
       console.log(`Comment posted successfully on: ${postUrl}`);
+      return { success: true };
     } else {
       console.warn(`Comment may NOT have posted on: ${postUrl} (box not cleared, text not found in comments)`);
-      // Save a screenshot for debugging
       await page.screenshot({ path: '/tmp/fb-post-failed.png', fullPage: false }).catch(() => {});
+      return { success: false, error: 'Comment not confirmed after posting — Facebook may have blocked it or session expired' };
     }
-
-    return posted;
   } catch (err) {
-    console.error(`Failed to post comment on ${postUrl}:`, (err as Error).message);
-    return false;
+    const msg = (err as Error).message;
+    console.error(`Failed to post comment on ${postUrl}:`, msg);
+    return { success: false, error: msg };
   }
 }

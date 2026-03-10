@@ -14,7 +14,7 @@ export interface PlatformSchedule {
 
 const DEFAULT_SCHEDULE: PlatformSchedule = {
   timezone: 'Asia/Kolkata',
-  days: [1, 2, 3, 4, 5], // Mon-Fri
+  days: [0, 1, 2, 3, 4, 5, 6], // Sun-Sat (all days)
   startHour: 9,
   endHour: 18,
 };

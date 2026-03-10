@@ -1,21 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { connectDB } from '@/lib/mongodb';
 import Settings from '@/models/Settings';
+import { getAuthUserId } from '@/lib/apiAuth';
 
 // GET — return current pause state
 export async function GET() {
+  const userId = await getAuthUserId();
+  if (userId instanceof NextResponse) return userId;
+
   await connectDB();
-  const settings = await Settings.findOne().select('autoPostingPaused');
+  const settings = await Settings.findOne({ userId }).select('autoPostingPaused');
   return NextResponse.json({ paused: settings?.autoPostingPaused ?? false });
 }
 
 // POST — toggle or set pause state
 export async function POST(req: NextRequest) {
+  const userId = await getAuthUserId();
+  if (userId instanceof NextResponse) return userId;
+
   await connectDB();
   const body = await req.json().catch(() => ({}));
 
-  // Accept explicit { paused: true/false } or just toggle
-  const settings = await Settings.findOne();
+  const settings = await Settings.findOne({ userId });
   if (!settings) {
     return NextResponse.json({ error: 'Settings not configured' }, { status: 400 });
   }
@@ -26,6 +32,6 @@ export async function POST(req: NextRequest) {
 
   await Settings.findByIdAndUpdate(settings._id, { autoPostingPaused: newPaused });
 
-  console.log(`[cron-control] Auto-posting ${newPaused ? 'PAUSED' : 'RESUMED'}`);
+  console.log(`[cron-control] Auto-posting ${newPaused ? 'PAUSED' : 'RESUMED'} for user ${userId}`);
   return NextResponse.json({ paused: newPaused });
 }

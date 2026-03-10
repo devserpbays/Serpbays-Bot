@@ -462,7 +462,7 @@ export default function PlatformPage() {
                                             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                                                 {postedAt && (
                                                     <span style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, background: 'var(--bg-input)', color: 'var(--text-muted)', border: '1px solid var(--border-subtle)' }}>
-                                                        🕐 {postedAt.toLocaleString()}
+                                                        {postedAt.toLocaleString()}
                                                     </span>
                                                 )}
                                                 {post.aiTone && (

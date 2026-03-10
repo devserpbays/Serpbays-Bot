@@ -12,11 +12,13 @@
 import { config } from 'dotenv';
 config({ path: '.env.local' });
 
+const CRON_USER_ID = process.env.CRON_USER_ID;
+
 import { readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { connectDB } from '../src/lib/mongodb';
 import { evaluatePost, askOpenClaw } from '../src/lib/openclaw';
-import { cronStart, cronFinish } from '../src/lib/cronState';
+import { cronStart, cronFinish, acquireCronLock, releaseCronLock } from '../src/lib/cronState';
 import {
   ensureRedditLoggedIn,
   scrapeProfileIdentity,
@@ -27,17 +29,25 @@ import {
   closeBrowser,
 } from '../src/lib/reddit';
 import { isWithinSchedule } from '../src/lib/schedule';
+import { logActivity } from '../src/lib/activityLog';
 import Post from '../src/models/Post';
 import Settings from '../src/models/Settings';
 
-const DEFAULT_KEYWORDS = ['Serpbays', 'guest post', 'backlinks', 'backlink', 'guest posting', 'link building', 'seo'];
 const DEFAULT_DAILY_LIMIT = 5;
 const DEFAULT_AUTO_POST_THRESHOLD = 70;
 
+if (CRON_USER_ID && !process.env.REDDIT_PROFILE_DIR) {
+  console.log('No Reddit account connected for this user, skipping.');
+  process.exit(0);
+}
+
 // --- Read current Reddit account identity ---
 function getVerifiedData(): Record<string, string> {
+  const profileDir = process.env.REDDIT_PROFILE_DIR
+    ? join(process.cwd(), process.env.REDDIT_PROFILE_DIR)
+    : join(process.cwd(), '.reddit-profile');
   try {
-    const raw = readFileSync(join(process.cwd(), '.reddit-profile', '.verified'), 'utf8');
+    const raw = readFileSync(join(profileDir, '.verified'), 'utf8');
     return JSON.parse(raw);
   } catch {
     return {};
@@ -65,11 +75,12 @@ async function getTodayCommentCount(accountId: string): Promise<number> {
   if (accountId) {
     query.postedByAccount = accountId;
   }
+  if (CRON_USER_ID) query.userId = CRON_USER_ID;
 
   return Post.countDocuments(query);
 }
 
-// --- Generate a unique, natural Reddit comment mentioning Serpbays ---
+// --- Generate a unique, natural Reddit comment mentioning the company ---
 async function generateVariedComment(
   postContent: string,
   companyName: string,
@@ -77,11 +88,11 @@ async function generateVariedComment(
 ): Promise<string> {
   const randomSeed = Math.floor(Math.random() * 1000);
   const styles = [
-    'share personal experience using serpbays for backlinks',
-    'casually recommend serpbays guest posting to solve the poster\'s problem',
-    'mention you found serpbays helpful for link building in a similar situation',
-    'ask a follow-up question then briefly mention serpbays niche edits or guest posts',
-    'give a tip and suggest serpbays as a resource for backlinks or guest post opportunities',
+    `share personal experience using ${companyName}`,
+    `casually recommend ${companyName} to solve the poster's problem`,
+    `mention you found ${companyName} helpful in a similar situation`,
+    `ask a follow-up question then briefly mention ${companyName}`,
+    `give a tip and suggest ${companyName} as a resource`,
   ];
   const style = styles[randomSeed % styles.length];
 
@@ -92,13 +103,14 @@ POST:
 ${postContent.slice(0, 500)}
 """
 
-YOUR TASK: Write 1-3 sentence comment that ${style}.
+YOUR TASK: Write a SHORT 1-2 sentence comment (under 200 characters) that ${style}.
 
 RULES:
+- MAXIMUM 200 characters. Be brief like a real Reddit comment — not an essay
 - Write ONLY the comment text, nothing else (no quotes, no labels, no explanation)
 - Sound like a genuine Redditor sharing a real recommendation from experience
-- Mention "${companyName}" naturally — tie it specifically to backlinks, guest posting, or link building (whichever fits)
-- NEVER include website URLs, domains, or "serpbays.com" — just the brand name
+- Mention "${companyName}" naturally — tie it to the post topic
+- NEVER include website URLs or domains — just the brand name
 - Vary your opening — do NOT always start with "Hey" or "I"
 - Use natural, conversational Reddit language — no buzzwords, no excessive emojis
 - Do NOT write generic praise — connect the mention to the post topic
@@ -136,12 +148,12 @@ Write the comment now:`;
       .replace(/^(Comment|Reply|Response|Here'?s?\s*(the|my|a)?\s*(comment|reply)?:?\s*)/i, '')
       .replace(/\n/g, ' ')
       .replace(/https?:\/\/\S+/gi, '')
-      .replace(/serpbays\.com/gi, 'Serpbays')
+      .replace(new RegExp(companyName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\.com', 'gi'), companyName)
       .replace(/\s{2,}/g, ' ')
       .trim();
 
-    if (comment.length > 400) {
-      comment = comment.slice(0, 397) + '...';
+    if (comment.length > 250) {
+      comment = comment.slice(0, 247) + '...';
     }
 
     return comment;
@@ -152,35 +164,53 @@ Write the comment now:`;
 }
 
 async function main() {
-  console.log(`[${new Date().toISOString()}] Reddit Cron: starting`);
-  const _cronId = cronStart('reddit', 'auto');
-  process.on('exit', (code) => cronFinish(_cronId, 'reddit', code));
+  if (!acquireCronLock('reddit', CRON_USER_ID || undefined)) {
+    console.log(`[${new Date().toISOString()}] Reddit Cron: already running for user ${CRON_USER_ID || 'default'}, exiting`);
+    process.exit(0);
+  }
+  process.on('exit', () => releaseCronLock('reddit', CRON_USER_ID || undefined));
+
+  console.log(`[${new Date().toISOString()}] Reddit Cron: starting (user: ${CRON_USER_ID || 'default'})`);
+  if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'reddit', 'info', 'cron_start', 'Reddit cron started');
+  const _cronId = cronStart('reddit', 'auto', CRON_USER_ID || undefined);
+  process.on('exit', (code) => cronFinish(_cronId, 'reddit', code, '', CRON_USER_ID || undefined));
 
   await connectDB();
 
   // Step 1: Load settings (needed for schedule check)
-  const settings = await Settings.findOne();
+  const settings = await Settings.findOne(CRON_USER_ID ? { userId: CRON_USER_ID } : {});
   if (!settings) {
     console.error('No settings configured, exiting');
     process.exit(0);
   }
 
+  if (!settings.companyName) {
+    console.log('No company name configured. Set it in dashboard settings.');
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'reddit', 'error', 'config_error', 'No company name configured');
+    process.exit(0);
+  }
+
   // Step 1b: Schedule guard (uses per-platform schedule if configured)
   const schedule = settings.platformSchedules?.get('reddit');
-  if (!isWithinSchedule(schedule)) {
+  if (!process.env.CRON_MANUAL && !isWithinSchedule(schedule)) {
     console.log('Outside scheduled hours, exiting');
     process.exit(0);
   }
 
   // Pause guard — dashboard "Pause Cron" button sets this flag
-  if (settings.autoPostingPaused) {
+  if (!process.env.CRON_MANUAL && settings.autoPostingPaused) {
     console.log('Auto-posting is paused via dashboard, exiting');
     process.exit(0);
   }
 
   const keywords: string[] = settings.redditKeywords?.length
     ? settings.redditKeywords
-    : (settings.keywords?.length ? settings.keywords : DEFAULT_KEYWORDS);
+    : (settings.keywords?.length ? settings.keywords : []);
+  if (keywords.length === 0) {
+    console.log('No Reddit keywords configured. Add keywords in dashboard settings.');
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'reddit', 'warn', 'config_error', 'No Reddit keywords configured');
+    process.exit(0);
+  }
   const dailyLimit: number = settings.redditDailyLimit ?? DEFAULT_DAILY_LIMIT;
   const autoPostThreshold: number =
     settings.redditAutoPostThreshold ?? DEFAULT_AUTO_POST_THRESHOLD;
@@ -195,21 +225,24 @@ async function main() {
   const todayCount = await getTodayCommentCount(accountId);
   if (todayCount >= dailyLimit) {
     console.log(`Daily limit reached: ${todayCount}/${dailyLimit} comments posted today${accountId ? ` (account: ${accountId})` : ''}`);
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'reddit', 'info', 'limit', `Daily limit reached (${todayCount}/${dailyLimit}). Will resume tomorrow.`);
     process.exit(0);
   }
   console.log(`Comments posted today: ${todayCount}/${dailyLimit}${accountId ? ` (account: ${accountId})` : ''}`);
 
-  // Step 3b: 15-minute cooldown
-  const MIN_COMMENT_GAP_MS = 15 * 60 * 1000;
-  const lastPosted = await Post.findOne({ platform: 'reddit', status: 'posted', postedAt: { $exists: true } })
-    .sort({ postedAt: -1 })
-    .select('postedAt platform');
-  if (lastPosted?.postedAt) {
-    const elapsed = Date.now() - new Date(lastPosted.postedAt).getTime();
-    if (elapsed < MIN_COMMENT_GAP_MS) {
-      const remainMin = Math.ceil((MIN_COMMENT_GAP_MS - elapsed) / 60000);
-      console.log(`Cooldown: last comment was ${Math.floor(elapsed / 60000)}m ago, need ${remainMin}m more. Skipping.`);
-      process.exit(0);
+  // Step 3b: 15-minute cooldown (skipped for manual runs)
+  if (!process.env.CRON_MANUAL) {
+    const MIN_COMMENT_GAP_MS = 15 * 60 * 1000;
+    const lastPosted = await Post.findOne({ platform: 'reddit', status: 'posted', postedAt: { $exists: true }, ...(CRON_USER_ID && { userId: CRON_USER_ID }) })
+      .sort({ postedAt: -1 })
+      .select('postedAt platform');
+    if (lastPosted?.postedAt) {
+      const elapsed = Date.now() - new Date(lastPosted.postedAt).getTime();
+      if (elapsed < MIN_COMMENT_GAP_MS) {
+        const remainMin = Math.ceil((MIN_COMMENT_GAP_MS - elapsed) / 60000);
+        console.log(`Cooldown: last comment was ${Math.floor(elapsed / 60000)}m ago, need ${remainMin}m more. Skipping.`);
+        process.exit(0);
+      }
     }
   }
 
@@ -220,6 +253,8 @@ async function main() {
       writeFileSync(join(process.cwd(), '.reddit-profile', '.verified'), JSON.stringify({ loggedIn: false, ts: new Date().toISOString(), message: 'Session expired — cron detected not logged in' }));
     } catch {}
     console.error('Not logged in to Reddit. Use cookie login from the dashboard.');
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'reddit', 'error', 'auth_error', 'Not logged in to Reddit — re-set cookies from dashboard');
+    await closeBrowser();
     process.exit(1);
   }
   console.log('Reddit login confirmed');
@@ -270,11 +305,12 @@ async function main() {
   // Step 6: Save new posts to DB
   let newPostCount = 0;
   for (const post of allPosts) {
-    const exists = await Post.findOne({ url: post.url });
+    const exists = await Post.findOne({ url: post.url, ...(CRON_USER_ID && { userId: CRON_USER_ID }) });
     if (!exists) {
       await Post.create({
         url: post.url,
         platform: 'reddit',
+        ...(CRON_USER_ID && { userId: CRON_USER_ID }),
         author: post.author,
         content: post.content,
         keywordsMatched: keywords.filter((kw) =>
@@ -286,11 +322,13 @@ async function main() {
     }
   }
   console.log(`Saved ${newPostCount} new posts to DB`);
+  if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'reddit', 'info', 'scrape', `Scraped ${allPosts.length} posts, saved ${newPostCount} new ones`);
 
   // Step 7: Evaluate unevaluated Reddit posts
   const unevaluatedPosts = await Post.find({
     platform: 'reddit',
     status: 'new',
+    ...(CRON_USER_ID && { userId: CRON_USER_ID }),
   }).limit(10);
 
   console.log(`Evaluating ${unevaluatedPosts.length} new Reddit posts`);
@@ -321,11 +359,13 @@ async function main() {
       await Post.findByIdAndUpdate(post._id, { status: 'new' });
     }
   }
+  if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'reddit', 'info', 'evaluate', `Evaluated ${unevaluatedPosts.length} posts`);
 
   // Step 8: Auto-post one high-scoring comment
   const recheck = await getTodayCommentCount(accountId);
   if (recheck >= dailyLimit) {
     console.log('Daily limit reached after evaluation, skipping auto-post');
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'reddit', 'info', 'limit', `Daily limit reached (${recheck}/${dailyLimit}). Will resume tomorrow.`);
     await closeBrowser();
     process.exit(0);
   }
@@ -335,6 +375,8 @@ async function main() {
     status: 'evaluated',
     aiRelevanceScore: { $gte: autoPostThreshold },
     aiReply: { $exists: true, $ne: '' },
+    postAttempts: { $not: { $gte: 3 } },
+    ...(CRON_USER_ID && { userId: CRON_USER_ID }),
   }).sort({ _id: -1 });
 
   if (autoPostCandidate) {
@@ -346,6 +388,12 @@ async function main() {
         settings.companyName,
         settings.companyDescription
       );
+    }
+
+    // Fallback to existing AI reply if fresh generation failed
+    if (!replyText && autoPostCandidate.aiReply) {
+      console.log('Using existing aiReply as fallback');
+      replyText = autoPostCandidate.aiReply;
     }
 
     // ── Pre-post preview ─────────────────────────────────────────────────────
@@ -382,9 +430,9 @@ async function main() {
         } catch (e) { console.warn('Upvote failed, continuing:', (e as Error).message); }
       }
 
-      const success = await postRedditComment(autoPostCandidate.url, replyText);
+      const result = await postRedditComment(autoPostCandidate.url, replyText);
 
-      if (success) {
+      if (result.success) {
         await Post.findByIdAndUpdate(autoPostCandidate._id, {
           status: 'posted',
           postedAt: new Date(),
@@ -392,15 +440,20 @@ async function main() {
           postedByAccount: accountId,
         });
         console.log(`Comment posted successfully${accountId ? ` (account: ${accountId})` : ''}`);
+        if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'reddit', 'success', 'post', `Comment posted on ${autoPostCandidate.url}`, { score: autoPostCandidate.aiRelevanceScore });
       } else {
-        console.error('Failed to post comment, will retry next run');
+        await Post.findByIdAndUpdate(autoPostCandidate._id, { $inc: { postAttempts: 1 } });
+        console.error('Failed to post Reddit comment:', result.error);
+        if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'reddit', 'error', 'post_failed', `Failed to post Reddit comment: ${result.error || 'Unknown error'}`, { url: autoPostCandidate.url });
       }
     }
   } else {
     console.log('No posts above auto-post threshold, skipping');
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'reddit', 'info', 'skip', 'No posts above auto-post threshold');
   }
 
   console.log(`[${new Date().toISOString()}] Reddit Cron: complete`);
+  if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'reddit', 'info', 'cron_end', 'Reddit cron completed');
   await closeBrowser();
   process.exit(0);
 }

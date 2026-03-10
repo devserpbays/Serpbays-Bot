@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import type { IPost } from '@/lib/types';
 import StatusBadge from './StatusBadge';
+import UpgradeBanner from './UpgradeBanner';
 
 interface PostCardProps {
   post: IPost;
@@ -15,6 +16,7 @@ export default function PostCard({ post, onUpdate }: PostCardProps) {
   const [loading, setLoading] = useState(false);
   const [posting, setPosting] = useState(false);
   const [postResult, setPostResult] = useState<string>('');
+  const [upgradeMessage, setUpgradeMessage] = useState('');
 
   const handleAction = async (status: string) => {
     setLoading(true);
@@ -25,12 +27,17 @@ export default function PostCard({ post, onUpdate }: PostCardProps) {
   const handlePostToX = async () => {
     setPosting(true);
     setPostResult('');
+    setUpgradeMessage('');
     try {
       const res = await fetch('/api/post-reply', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: post._id }),
       });
+      if (res.status === 403) {
+        const data = await res.json();
+        if (data.upgrade) { setUpgradeMessage(data.error); setPosting(false); return; }
+      }
       const data = await res.json();
       if (data.success) {
         setPostResult(`Posted! ${data.isReply ? 'Reply' : 'Tweet'} ID: ${data.tweetId}`);
@@ -47,12 +54,17 @@ export default function PostCard({ post, onUpdate }: PostCardProps) {
   const handlePostToFacebook = async () => {
     setPosting(true);
     setPostResult('');
+    setUpgradeMessage('');
     try {
       const res = await fetch('/api/fb-post-reply', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: post._id }),
       });
+      if (res.status === 403) {
+        const data = await res.json();
+        if (data.upgrade) { setUpgradeMessage(data.error); setPosting(false); return; }
+      }
       const data = await res.json();
       if (data.success) {
         setPostResult('Comment posted to Facebook!');
@@ -240,6 +252,8 @@ export default function PostCard({ post, onUpdate }: PostCardProps) {
           )}
         </div>
       )}
+
+      {upgradeMessage && <UpgradeBanner message={upgradeMessage} compact />}
     </div>
   );
 }

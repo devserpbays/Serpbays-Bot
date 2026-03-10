@@ -7,7 +7,7 @@
 
 import { chromium, type BrowserContext, type Page } from 'playwright';
 import { join } from 'path';
-import { unlinkSync } from 'fs';
+import { unlinkSync, existsSync, readFileSync } from 'fs';
 
 const NAVIGATION_TIMEOUT = 30000;
 const SLOW_WAIT = 4000;
@@ -42,6 +42,19 @@ async function getPage(profileDir: string): Promise<Page> {
     viewport: { width: 1280, height: 900 },
     locale: 'en-US',
   });
+
+  // Inject cookies from cookies.json if available
+  const cookiesJsonPath = join(profileDir, 'cookies.json');
+  if (existsSync(cookiesJsonPath)) {
+    try {
+      const savedCookies = JSON.parse(readFileSync(cookiesJsonPath, 'utf8'));
+      if (Array.isArray(savedCookies) && savedCookies.length > 0) {
+        await context.addCookies(savedCookies);
+      }
+    } catch (e) {
+      console.error('Failed to load cookies.json:', e);
+    }
+  }
 
   _contexts.set(profileDir, context);
   const page = context.pages()[0] || (await context.newPage());
@@ -256,10 +269,10 @@ export async function scrapeYouTubeVideos(keywords: string[], profileDir: string
 }
 
 // --- Post a comment on a YouTube video ---
-export async function postYouTubeComment(videoUrl: string, comment: string, profileDir: string): Promise<boolean> {
+export async function postYouTubeComment(videoUrl: string, comment: string, profileDir: string): Promise<{ success: boolean; error?: string }> {
   if (!comment || comment.trim().length < 5) {
     console.error('Invalid comment text, refusing to post.');
-    return false;
+    return { success: false, error: 'Comment too short (less than 5 characters)' };
   }
 
   try {
@@ -316,7 +329,7 @@ export async function postYouTubeComment(videoUrl: string, comment: string, prof
     if (!editor) {
       console.error('Could not find comment editor on:', videoUrl);
       await page.screenshot({ path: '/tmp/youtube-comment-failed.png', fullPage: false }).catch(() => {});
-      return false;
+      return { success: false, error: 'Comment editor not found — video may have comments disabled, or login session expired' };
     }
 
     await editor.click({ force: true });
@@ -352,14 +365,15 @@ export async function postYouTubeComment(videoUrl: string, comment: string, prof
 
     if (posted) {
       console.log(`YouTube comment posted successfully on: ${videoUrl}`);
+      return { success: true };
     } else {
       console.warn(`YouTube comment may NOT have posted on: ${videoUrl}`);
       await page.screenshot({ path: '/tmp/youtube-post-failed.png', fullPage: false }).catch(() => {});
+      return { success: false, error: 'Comment not confirmed on page — YouTube may have flagged it as spam or session expired' };
     }
-
-    return posted;
   } catch (err) {
-    console.error(`Failed to post YouTube comment on ${videoUrl}:`, (err as Error).message);
-    return false;
+    const msg = (err as Error).message;
+    console.error(`Failed to post YouTube comment on ${videoUrl}:`, msg);
+    return { success: false, error: msg };
   }
 }

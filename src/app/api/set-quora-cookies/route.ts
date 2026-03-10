@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { chromium } from 'playwright';
 import { join } from 'path';
-import { writeFileSync, unlinkSync } from 'fs';
+import { writeFileSync, unlinkSync, mkdirSync } from 'fs';
 import { execSync } from 'child_process';
+import { connectDB } from '@/lib/mongodb';
+import Settings from '@/models/Settings';
+import { getAuthUserId } from '@/lib/apiAuth';
+import { checkPlanLimit } from '@/lib/featureGate';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -50,6 +54,18 @@ function normalizeSameSite(v: string | undefined): 'Strict' | 'Lax' | 'None' | u
 }
 
 export async function POST(req: NextRequest) {
+  const userId = await getAuthUserId();
+  if (userId instanceof NextResponse) return userId;
+
+  // Enforce platform connection limit
+  await connectDB();
+  const existingSettings = await Settings.findOne({ userId }).lean();
+  const connectedPlatforms = (existingSettings?.socialAccounts || []).filter(
+    (a: { active?: boolean }) => a.active !== false
+  ).length;
+  const platformBlocked = await checkPlanLimit(userId, 'platforms', connectedPlatforms + 1);
+  if (platformBlocked) return platformBlocked;
+
   let body: { cookies: unknown; accountIndex?: number };
   try {
     body = await req.json();
@@ -99,7 +115,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'No valid cookies parsed' }, { status: 400 });
   }
 
-  const PROFILE_DIR = join(process.cwd(), accountIndex === 0 ? '.quora-profile' : `.quora-profile-${accountIndex}`);
+  const PROFILE_DIR = join(process.cwd(), 'profiles', userId, 'quora');
+  mkdirSync(PROFILE_DIR, { recursive: true });
   let context;
 
   // Kill orphaned Chromium processes using this profile, then clear lock files
@@ -158,6 +175,12 @@ export async function POST(req: NextRequest) {
       accountId = username ? `qa_${username}` : '';
     } catch {}
 
+    // Save cookies to JSON so cron scripts can re-inject them into fresh browser contexts
+    const cookies2 = await context.cookies();
+    try {
+      writeFileSync(join(PROFILE_DIR, 'cookies.json'), JSON.stringify(cookies2, null, 2), 'utf8');
+    } catch (e) { console.error('Failed to save cookies.json:', e); }
+
     await context.close();
     context = undefined;
 
@@ -192,8 +215,34 @@ export async function POST(req: NextRequest) {
     }
 
     try {
-      writeFileSync(join(PROFILE_DIR, '.verified'), JSON.stringify({ loggedIn: true, ts: new Date().toISOString(), message: 'Quora cookies injected and session verified', accountId, displayName, username }));
+      writeFileSync(join(PROFILE_DIR, '.verified'), JSON.stringify({ loggedIn: true, ts: new Date().toISOString(), accountId, displayName, username }));
     } catch {}
+
+    // Save account to Settings.socialAccounts (per-user)
+    try {
+      await connectDB();
+      const profileDirRelative = `profiles/${userId}/quora`;
+      const newAccount = {
+        id: accountId || `qa_${userId}`,
+        platform: 'quora',
+        username: username || '',
+        displayName: displayName || username || '',
+        profileDir: profileDirRelative,
+        accountIndex: 0,
+        addedAt: new Date().toISOString(),
+        active: true,
+      };
+      let settings = await Settings.findOne({ userId });
+      if (!settings) {
+        settings = await Settings.create({ userId, companyName: '', companyDescription: '', socialAccounts: [newAccount] });
+      } else {
+        settings.socialAccounts = (settings.socialAccounts || []).filter(
+          (a: { platform: string }) => a.platform !== 'quora'
+        );
+        settings.socialAccounts.push(newAccount);
+        await settings.save();
+      }
+    } catch (e) { console.error('Failed to save account to settings:', e); }
 
     return NextResponse.json({
       success: true,

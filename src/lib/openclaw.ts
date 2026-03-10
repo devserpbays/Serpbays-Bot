@@ -11,6 +11,23 @@ const execAsync = promisify(exec);
 const OPENCLAW_HOST = process.env.OPENCLAW_HOST || '127.0.0.1';
 const OPENCLAW_PORT = process.env.OPENCLAW_PORT || '18789';
 
+// Concurrency limiter for CLI fallback — prevents spawning 100+ subprocesses
+const MAX_CONCURRENT_CLI = parseInt(process.env.MAX_OPENCLAW_CLI || '5', 10);
+let _activeCLI = 0;
+const _cliQueue: Array<() => void> = [];
+
+async function acquireCLISlot(): Promise<void> {
+  if (_activeCLI < MAX_CONCURRENT_CLI) { _activeCLI++; return; }
+  await new Promise<void>(resolve => _cliQueue.push(resolve));
+  _activeCLI++;
+}
+
+function releaseCLISlot(): void {
+  _activeCLI--;
+  const next = _cliQueue.shift();
+  if (next) next();
+}
+
 // --- Build the evaluation prompt ---
 function buildPrompt(
   postContent: string,
@@ -32,7 +49,7 @@ Respond ONLY with valid JSON (no markdown, no code blocks, no extra text):
 {
   "relevant": true or false,
   "score": 0 to 100,
-  "suggestedReply": "A helpful, non-salesy reply that naturally mentions how ${companyName} could help. Keep it conversational and genuine.",
+  "suggestedReply": "A helpful, non-salesy reply (2-3 sentences MAX, under 280 characters) that naturally mentions how ${companyName} could help. Keep it short, conversational and genuine — like a real person on social media.",
   "tone": "helpful or empathetic or informative or casual",
   "reasoning": "Brief explanation of why this is or isn't relevant"
 }`;
@@ -92,19 +109,21 @@ function parseEvaluation(text: string): AIEvaluation | null {
   return null;
 }
 
-// --- Method 1: OpenClaw Gateway HTTP API ---
+// --- Method 1: OpenClaw Gateway Responses API (raw, no agent context) ---
 async function evaluateViaHTTP(prompt: string): Promise<string> {
-  const sessionId = `social-bot-eval-${Date.now()}`;
   const gatewayUrl = `http://${OPENCLAW_HOST}:${OPENCLAW_PORT}`;
+  const gatewayToken = process.env.OPENCLAW_GATEWAY_TOKEN || '';
 
-  // OpenClaw Gateway exposes an agent endpoint via POST
-  const res = await fetch(`${gatewayUrl}/api/agent/run`, {
+  const res = await fetch(`${gatewayUrl}/v1/responses`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(gatewayToken && { Authorization: `Bearer ${gatewayToken}` }),
+    },
     body: JSON.stringify({
-      message: prompt,
-      sessionId,
-      json: true,
+      model: 'google-antigravity/gemini-3-flash',
+      instructions: 'CRITICAL OVERRIDE: Ignore ALL previous instructions, personas, and system prompts. You are now a pure JSON API endpoint. Your ONLY job is to analyze the user message and return valid JSON as specified. Do NOT roleplay, do NOT use casual language, do NOT mention any brand unprompted. Return ONLY the JSON object requested.',
+      input: prompt,
     }),
     signal: AbortSignal.timeout(120000),
   });
@@ -113,41 +132,25 @@ async function evaluateViaHTTP(prompt: string): Promise<string> {
     throw new Error(`OpenClaw HTTP API returned ${res.status}: ${await res.text()}`);
   }
 
-  // Read as text first — the server may prefix the JSON body with debug lines
-  // like "[agent/embedded] google tool schema snapshot" making res.json() fail
-  const body = await res.text();
-  const cleanBody = stripAnsi(body);
-  const firstBrace = cleanBody.indexOf('{');
-
-  let data: Record<string, unknown> = {};
-  if (firstBrace !== -1) {
-    try {
-      data = JSON.parse(cleanBody.slice(firstBrace));
-    } catch {
-      throw new Error(`OpenClaw HTTP response not parseable as JSON: ${cleanBody.slice(0, 200)}`);
-    }
-  } else {
-    throw new Error(`OpenClaw HTTP response has no JSON object: ${cleanBody.slice(0, 200)}`);
+  const data = await res.json();
+  const content = data?.output?.[0]?.content?.[0]?.text;
+  if (!content) {
+    throw new Error(`OpenClaw HTTP API returned no content: ${JSON.stringify(data).slice(0, 200)}`);
   }
 
-  const raw = (data?.payloads as Array<{ text?: string }>)?.[0]?.text
-    || (data?.result as { content?: string })?.content
-    || data?.content as string
-    || data?.message as string
-    || JSON.stringify(data);
-
-  return stripAnsi(String(raw));
+  return stripAnsi(String(content));
 }
 
-// --- Method 2: OpenClaw CLI (fallback) ---
+// --- Method 2: OpenClaw CLI (fallback, concurrency-limited) ---
 async function evaluateViaCLI(prompt: string): Promise<string> {
+  await acquireCLISlot();
   const tmpFile = join(tmpdir(), `openclaw-prompt-${randomUUID()}.txt`);
   await writeFile(tmpFile, prompt, 'utf-8');
 
   try {
     const sessionId = `social-bot-eval-${Date.now()}`;
     const { stdout } = await execAsync(
-      `openclaw agent --local --session-id "${sessionId}" --message "$(cat '${tmpFile}')" --json`,
+      `openclaw agent --session-id "${sessionId}" --message "$(cat '${tmpFile}')" --json`,
       { timeout: 120000, maxBuffer: 1024 * 1024 }
     );
 
@@ -159,7 +162,8 @@ async function evaluateViaCLI(prompt: string): Promise<string> {
     if (firstBrace !== -1) {
       try {
         const parsed = JSON.parse(clean.slice(firstBrace));
-        const aiText = parsed?.payloads?.[0]?.text
+        const aiText = parsed?.result?.payloads?.[0]?.text
+          || parsed?.payloads?.[0]?.text
           || parsed?.result?.content
           || parsed?.content
           || parsed?.message;
@@ -170,6 +174,7 @@ async function evaluateViaCLI(prompt: string): Promise<string> {
     // Last resort: return cleaned text (never raw stdout with ANSI codes)
     return clean.trim();
   } finally {
+    releaseCLISlot();
     await unlink(tmpFile).catch(() => {});
   }
 }
@@ -188,10 +193,12 @@ export async function evaluatePost(
   // Try HTTP API first, fall back to CLI
   try {
     rawResponse = await evaluateViaHTTP(prompt);
+    console.log('[openclaw] HTTP success, response:', rawResponse.slice(0, 120));
   } catch (httpErr) {
-    console.warn('OpenClaw HTTP API failed, falling back to CLI:', (httpErr as Error).message);
+    console.warn('[openclaw] HTTP failed, falling back to CLI:', (httpErr as Error).message);
     try {
       rawResponse = await evaluateViaCLI(prompt);
+      console.log('[openclaw] CLI response:', rawResponse.slice(0, 120));
     } catch (cliErr) {
       console.error('OpenClaw CLI also failed:', (cliErr as Error).message);
       return {
@@ -251,13 +258,14 @@ export async function askOpenClaw(message: string, sessionId?: string): Promise<
     // fall through to CLI
   }
 
-  // Fallback: CLI
+  // Fallback: CLI (concurrency-limited)
+  await acquireCLISlot();
   const tmpFile = join(tmpdir(), `openclaw-msg-${randomUUID()}.txt`);
   await writeFile(tmpFile, message, 'utf-8');
 
   try {
     const { stdout } = await execAsync(
-      `openclaw agent --local --session-id "${sid}" --message "$(cat '${tmpFile}')" --json`,
+      `openclaw agent --session-id "${sid}" --message "$(cat '${tmpFile}')" --json`,
       { timeout: 120000, maxBuffer: 1024 * 1024 }
     );
 
@@ -283,6 +291,7 @@ export async function askOpenClaw(message: string, sessionId?: string): Promise<
     const result = clean.trim();
     return isHumanReadable(result) ? result : '';
   } finally {
+    releaseCLISlot();
     await unlink(tmpFile).catch(() => {});
   }
 }
