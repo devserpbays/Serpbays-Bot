@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 export async function GET() {
   const userId = await getAuthUserId();
   if (userId instanceof NextResponse) return userId;
-  const allCrons = readCronStatus();
+  const allCrons = await readCronStatus();
   // Filter to only show this user's statuses
   const crons: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(allCrons)) {

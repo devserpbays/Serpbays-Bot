@@ -1,6 +1,7 @@
 import { connectDB } from './mongodb';
 import Subscription from '@/models/Subscription';
 import { getPlanLimits, type PlanLimits } from './plans';
+import { getRedis } from './redis';
 
 export interface UserPlan {
   plan: string;
@@ -8,7 +9,7 @@ export interface UserPlan {
   limits: PlanLimits;
   currentPeriodEnd?: Date;
   cancelAtPeriodEnd: boolean;
-  stripeCustomerId?: string;
+  paypalSubscriptionId?: string;
 }
 
 // Internal user IDs that get unlimited (business-tier) access for free.
@@ -16,6 +17,8 @@ export interface UserPlan {
 const INTERNAL_USER_IDS = new Set(
   (process.env.INTERNAL_USER_IDS || '').split(',').map(s => s.trim()).filter(Boolean)
 );
+
+const PLAN_CACHE_TTL = 60; // 60 seconds
 
 export async function getUserPlan(userId: string): Promise<UserPlan> {
   // Internal/dev users get full business-tier access unconditionally
@@ -28,26 +31,56 @@ export async function getUserPlan(userId: string): Promise<UserPlan> {
     };
   }
 
+  // Check Redis cache first
+  try {
+    const redis = getRedis();
+    const cached = await redis.get(`plan:${userId}`);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      return {
+        ...parsed,
+        limits: getPlanLimits(parsed.plan),
+        currentPeriodEnd: parsed.currentPeriodEnd ? new Date(parsed.currentPeriodEnd) : undefined,
+      };
+    }
+  } catch { /* fall through to DB */ }
+
   await connectDB();
   const sub = await Subscription.findOne({ userId }).lean();
 
+  let result: UserPlan;
+
   if (!sub || sub.plan === 'free') {
-    return {
+    result = {
       plan: 'free',
       status: 'active',
       limits: getPlanLimits('free'),
       cancelAtPeriodEnd: false,
     };
+  } else {
+    result = {
+      plan: sub.plan,
+      status: sub.status,
+      limits: getPlanLimits(sub.plan),
+      currentPeriodEnd: sub.currentPeriodEnd,
+      cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
+      paypalSubscriptionId: sub.paypalSubscriptionId,
+    };
   }
 
-  return {
-    plan: sub.plan,
-    status: sub.status,
-    limits: getPlanLimits(sub.plan),
-    currentPeriodEnd: sub.currentPeriodEnd,
-    cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
-    stripeCustomerId: sub.stripeCustomerId,
-  };
+  // Cache in Redis for 60s
+  try {
+    const redis = getRedis();
+    await redis.set(`plan:${userId}`, JSON.stringify({
+      plan: result.plan,
+      status: result.status,
+      cancelAtPeriodEnd: result.cancelAtPeriodEnd,
+      currentPeriodEnd: result.currentPeriodEnd?.toISOString(),
+      paypalSubscriptionId: result.paypalSubscriptionId,
+    }), 'EX', PLAN_CACHE_TTL);
+  } catch { /* best effort */ }
+
+  return result;
 }
 
 export async function ensureSubscription(userId: string): Promise<void> {

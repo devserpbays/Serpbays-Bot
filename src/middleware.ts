@@ -5,10 +5,12 @@ const isPublicRoute = createRouteMatcher([
   '/',
   '/login(.*)',
   '/signup(.*)',
+  '/reset-password(.*)',
   '/pricing',
   '/terms',
   '/privacy',
   '/api/billing/webhook',
+  '/api/health',
 ])
 
 const isDashboardRoute = createRouteMatcher(['/dashboard(.*)'])
@@ -18,9 +20,25 @@ const isApiRoute = createRouteMatcher(['/api(.*)'])
 export default clerkMiddleware(async (auth, req) => {
   const { userId, sessionClaims } = await auth()
 
+  // Build the canonical origin from forwarded headers (behind nginx proxy)
+  const proto = req.headers.get('x-forwarded-proto') || 'http'
+  const host = req.headers.get('x-forwarded-host') || req.headers.get('host') || 'localhost'
+  const origin = `${proto}://${host}`
+
+  // Security headers on all responses
+  const addSecurityHeaders = (res: NextResponse) => {
+    res.headers.set('X-Frame-Options', 'DENY')
+    res.headers.set('X-Content-Type-Options', 'nosniff')
+    res.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin')
+    res.headers.set('X-DNS-Prefetch-Control', 'off')
+    res.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
+    res.headers.set('X-XSS-Protection', '1; mode=block')
+    return res
+  }
+
   // Public routes — no auth required
   if (isPublicRoute(req)) {
-    return NextResponse.next()
+    return addSecurityHeaders(NextResponse.next())
   }
 
   // Not signed in on a protected route → redirect to login
@@ -28,11 +46,11 @@ export default clerkMiddleware(async (auth, req) => {
   // pass through so Next.js can render the 404 page.
   if (!userId) {
     if (isDashboardRoute(req) || isOnboardingRoute(req) || isApiRoute(req)) {
-      const loginUrl = new URL('/login', req.url)
-      loginUrl.searchParams.set('redirect_url', req.url)
-      return NextResponse.redirect(loginUrl)
+      const loginUrl = new URL('/login', origin)
+      loginUrl.searchParams.set('redirect_url', `${origin}${req.nextUrl.pathname}`)
+      return addSecurityHeaders(NextResponse.redirect(loginUrl))
     }
-    return NextResponse.next()
+    return addSecurityHeaders(NextResponse.next())
   }
 
   // Check onboarding status from Clerk metadata or fallback cookie
@@ -43,15 +61,15 @@ export default clerkMiddleware(async (auth, req) => {
 
   // On onboarding page but already completed → go to dashboard
   if (isOnboardingRoute(req) && onboardingDone) {
-    return NextResponse.redirect(new URL('/dashboard', req.url))
+    return addSecurityHeaders(NextResponse.redirect(new URL('/dashboard', origin)))
   }
 
   // On dashboard but hasn't completed onboarding → redirect to onboarding
   if (isDashboardRoute(req) && !onboardingDone) {
-    return NextResponse.redirect(new URL('/onboarding', req.url))
+    return addSecurityHeaders(NextResponse.redirect(new URL('/onboarding', origin)))
   }
 
-  return NextResponse.next()
+  return addSecurityHeaders(NextResponse.next())
 })
 
 export const config = {

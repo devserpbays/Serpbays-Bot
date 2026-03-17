@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:7
+    container_name: botserp-mongo
+    restart: unless-stopped
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongo-data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: social-engagement-bot
+
+  redis:
+    image: redis:7-alpine
+    container_name: botserp-redis
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+
+  app:
+    build: .
+    container_name: botserp-app
+    restart: unless-stopped
+    ports:
+      - '3005:3005'
+    depends_on:
+      - mongodb
+      - redis
+    env_file:
+      - .env.local
+    environment:
+      - MONGODB_URI=mongodb://mongodb:27017/social-engagement-bot
+      - REDIS_URL=redis://redis:6379
+      - PORT=3005
+
+  worker:
+    build: .
+    container_name: botserp-worker
+    restart: unless-stopped
+    depends_on:
+      - mongodb
+      - redis
+    env_file:
+      - .env.local
+    environment:
+      - MONGODB_URI=mongodb://mongodb:27017/social-engagement-bot
+      - REDIS_URL=redis://redis:6379
+      - MAX_BROWSER_CONCURRENCY=2
+    command: npx tsx src/worker.ts
+
+volumes:
+  mongo-data:
+  redis-data:

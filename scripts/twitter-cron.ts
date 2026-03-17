@@ -20,7 +20,7 @@ import { join } from 'path';
 import { connectDB } from '../src/lib/mongodb';
 import { evaluatePost, askOpenClaw } from '../src/lib/openclaw';
 import { cronStart, cronFinish, acquireCronLock, releaseCronLock } from '../src/lib/cronState';
-import { logActivity } from '../src/lib/activityLog';
+import { logActivity, notifyAuthError } from '../src/lib/activityLog';
 import { isWithinSchedule } from '../src/lib/schedule';
 import Post from '../src/models/Post';
 import Settings from '../src/models/Settings';
@@ -384,7 +384,10 @@ async function postPhase(settings: any, accountId: string, dailyLimit: number, a
     const isAuthError = msg.includes('ct0') || msg.includes('auth_token') || msg.includes('cookies') || msg.includes('No cookies');
     if (isAuthError) {
       console.error(`Auth error — re-set Twitter cookies from dashboard: ${msg}`);
-      if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'error', 'auth_error', 'Twitter cookies expired — re-set from dashboard');
+      if (CRON_USER_ID) {
+        await logActivity(CRON_USER_ID, 'twitter', 'error', 'auth_error', 'Twitter cookies expired — re-set from dashboard');
+        await notifyAuthError(CRON_USER_ID, 'twitter', 'Twitter cookies expired — re-set from dashboard');
+      }
     } else {
       const attempts = (candidate.postAttempts || 0) + 1;
       await Post.findByIdAndUpdate(candidate._id, { $inc: { postAttempts: 1 } });
@@ -398,21 +401,24 @@ async function postPhase(settings: any, accountId: string, dailyLimit: number, a
 }
 
 async function main() {
-  if (!acquireCronLock('twitter', CRON_USER_ID || undefined)) {
+  if (!await acquireCronLock('twitter', CRON_USER_ID || undefined)) {
     console.log(`Twitter Cron: already running for user ${CRON_USER_ID || 'default'}, exiting`);
     process.exit(0);
   }
-  process.on('exit', () => releaseCronLock('twitter', CRON_USER_ID || undefined));
+  process.on('exit', () => { releaseCronLock('twitter', CRON_USER_ID || undefined).catch(() => {}); });
 
   console.log(`[${new Date().toISOString()}] Twitter Cron: starting (user: ${CRON_USER_ID || 'default'}, mode: ${MODE})`);
   if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'cron_start', 'Twitter cron started');
-  const _cronId = cronStart('twitter', 'auto', CRON_USER_ID || undefined);
-  process.on('exit', (code) => cronFinish(_cronId, 'twitter', code, '', CRON_USER_ID || undefined));
+  const _cronId = await cronStart('twitter', 'auto', CRON_USER_ID || undefined);
+  process.on('exit', (code) => { cronFinish(_cronId, 'twitter', code, '', CRON_USER_ID || undefined).catch(() => {}); });
 
   // Check credentials — cookies.json is required for all modes (posting uses HTTP, scraping uses browser)
   if (!isTwitterConfiguredHttp(PROFILE_DIR)) {
     console.error('No cookies.json found in profile dir — cannot run. Re-set cookies from dashboard.');
-    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'error', 'auth_error', 'No Twitter cookies found — re-set cookies from dashboard');
+    if (CRON_USER_ID) {
+      await logActivity(CRON_USER_ID, 'twitter', 'error', 'auth_error', 'No Twitter cookies found — re-set cookies from dashboard');
+      await notifyAuthError(CRON_USER_ID, 'twitter', 'No Twitter cookies found — re-set cookies from dashboard');
+    }
     process.exit(1);
   }
 

@@ -100,7 +100,7 @@ export default function TermsOfService() {
             5. Subscription & Billing
           </h2>
           <p style={{ lineHeight: 1.75, marginBottom: "1rem" }}>
-            GetMention offers paid subscription plans. All billing is processed securely through Stripe. By subscribing to
+            GetMention offers paid subscription plans. All billing is processed securely through PayPal. By subscribing to
             a paid plan, you agree to the following:
           </p>
           <ul style={{ lineHeight: 1.75, paddingLeft: "1.5rem", marginBottom: "1rem" }}>

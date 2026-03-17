@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { toast } from 'react-toastify';
+import { API_BASE } from '@/lib/apiBase';
 import type { SocialAccount } from '@/lib/types';
 
 /* ── Platform config ─────────────────────────────────────────────── */
@@ -549,6 +550,33 @@ export default function AccountsPage() {
         });
         const data = await res.json();
         if (data.error) throw new Error(data.error);
+
+        // Route now returns 202 with jobId — poll until complete
+        if (res.status === 202 && data.jobId) {
+            const jobId = data.jobId;
+            const maxAttempts = 60; // 2s * 60 = 120s max
+            for (let i = 0; i < maxAttempts; i++) {
+                await new Promise(r => setTimeout(r, 2000));
+                try {
+                    const statusRes = await fetch(`/api/job-status/${jobId}`);
+                    const statusData = await statusRes.json();
+                    if (statusData.state === 'completed') {
+                        if (statusData.result?.success === false) {
+                            throw new Error(statusData.result.message || 'Cookie validation failed');
+                        }
+                        await fetchSettings();
+                        return;
+                    }
+                    if (statusData.state === 'failed') {
+                        throw new Error(statusData.failedReason || 'Cookie validation failed');
+                    }
+                } catch (pollErr) {
+                    if ((pollErr as Error).message && !(pollErr as Error).message.includes('fetch')) throw pollErr;
+                }
+            }
+            throw new Error('Validation timed out — check the accounts page in a minute');
+        }
+
         await fetchSettings();
     };
 

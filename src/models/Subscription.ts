@@ -2,8 +2,8 @@ import mongoose, { Schema, Document } from 'mongoose';
 
 export interface ISubscription extends Document {
   userId: string;
-  stripeCustomerId: string;
-  stripeSubscriptionId: string;
+  paypalSubscriptionId: string;
+  paypalPayerId: string;
   plan: 'free' | 'pro' | 'business';
   status: 'active' | 'past_due' | 'canceled' | 'trialing' | 'incomplete';
   currentPeriodStart?: Date;
@@ -14,8 +14,8 @@ export interface ISubscription extends Document {
 const SubscriptionSchema = new Schema<ISubscription>(
   {
     userId: { type: String, required: true, unique: true, index: true },
-    stripeCustomerId: { type: String, index: true, default: '' },
-    stripeSubscriptionId: { type: String, index: true, default: '' },
+    paypalSubscriptionId: { type: String, index: true, sparse: true, default: '' },
+    paypalPayerId: { type: String, index: true, sparse: true, default: '' },
     plan: {
       type: String,
       enum: ['free', 'pro', 'business'],

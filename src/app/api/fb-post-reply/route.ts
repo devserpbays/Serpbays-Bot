@@ -10,7 +10,7 @@ export async function POST(req: NextRequest) {
   const userId = await getAuthUserId();
   if (userId instanceof NextResponse) return userId;
 
-  const rl = checkRateLimit(userId, 'post');
+  const rl = await checkRateLimit(userId, 'post');
   if (rl) return NextResponse.json({ error: rl.error }, { status: 429 });
 
   await connectDB();
@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     console.error('Failed to post Facebook comment:', err);
     return NextResponse.json(
-      { error: `Failed to post Facebook comment: ${(err as Error).message}` },
+      { error: 'Failed to post Facebook comment. Please try again or check your account connection.' },
       { status: 500 }
     );
   }

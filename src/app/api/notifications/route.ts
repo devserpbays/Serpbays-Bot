@@ -1,9 +1,13 @@
 /**
- * SSE endpoint for real-time dashboard notifications.
- * User-scoped: each user only receives their own notifications.
+ * Notifications API — REST + SSE.
+ * GET ?limit=N  → JSON list of notifications
+ * GET (no limit) → SSE stream
+ * PATCH → mark all as read
  */
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getAuthUserId } from '@/lib/apiAuth';
+import { connectDB } from '@/lib/mongodb';
+import Notification from '@/models/Notification';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,7 +25,6 @@ function send(ctrl: Controller, data: string) {
   try {
     ctrl.enqueue(encoder.encode(`data: ${data}\n\n`));
   } catch {
-    // Remove dead clients
     for (const entry of clients) {
       if (entry.ctrl === ctrl) {
         clients.delete(entry);
@@ -47,7 +50,7 @@ export function pushNotification(
   }
 }
 
-/** Broadcast to ALL users (use sparingly — only for system-wide announcements). */
+/** Broadcast to ALL users (use sparingly). */
 export function broadcastNotification(
   type: 'success' | 'warning' | 'error' | 'info',
   title: string,
@@ -59,19 +62,30 @@ export function broadcastNotification(
   }
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const userId = await getAuthUserId();
   if (userId instanceof NextResponse) return userId;
 
+  // If ?limit param is present, return JSON list
+  const limitParam = req.nextUrl.searchParams.get('limit');
+  if (limitParam) {
+    await connectDB();
+    const limit = Math.min(parseInt(limitParam) || 20, 50);
+    const notifications = await Notification.find({ userId })
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
+    return NextResponse.json({ notifications });
+  }
+
+  // Otherwise SSE stream
   const stream = new ReadableStream<Uint8Array>({
     start(ctrl) {
       const entry: ClientEntry = { ctrl, userId };
       clients.add(entry);
 
-      // Initial ping to confirm connection
       send(ctrl, JSON.stringify({ type: 'info', title: 'Connected', message: 'SSE connected', ts: Date.now() }));
 
-      // Keep-alive ping every 25s
       const ping = setInterval(() => {
         try {
           ctrl.enqueue(encoder.encode(': ping\n\n'));
@@ -99,4 +113,25 @@ export async function GET() {
       'X-Accel-Buffering': 'no',
     },
   });
+}
+
+/** Mark one or all notifications as read */
+export async function PATCH(req: NextRequest) {
+  const userId = await getAuthUserId();
+  if (userId instanceof NextResponse) return userId;
+
+  await connectDB();
+
+  try {
+    const body = await req.json();
+    if (body?.id) {
+      // Mark single notification as read
+      await Notification.updateOne({ _id: body.id, userId }, { $set: { read: true } });
+      return NextResponse.json({ ok: true });
+    }
+  } catch { /* no body = mark all */ }
+
+  // Mark all as read
+  await Notification.updateMany({ userId, read: false }, { $set: { read: true } });
+  return NextResponse.json({ ok: true });
 }

@@ -11,8 +11,8 @@ export async function GET(req: NextRequest) {
   const platform = searchParams.get('platform') || null;
   const limit = Math.min(parseInt(searchParams.get('limit') || '50'), 200);
 
-  let log = readCronLog();
-  // Filter to show only this user's logs (or logs without userId for backward compat)
+  let log = await readCronLog();
+  // Filter to show only this user's logs
   log = log.filter(e => e.userId === userId);
   if (platform) log = log.filter(e => e.platform === platform);
 

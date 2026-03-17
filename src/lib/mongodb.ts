@@ -1,7 +1,5 @@
 import mongoose from 'mongoose';
 
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/social-engagement-bot';
-
 interface MongooseCache {
   conn: typeof mongoose | null;
   promise: Promise<typeof mongoose> | null;
@@ -19,9 +17,12 @@ export async function connectDB() {
   if (cached.conn) return cached.conn;
 
   if (!cached.promise) {
-    cached.promise = mongoose.connect(MONGODB_URI, {
-      maxPoolSize: 5,
-      minPoolSize: 0,
+    // Read URI at call time so dotenv has a chance to load first
+    const uri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/social-engagement-bot';
+    const isWorker = !!process.env.WORKER_PROCESS;
+    cached.promise = mongoose.connect(uri, {
+      maxPoolSize: isWorker ? 15 : 50,
+      minPoolSize: isWorker ? 2 : 5,
       serverSelectionTimeoutMS: 10000,
     });
   }

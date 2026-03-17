@@ -21,11 +21,11 @@ import Settings from '../src/models/Settings';
 import { acquireCronLock, releaseCronLock } from '../src/lib/cronState';
 
 async function main() {
-  if (!acquireCronLock('scrape', CRON_USER_ID || undefined)) {
+  if (!await acquireCronLock('scrape', CRON_USER_ID || undefined)) {
     console.log(`[${new Date().toISOString()}] Scrape Cron: already running for user ${CRON_USER_ID || 'default'}, exiting`);
     process.exit(0);
   }
-  process.on('exit', () => releaseCronLock('scrape', CRON_USER_ID || undefined));
+  process.on('exit', () => { releaseCronLock('scrape', CRON_USER_ID || undefined).catch(() => {}); });
 
   console.log(`[${new Date().toISOString()}] Starting scrape + evaluate cycle`);
 

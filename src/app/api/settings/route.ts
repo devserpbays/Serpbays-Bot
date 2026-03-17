@@ -1,23 +1,52 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { connectDB } from '@/lib/mongodb';
-import Settings from '@/models/Settings';
 import { getAuthUserId } from '@/lib/apiAuth';
 import { checkPlanLimit } from '@/lib/featureGate';
+import { getSettings, upsertSettings } from '@/services/settingsService';
+import path from 'path';
 
 export async function GET() {
   const userId = await getAuthUserId();
   if (userId instanceof NextResponse) return userId;
 
-  await connectDB();
-  const settings = await Settings.findOne({ userId }).lean();
+  const settings = await getSettings(userId);
   return NextResponse.json({ settings });
+}
+
+// ── Input validation helpers ──
+const MAX_STRING_LENGTH = 500;
+const MAX_PROMPT_LENGTH = 5000;
+const MAX_ARRAY_LENGTH = 200;
+const VALID_PLATFORMS = ['twitter', 'reddit', 'facebook', 'quora', 'youtube', 'pinterest'];
+
+function validateString(val: unknown, maxLen = MAX_STRING_LENGTH): string | null {
+  if (typeof val !== 'string') return null;
+  return val.slice(0, maxLen);
+}
+
+function validateStringArray(val: unknown, maxLen = MAX_ARRAY_LENGTH): string[] | null {
+  if (!Array.isArray(val)) return null;
+  return val
+    .filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+    .slice(0, maxLen)
+    .map(v => v.slice(0, MAX_STRING_LENGTH));
+}
+
+function validateNumber(val: unknown, min: number, max: number): number | null {
+  const n = Number(val);
+  if (isNaN(n)) return null;
+  return Math.max(min, Math.min(max, Math.round(n)));
+}
+
+function validateProfileDir(dir: string): boolean {
+  const resolved = path.resolve(process.cwd(), dir);
+  const profilesBase = path.resolve(process.cwd(), 'profiles');
+  return resolved.startsWith(profilesBase + '/');
 }
 
 export async function PUT(req: NextRequest) {
   const userId = await getAuthUserId();
   if (userId instanceof NextResponse) return userId;
 
-  await connectDB();
   const body = await req.json();
 
   // Enforce plan limits on platforms and keywords
@@ -30,108 +59,85 @@ export async function PUT(req: NextRequest) {
     if (blocked) return blocked;
   }
 
-  const {
-    companyName,
-    companyDescription,
-    keywords,
-    platforms,
-    subreddits,
-    promptTemplate,
-    socialAccounts,
-    facebookGroups,
-    facebookKeywords,
-    facebookDailyLimit,
-    facebookAutoPostThreshold,
-    twitterKeywords,
-    twitterDailyLimit,
-    twitterAutoPostThreshold,
-    redditKeywords,
-    redditDailyLimit,
-    redditAutoPostThreshold,
-    quoraKeywords,
-    quoraDailyLimit,
-    quoraAutoPostThreshold,
-    youtubeKeywords,
-    youtubeDailyLimit,
-    youtubeAutoPostThreshold,
-    pinterestKeywords,
-    pinterestDailyLimit,
-    pinterestAutoPostThreshold,
-    cronTimezone,
-    cronStartHour,
-    cronEndHour,
-    cronDays,
-  } = body;
+  // Build validated data object
+  const data: Record<string, unknown> = {};
 
-  let settings = await Settings.findOne({ userId });
+  // String fields
+  if (body.companyName !== undefined) data.companyName = validateString(body.companyName) ?? '';
+  if (body.companyDescription !== undefined) data.companyDescription = validateString(body.companyDescription) ?? '';
+  if (body.promptTemplate !== undefined) data.promptTemplate = validateString(body.promptTemplate, MAX_PROMPT_LENGTH) ?? '';
+  if (body.notificationEmail !== undefined) data.notificationEmail = validateString(body.notificationEmail, 254) ?? '';
+  if (body.cronTimezone !== undefined) data.cronTimezone = validateString(body.cronTimezone) ?? '';
 
-  if (settings) {
-    settings.companyName = companyName ?? settings.companyName;
-    settings.companyDescription = companyDescription ?? settings.companyDescription;
-    settings.keywords = keywords ?? settings.keywords;
-    settings.platforms = platforms ?? settings.platforms;
-    settings.subreddits = subreddits ?? settings.subreddits;
-    settings.promptTemplate = promptTemplate ?? settings.promptTemplate;
-    if (socialAccounts !== undefined) settings.socialAccounts = socialAccounts;
-    if (facebookGroups !== undefined) settings.facebookGroups = facebookGroups;
-    if (facebookKeywords !== undefined) settings.facebookKeywords = facebookKeywords;
-    if (facebookDailyLimit !== undefined) settings.facebookDailyLimit = facebookDailyLimit;
-    if (facebookAutoPostThreshold !== undefined) settings.facebookAutoPostThreshold = facebookAutoPostThreshold;
-    if (twitterKeywords !== undefined) settings.twitterKeywords = twitterKeywords;
-    if (twitterDailyLimit !== undefined) settings.twitterDailyLimit = twitterDailyLimit;
-    if (twitterAutoPostThreshold !== undefined) settings.twitterAutoPostThreshold = twitterAutoPostThreshold;
-    if (redditKeywords !== undefined) settings.redditKeywords = redditKeywords;
-    if (redditDailyLimit !== undefined) settings.redditDailyLimit = redditDailyLimit;
-    if (redditAutoPostThreshold !== undefined) settings.redditAutoPostThreshold = redditAutoPostThreshold;
-    if (quoraKeywords !== undefined) settings.quoraKeywords = quoraKeywords;
-    if (quoraDailyLimit !== undefined) settings.quoraDailyLimit = quoraDailyLimit;
-    if (quoraAutoPostThreshold !== undefined) settings.quoraAutoPostThreshold = quoraAutoPostThreshold;
-    if (youtubeKeywords !== undefined) settings.youtubeKeywords = youtubeKeywords;
-    if (youtubeDailyLimit !== undefined) settings.youtubeDailyLimit = youtubeDailyLimit;
-    if (youtubeAutoPostThreshold !== undefined) settings.youtubeAutoPostThreshold = youtubeAutoPostThreshold;
-    if (pinterestKeywords !== undefined) settings.pinterestKeywords = pinterestKeywords;
-    if (pinterestDailyLimit !== undefined) settings.pinterestDailyLimit = pinterestDailyLimit;
-    if (pinterestAutoPostThreshold !== undefined) settings.pinterestAutoPostThreshold = pinterestAutoPostThreshold;
-    if (cronTimezone !== undefined) settings.cronTimezone = cronTimezone;
-    if (cronStartHour !== undefined) settings.cronStartHour = cronStartHour;
-    if (cronEndHour !== undefined) settings.cronEndHour = cronEndHour;
-    if (cronDays !== undefined) settings.cronDays = cronDays;
-    await settings.save();
-  } else {
-    settings = await Settings.create({
-      userId,
-      companyName: companyName || '',
-      companyDescription: companyDescription || '',
-      keywords: keywords || [],
-      platforms: platforms || [],
-      subreddits: subreddits || [],
-      promptTemplate: promptTemplate || '',
-      socialAccounts: socialAccounts || [],
-      facebookGroups: facebookGroups || [],
-      facebookKeywords: facebookKeywords || [],
-      facebookDailyLimit: facebookDailyLimit ?? 5,
-      facebookAutoPostThreshold: facebookAutoPostThreshold ?? 70,
-      twitterKeywords: twitterKeywords || [],
-      twitterDailyLimit: twitterDailyLimit ?? 10,
-      twitterAutoPostThreshold: twitterAutoPostThreshold ?? 70,
-      redditKeywords: redditKeywords || [],
-      redditDailyLimit: redditDailyLimit ?? 5,
-      redditAutoPostThreshold: redditAutoPostThreshold ?? 70,
-      quoraKeywords: quoraKeywords || [],
-      quoraDailyLimit: quoraDailyLimit ?? 3,
-      quoraAutoPostThreshold: quoraAutoPostThreshold ?? 70,
-      youtubeKeywords: youtubeKeywords || [],
-      youtubeDailyLimit: youtubeDailyLimit ?? 5,
-      youtubeAutoPostThreshold: youtubeAutoPostThreshold ?? 70,
-      pinterestKeywords: pinterestKeywords || [],
-      pinterestDailyLimit: pinterestDailyLimit ?? 5,
-      pinterestAutoPostThreshold: pinterestAutoPostThreshold ?? 70,
-      cronTimezone: cronTimezone || '',
-      cronStartHour: cronStartHour ?? 9,
-      cronEndHour: cronEndHour ?? 18,
-      cronDays: cronDays ?? [0, 1, 2, 3, 4, 5, 6],
-    });
+  // Platform selection
+  if (body.platforms !== undefined) {
+    const arr = validateStringArray(body.platforms);
+    if (arr) data.platforms = arr.filter(p => VALID_PLATFORMS.includes(p));
   }
+
+  // String arrays
+  const arrayFields = [
+    'keywords', 'subreddits', 'facebookGroups', 'facebookKeywords',
+    'twitterKeywords', 'redditKeywords', 'quoraKeywords',
+    'youtubeKeywords', 'pinterestKeywords',
+  ] as const;
+  for (const key of arrayFields) {
+    if (body[key] !== undefined) {
+      const arr = validateStringArray(body[key]);
+      if (arr) data[key] = arr;
+    }
+  }
+
+  // Numeric fields with sane ranges
+  const numericFields: { key: string; min: number; max: number }[] = [
+    { key: 'facebookDailyLimit', min: 1, max: 200 },
+    { key: 'facebookAutoPostThreshold', min: 0, max: 100 },
+    { key: 'twitterDailyLimit', min: 1, max: 200 },
+    { key: 'twitterAutoPostThreshold', min: 0, max: 100 },
+    { key: 'redditDailyLimit', min: 1, max: 200 },
+    { key: 'redditAutoPostThreshold', min: 0, max: 100 },
+    { key: 'quoraDailyLimit', min: 1, max: 200 },
+    { key: 'quoraAutoPostThreshold', min: 0, max: 100 },
+    { key: 'youtubeDailyLimit', min: 1, max: 200 },
+    { key: 'youtubeAutoPostThreshold', min: 0, max: 100 },
+    { key: 'pinterestDailyLimit', min: 1, max: 200 },
+    { key: 'pinterestAutoPostThreshold', min: 0, max: 100 },
+    { key: 'cronStartHour', min: 0, max: 23 },
+    { key: 'cronEndHour', min: 0, max: 23 },
+    { key: 'cronIntervalMinutes', min: 15, max: 360 },
+  ];
+  for (const { key, min, max } of numericFields) {
+    if (body[key] !== undefined) {
+      const val = validateNumber(body[key], min, max);
+      if (val !== null) data[key] = val;
+    }
+  }
+
+  // Cron days
+  if (body.cronDays !== undefined && Array.isArray(body.cronDays)) {
+    data.cronDays = body.cronDays
+      .filter((d: unknown) => typeof d === 'number' && d >= 0 && d <= 6)
+      .map((d: number) => Math.round(d));
+  }
+
+  // Boolean
+  if (body.notifyViaEmail !== undefined) data.notifyViaEmail = !!body.notifyViaEmail;
+
+  // Social accounts — validate profileDir
+  if (body.socialAccounts !== undefined && Array.isArray(body.socialAccounts)) {
+    data.socialAccounts = body.socialAccounts
+      .filter((a: Record<string, unknown>) =>
+        a && typeof a.id === 'string' && typeof a.platform === 'string'
+      )
+      .map((a: Record<string, unknown>) => ({
+        ...a,
+        profileDir: typeof a.profileDir === 'string' && validateProfileDir(a.profileDir)
+          ? a.profileDir
+          : '',
+      }));
+  }
+
+  const settings = await upsertSettings(userId, data);
 
   return NextResponse.json({ settings });
 }

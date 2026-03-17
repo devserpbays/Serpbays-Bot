@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
 import { ClerkProvider } from '@clerk/nextjs';
+import { ThemeProvider } from '@/components/ThemeProvider';
 
 
 const inter = Inter({
@@ -23,37 +24,80 @@ export default function RootLayout({
     <html lang="en">
       <body className={inter.variable}>
         <ClerkProvider
+          taskUrls={{ 'reset-password': '/reset-password' }}
           appearance={{
             variables: {
               colorPrimary: '#7c3aed',
-              colorBackground: '#ffffff',
-              colorInputBackground: '#f9fafb',
-              colorInputText: '#1a1a2e',
-              colorText: '#1a1a2e',
-              colorTextSecondary: '#6b7280',
-              borderRadius: '0.75rem',
+              colorBackground: '#0f0f12',
+              colorInputBackground: '#131316',
+              colorInputText: '#fafafa',
+              colorText: '#fafafa',
+              colorTextSecondary: '#a1a1aa',
+              borderRadius: '0.5rem',
               fontFamily: 'var(--font-inter)',
             },
             elements: {
+              rootBox: { width: '100%' },
               card: {
                 boxShadow: 'none',
                 border: 'none',
                 background: 'transparent',
               },
-              headerTitle: { fontWeight: '700', letterSpacing: '-0.03em', color: '#1a1a2e' },
+              headerTitle: { fontWeight: '700', letterSpacing: '-0.02em', color: '#fafafa' },
+              headerSubtitle: { color: '#a1a1aa' },
               formButtonPrimary: {
-                background: 'linear-gradient(135deg, #7c3aed, #2563eb)',
-                boxShadow: '0 2px 16px rgba(124,58,237,0.3)',
+                background: '#7c3aed',
+                boxShadow: 'none',
+                borderRadius: '6px',
+                color: '#ffffff',
               },
+              formFieldLabel: { color: '#d4d4d8' },
+              formFieldInput: {
+                background: 'rgba(255,255,255,0.05)',
+                border: '1px solid rgba(255,255,255,0.08)',
+                borderRadius: '6px',
+                color: '#fafafa',
+              },
+              formFieldInputShowPasswordButton: { color: '#a1a1aa' },
+              formFieldAction: { color: '#a78bfa' },
+              formFieldHintText: { color: '#71717a' },
+              formFieldErrorText: { color: '#f87171' },
+              formFieldWarningText: { color: '#fbbf24' },
+              formFieldSuccessText: { color: '#4ade80' },
               socialButtonsBlockButton: {
-                background: '#f9fafb',
-                border: '1px solid #e5e7eb',
+                background: 'rgba(255,255,255,0.04)',
+                border: '1px solid rgba(255,255,255,0.08)',
+                color: '#d4d4d8',
               },
-              footerActionLink: { color: '#7c3aed' },
+              socialButtonsBlockButtonText: { color: '#d4d4d8' },
+              dividerLine: { background: 'rgba(255,255,255,0.08)' },
+              dividerText: { color: '#71717a' },
+              footerAction: { color: '#a1a1aa' },
+              footerActionLink: { color: '#a78bfa' },
+              footerActionText: { color: '#71717a' },
+              identityPreview: { background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.08)' },
+              identityPreviewText: { color: '#d4d4d8' },
+              identityPreviewEditButton: { color: '#a78bfa' },
+              alternativeMethodsBlockButton: {
+                background: 'rgba(255,255,255,0.04)',
+                border: '1px solid rgba(255,255,255,0.08)',
+                color: '#d4d4d8',
+              },
+              otpCodeFieldInput: {
+                background: 'rgba(255,255,255,0.05)',
+                border: '1px solid rgba(255,255,255,0.1)',
+                color: '#fafafa',
+              },
+              formResendCodeLink: { color: '#a78bfa' },
+              alert: { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' },
+              alertText: { color: '#d4d4d8' },
+              backLink: { color: '#a78bfa' },
             },
           }}
         >
-          {children}
+          <ThemeProvider>
+            {children}
+          </ThemeProvider>
         </ClerkProvider>
       </body>
     </html>

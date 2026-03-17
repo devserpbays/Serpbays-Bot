@@ -15,8 +15,8 @@ export interface PlanDef {
   description: string;
   limits: PlanLimits;
   features: string[];
-  stripePriceId: string;
-  stripePriceIdYearly: string;
+  paypalPlanId: string;
+  paypalPlanIdYearly: string;
   popular?: boolean;
 }
 
@@ -27,8 +27,8 @@ export const PLANS: Record<string, PlanDef> = {
     price: 0,
     priceYearly: 0,
     description: 'Get started with basic social engagement',
-    stripePriceId: '',
-    stripePriceIdYearly: '',
+    paypalPlanId: '',
+    paypalPlanIdYearly: '',
     limits: {
       platforms: 2,
       dailyPostsPerPlatform: 3,
@@ -51,8 +51,8 @@ export const PLANS: Record<string, PlanDef> = {
     price: 49,
     priceYearly: 470,
     description: 'Scale your engagement across platforms',
-    stripePriceId: process.env.STRIPE_PRICE_PRO || '',
-    stripePriceIdYearly: process.env.STRIPE_PRICE_PRO_YEARLY || '',
+    paypalPlanId: process.env.PAYPAL_PLAN_PRO || '',
+    paypalPlanIdYearly: process.env.PAYPAL_PLAN_PRO_YEARLY || '',
     popular: true,
     limits: {
       platforms: 4,
@@ -78,8 +78,8 @@ export const PLANS: Record<string, PlanDef> = {
     price: 149,
     priceYearly: 1430,
     description: 'Full power for agencies and teams',
-    stripePriceId: process.env.STRIPE_PRICE_BUSINESS || '',
-    stripePriceIdYearly: process.env.STRIPE_PRICE_BUSINESS_YEARLY || '',
+    paypalPlanId: process.env.PAYPAL_PLAN_BUSINESS || '',
+    paypalPlanIdYearly: process.env.PAYPAL_PLAN_BUSINESS_YEARLY || '',
     limits: {
       platforms: 6,
       dailyPostsPerPlatform: 50,

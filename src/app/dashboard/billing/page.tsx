@@ -8,7 +8,6 @@ interface PlanDef {
     id: string;
     name: string;
     price: number;
-    priceId: string;
     platforms: number;
     postsPerDay: number;
     keywords: number;
@@ -20,52 +19,47 @@ const PLANS: PlanDef[] = [
         id: 'starter',
         name: 'Starter',
         price: 0,
-        priceId: '',
-        platforms: 1,
+        platforms: 2,
         postsPerDay: 3,
         keywords: 5,
         features: [
-            '1 platform connected',
+            '2 platforms connected',
             '3 posts per day',
             '5 keywords tracked',
-            'Basic AI replies',
-            'Community support',
+            'AI-powered replies',
+            'Manual posting only',
         ],
     },
     {
         id: 'pro',
         name: 'Pro',
         price: 49,
-        priceId: '',
-        platforms: 3,
+        platforms: 4,
         postsPerDay: 15,
         keywords: 25,
         features: [
-            '3 platforms connected',
+            '4 platforms connected',
             '15 posts per day',
             '25 keywords tracked',
-            'Advanced AI replies',
-            'Priority support',
-            'Custom prompt templates',
+            'Auto-posting',
+            'Cron scheduling',
+            'Activity logs',
         ],
     },
     {
         id: 'business',
         name: 'Business',
         price: 149,
-        priceId: '',
         platforms: 6,
         postsPerDay: 50,
         keywords: 100,
         features: [
-            '6 platforms connected',
+            'All 6 platforms',
             '50 posts per day',
             '100 keywords tracked',
-            'Premium AI replies',
-            'Dedicated support',
-            'Custom prompt templates',
-            'API access',
-            'Team collaboration',
+            'Auto-posting',
+            'Cron scheduling',
+            'Priority support',
         ],
     },
 ];
@@ -178,7 +172,7 @@ function BillingContent() {
             const res = await fetch('/api/billing/create-checkout', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ priceId: planDef.priceId, planId: planDef.id }),
+                body: JSON.stringify({ planId: planDef.id, yearly: false }),
             });
             const data = await res.json();
             if (data.url) window.location.href = data.url;

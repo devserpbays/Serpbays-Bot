@@ -1,11 +1,12 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useClerk, useUser } from '@clerk/nextjs';
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
+import { ThemeToggleCompact } from '@/components/ThemeProvider';
 
 /* ── Alert Poller ──────────────────────────────────────────────── */
 // Only show toasts for actions the user actually needs to know about
@@ -56,11 +57,284 @@ function AlertPoller() {
   }, []);
 
   useEffect(() => {
-    const id = setInterval(poll, 15000);
+    const tick = () => { if (!document.hidden) poll(); };
+    const id = setInterval(tick, 15000);
     return () => clearInterval(id);
   }, [poll]);
 
   return null;
+}
+
+/* ── Notification Bell ────────────────────────────────────────── */
+interface Notification {
+  _id: string;
+  type: string;
+  platform: string;
+  title: string;
+  message: string;
+  read: boolean;
+  createdAt: string;
+  actionUrl?: string;
+  actionLabel?: string;
+}
+
+function NotificationBell() {
+  const [open, setOpen] = useState(false);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
+
+  // Fetch notifications
+  const fetchNotifications = useCallback(async () => {
+    try {
+      const res = await fetch('/api/notifications?limit=20');
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.notifications) {
+        // Only show unread notifications in the panel
+        const unread = data.notifications.filter((n: Notification) => !n.read);
+        setNotifications(unread);
+        setUnreadCount(unread.length);
+      }
+    } catch { /* silent */ }
+  }, []);
+
+  useEffect(() => {
+    fetchNotifications();
+    fetch('/api/check-cookies').catch(() => {});
+    const tick = () => { if (!document.hidden) fetchNotifications(); };
+    const id = setInterval(tick, 30000);
+    return () => clearInterval(id);
+  }, [fetchNotifications]);
+
+  // Close panel on click outside
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  // Click a notification → mark read, remove from list, navigate to action URL
+  const handleNotificationClick = async (n: Notification) => {
+    try {
+      await fetch('/api/notifications', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: n._id }) });
+    } catch { /* silent */ }
+    setNotifications(prev => prev.filter(item => item._id !== n._id));
+    setUnreadCount(prev => Math.max(0, prev - 1));
+    setOpen(false);
+    router.push(n.actionUrl || '/dashboard/accounts');
+  };
+
+  // Mark all read → clear all from panel
+  const markAllRead = async () => {
+    try {
+      await fetch('/api/notifications', { method: 'PATCH' });
+    } catch { /* silent */ }
+    setNotifications([]);
+    setUnreadCount(0);
+  };
+
+  const getDotColor = (type: string) => {
+    if (type === 'cookie_expired' || type === 'cookie_expiring_soon') return '#ed4245';
+    if (type === 'account_removed') return '#fee75c';
+    return '#7c3aed';
+  };
+
+  const timeAgo = (dateStr: string) => {
+    const diff = Date.now() - new Date(dateStr).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    return `${Math.floor(hrs / 24)}d ago`;
+  };
+
+  return (
+    <div ref={panelRef} style={{ position: 'relative' }}>
+      <button
+        onClick={() => { setOpen(!open); if (!open) fetchNotifications(); }}
+        title="Notifications"
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          width: 38, height: 38, position: 'relative',
+          background: 'rgba(255,255,255,0.04)',
+          border: '1px solid var(--border-subtle)',
+          borderRadius: 10,
+          color: 'var(--text-secondary)',
+          cursor: 'pointer', transition: 'all 180ms',
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = 'rgba(124, 58, 237, 0.1)';
+          e.currentTarget.style.borderColor = 'rgba(124, 58, 237, 0.25)';
+          e.currentTarget.style.color = 'var(--text-primary)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = 'rgba(255,255,255,0.04)';
+          e.currentTarget.style.borderColor = 'var(--border-subtle)';
+          e.currentTarget.style.color = 'var(--text-secondary)';
+        }}
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} width="18" height="18">
+          <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" />
+          <path d="M13.73 21a2 2 0 01-3.46 0" />
+        </svg>
+        {unreadCount > 0 && (
+          <span style={{
+            position: 'absolute', top: -4, right: -4,
+            minWidth: 18, height: 18, borderRadius: 9,
+            background: '#ed4245', color: '#fff',
+            fontSize: 11, fontWeight: 700,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: '0 5px',
+          }}>
+            {unreadCount > 9 ? '9+' : unreadCount}
+          </span>
+        )}
+      </button>
+
+      {/* Notification dropdown panel */}
+      {open && (
+        <div style={{
+          position: 'absolute',
+          top: '100%',
+          right: 0,
+          marginTop: 8,
+          width: 360, maxHeight: 440,
+          background: 'var(--bg-secondary, #131316)',
+          border: '1px solid rgba(255,255,255,0.08)',
+          borderRadius: 12,
+          boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+          zIndex: 1000,
+          overflow: 'hidden',
+          display: 'flex', flexDirection: 'column',
+        }}>
+          {/* Header */}
+          <div style={{
+            padding: '14px 16px',
+            borderBottom: '1px solid rgba(255,255,255,0.06)',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary, #fafafa)' }}>
+                Notifications
+              </span>
+              {unreadCount > 0 && (
+                <span style={{
+                  minWidth: 20, height: 20, borderRadius: 10,
+                  background: '#ed4245', color: '#fff',
+                  fontSize: 11, fontWeight: 700,
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  padding: '0 6px',
+                }}>
+                  {unreadCount}
+                </span>
+              )}
+            </div>
+            {notifications.length > 0 && (
+              <button
+                onClick={markAllRead}
+                style={{
+                  background: 'none', border: 'none',
+                  color: '#7c3aed', fontSize: 12, fontWeight: 600,
+                  cursor: 'pointer', padding: '4px 8px',
+                  borderRadius: 6,
+                  transition: 'background 150ms',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(124, 58, 237, 0.1)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; }}
+              >
+                Mark all read
+              </button>
+            )}
+          </div>
+
+          {/* List */}
+          <div style={{ overflowY: 'auto', flex: 1 }}>
+            {notifications.length === 0 ? (
+              <div style={{
+                padding: 40, textAlign: 'center',
+                color: 'var(--text-muted, #71717a)', fontSize: 13,
+              }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} width="32" height="32" style={{ margin: '0 auto 10px', opacity: 0.4 }}>
+                  <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                  <path d="M13.73 21a2 2 0 01-3.46 0" />
+                </svg>
+                <div>All caught up!</div>
+              </div>
+            ) : (
+              notifications.map(n => (
+                <div
+                  key={n._id}
+                  onClick={() => handleNotificationClick(n)}
+                  style={{
+                    padding: '12px 16px',
+                    borderBottom: '1px solid rgba(255,255,255,0.04)',
+                    background: 'rgba(124, 58, 237, 0.04)',
+                    display: 'flex', gap: 10, alignItems: 'flex-start',
+                    cursor: 'pointer',
+                    transition: 'background 150ms',
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(124, 58, 237, 0.1)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(124, 58, 237, 0.04)'; }}
+                >
+                  <div style={{
+                    width: 8, height: 8, borderRadius: '50%',
+                    background: getDotColor(n.type),
+                    marginTop: 6, flexShrink: 0,
+                  }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{
+                      fontSize: 13, fontWeight: 600,
+                      color: 'var(--text-primary, #fafafa)',
+                      marginBottom: 3,
+                    }}>
+                      {n.title}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted, #a1a1aa)', lineHeight: 1.4 }}>
+                      {n.message}
+                    </div>
+                    <div style={{ fontSize: 11, marginTop: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {n.platform && (
+                        <span style={{
+                          textTransform: 'capitalize',
+                          background: 'rgba(124, 58, 237, 0.12)',
+                          color: '#a78bfa',
+                          padding: '1px 8px',
+                          borderRadius: 4,
+                          fontSize: 11,
+                          fontWeight: 500,
+                        }}>
+                          {n.platform}
+                        </span>
+                      )}
+                      <span style={{ color: 'var(--text-muted, #52525b)' }}>{timeAgo(n.createdAt)}</span>
+                      {(n.actionUrl || n.type === 'cookie_expired') && (
+                        <span style={{
+                          marginLeft: 'auto',
+                          color: '#7c3aed',
+                          fontSize: 11,
+                          fontWeight: 600,
+                        }}>
+                          {n.actionLabel || 'Reconnect'} →
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 /* ── Nav items ─────────────────────────────────────────────────── */
@@ -139,6 +413,18 @@ const NAV_ITEMS = [
   },
 ];
 
+const SETTINGS_SUB_NAV = [
+  { id: 'company-info', label: 'Company Info' },
+  { id: 'platforms', label: 'Platforms' },
+  { id: 'keywords', label: 'Keywords' },
+  { id: 'subreddits', label: 'Subreddits' },
+  { id: 'facebook-groups', label: 'Facebook Groups' },
+  { id: 'post-limits', label: 'Limits & Thresholds' },
+  { id: 'cron-schedule', label: 'Cron Schedule' },
+  { id: 'notifications', label: 'Notifications' },
+  { id: 'prompt-template', label: 'Prompt Template' },
+];
+
 const ADMIN_NAV_ITEM = {
   href: '/dashboard/admin',
   label: 'Admin',
@@ -153,6 +439,7 @@ const ADMIN_NAV_ITEM = {
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
+  const [settingsExpanded, setSettingsExpanded] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
   const { user } = useUser();
   const { signOut } = useClerk();
@@ -160,14 +447,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const userEmail = user?.emailAddresses?.[0]?.emailAddress ?? '';
   const userInitial = (userName || userEmail || '?')[0].toUpperCase();
 
-  // Check admin status on mount
+  // Check admin status — cached in sessionStorage to avoid repeated API calls
   useEffect(() => {
+    const cached = sessionStorage.getItem('gm_isAdmin');
+    if (cached === '1') { setIsAdmin(true); return; }
+    if (cached === '0') return;
     let cancelled = false;
     (async () => {
       try {
         const res = await fetch('/api/admin/stats');
-        if (!cancelled && res.ok) setIsAdmin(true);
-      } catch { /* not admin */ }
+        if (!cancelled && res.ok) { setIsAdmin(true); sessionStorage.setItem('gm_isAdmin', '1'); }
+        else { sessionStorage.setItem('gm_isAdmin', '0'); }
+      } catch { sessionStorage.setItem('gm_isAdmin', '0'); }
     })();
     return () => { cancelled = true; };
   }, []);
@@ -218,69 +509,137 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         <nav className="sidebar-nav">
           {!collapsed && <div className="sidebar-section-label">Navigation</div>}
-          {navItems.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`nav-item ${isActive(item.href) ? 'active' : ''}`}
-              title={collapsed ? item.label : undefined}
-            >
-              {item.icon}
-              {!collapsed && <span>{item.label}</span>}
-            </Link>
-          ))}
+          {navItems.map((item) => {
+            const active = isActive(item.href);
+            const isSettings = item.href === '/dashboard/settings';
+            const canExpand = isSettings && active && !collapsed;
+            return (
+              <div key={item.href}>
+                <div style={{ display: 'flex', alignItems: 'center', position: 'relative' }}>
+                  <Link
+                    href={item.href}
+                    className={`nav-item ${active ? 'active' : ''}`}
+                    title={collapsed ? item.label : undefined}
+                    style={{ flex: 1 }}
+                  >
+                    {item.icon}
+                    {!collapsed && <span>{item.label}</span>}
+                  </Link>
+                  {canExpand && (
+                    <button
+                      onClick={(e) => { e.preventDefault(); setSettingsExpanded(!settingsExpanded); }}
+                      style={{
+                        position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+                        background: 'none', border: 'none', cursor: 'pointer',
+                        padding: 4, borderRadius: 4,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        color: 'var(--text-muted)',
+                        transition: 'all 0.15s',
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'none'; }}
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={14} height={14}
+                        style={{ transform: settingsExpanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>
+                        <polyline points="6,9 12,15 18,9" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+                {canExpand && settingsExpanded && (
+                  <div style={{
+                    display: 'flex', flexDirection: 'column', gap: 1,
+                    padding: '4px 0 4px 0', marginLeft: 16,
+                    borderLeft: '1px solid var(--border-subtle)',
+                    overflow: 'hidden',
+                  }}>
+                    {SETTINGS_SUB_NAV.map(sub => (
+                      <button
+                        key={sub.id}
+                        onClick={() => {
+                          const el = document.getElementById(sub.id);
+                          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }}
+                        style={{
+                          background: 'none', border: 'none', cursor: 'pointer',
+                          padding: '5px 12px',
+                          fontSize: 12, fontWeight: 400,
+                          color: 'var(--text-muted)',
+                          textAlign: 'left',
+                          borderRadius: '0 4px 4px 0',
+                          transition: 'all 0.12s',
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.background = 'rgba(124,58,237,0.06)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'none'; }}
+                      >
+                        {sub.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </nav>
 
         <div className="sidebar-footer">
+          {/* Discord-style user panel at bottom */}
           {!collapsed && userEmail && (
             <div style={{
-              padding: '12px',
-              marginBottom: '6px',
-              background: 'rgba(255,255,255,0.02)',
-              borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--border-subtle)',
+              padding: '8px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              borderRadius: 'var(--radius-xs)',
+              marginBottom: '4px',
+              background: 'rgba(255,255,255,0.03)',
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-                <div style={{
-                  width: 30, height: 30, borderRadius: '50%',
-                  background: 'linear-gradient(135deg, #7c3aed, #2563eb)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  color: 'white', fontSize: 12, fontWeight: 700, flexShrink: 0,
-                }}>
-                  {userInitial}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  {userName && (
-                    <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1.2 }}>
-                      {userName}
-                    </div>
-                  )}
-                  <div style={{
-                    fontSize: 11, color: 'var(--text-muted)',
-                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                  }}>
-                    {userEmail}
+              <div style={{
+                width: 32, height: 32, borderRadius: '50%',
+                background: 'var(--gradient-primary)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: 'white', fontSize: 13, fontWeight: 700, flexShrink: 0,
+              }}>
+                {userInitial}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                {userName && (
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1.2 }}>
+                    {userName}
                   </div>
+                )}
+                <div style={{
+                  fontSize: 11, color: 'var(--text-muted)',
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}>
+                  Online
                 </div>
               </div>
               <button
                 onClick={() => signOut(() => { window.location.href = '/login'; })}
+                title="Sign out"
                 style={{
-                  width: '100%',
-                  padding: '6px 0',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  padding: '6px',
                   background: 'transparent',
-                  border: '1px solid var(--border-default)',
+                  border: 'none',
                   borderRadius: 'var(--radius-xs)',
                   color: 'var(--text-muted)',
-                  fontSize: 11,
-                  fontWeight: 500,
                   cursor: 'pointer',
-                  transition: 'all 150ms',
+                  transition: 'all 120ms',
+                  flexShrink: 0,
                 }}
-                onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.borderColor = 'var(--border-hover)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.borderColor = 'var(--border-default)'; }}
+                onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'transparent'; }}
               >
-                Sign out
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} width="16" height="16">
+                  <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" />
+                  <polyline points="16,17 21,12 16,7" />
+                  <line x1="21" y1="12" x2="9" y2="12" />
+                </svg>
               </button>
             </div>
           )}
@@ -289,10 +648,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               onClick={() => signOut(() => { window.location.href = '/login'; })}
               title="Sign out"
               style={{
-                width: '100%', padding: '10px',
+                width: '100%', padding: '8px',
                 background: 'transparent', border: 'none',
                 color: 'var(--text-muted)', cursor: 'pointer',
                 display: 'flex', justifyContent: 'center', marginBottom: '4px',
+                borderRadius: 'var(--radius-xs)',
               }}
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} width="18" height="18">
@@ -312,9 +672,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               fill="none"
               stroke="currentColor"
               strokeWidth={1.8}
-              width="18"
-              height="18"
-              style={{ transform: collapsed ? 'rotate(180deg)' : undefined, transition: 'transform 250ms' }}
+              width="16"
+              height="16"
+              style={{ transform: collapsed ? 'rotate(180deg)' : undefined, transition: 'transform 200ms' }}
             >
               <polyline points="15,18 9,12 15,6" />
             </svg>
@@ -324,6 +684,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* ── Main ── */}
       <main className={`main-content ${collapsed ? 'sidebar-collapsed' : ''}`}>
+        {/* Top bar with notification + theme toggle */}
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+          gap: 10, padding: '12px 24px 0',
+          position: 'sticky', top: 0, zIndex: 100,
+        }}>
+          <NotificationBell />
+          <ThemeToggleCompact />
+        </div>
         {children}
       </main>
     </div>

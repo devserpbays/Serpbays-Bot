@@ -8,14 +8,47 @@ import { existsSync } from 'fs';
 
 export const dynamic = 'force-dynamic';
 
-// GET — return social accounts for the authenticated user from Settings
+// GET — return social accounts for the authenticated user
+// Merges Settings.socialAccounts with verified BrowserCookies to catch any out-of-sync entries
 export async function GET() {
   const userId = await getAuthUserId();
   if (userId instanceof NextResponse) return userId;
 
   await connectDB();
   const settings = await Settings.findOne({ userId });
-  const accounts: SocialAccount[] = settings?.socialAccounts ?? [];
+  const accounts: SocialAccount[] = [...(settings?.socialAccounts ?? [])];
+
+  // Also check BrowserCookie for verified platforms not in socialAccounts
+  const BrowserCookie = (await import('@/models/BrowserCookie')).default;
+  const verifiedCookies = await BrowserCookie.find(
+    { userId, verified: true },
+    { platform: 1, accountId: 1, username: 1, displayName: 1 },
+  ).lean();
+
+  const existingPlatforms = new Set(accounts.map((a: SocialAccount) => a.platform));
+  for (const cookie of verifiedCookies) {
+    if (!existingPlatforms.has(cookie.platform)) {
+      // Verified cookie exists but no socialAccount entry — add it
+      const newAcc = {
+        id: cookie.accountId || `${cookie.platform.slice(0, 2)}_${userId}`,
+        platform: cookie.platform,
+        username: cookie.username || '',
+        displayName: cookie.displayName || '',
+        profileDir: `profiles/${userId}/${cookie.platform}`,
+        accountIndex: 0,
+        addedAt: new Date().toISOString(),
+        active: true,
+      };
+      accounts.push(newAcc as SocialAccount);
+
+      // Also backfill into Settings so it stays in sync
+      if (settings) {
+        settings.socialAccounts = accounts;
+        await settings.save().catch(() => {});
+      }
+    }
+  }
+
   return NextResponse.json({ accounts });
 }
 
@@ -52,9 +85,12 @@ export async function DELETE(req: NextRequest) {
   // Clean up the profile directory (cookies, browser data)
   if (removedAccount?.profileDir) {
     try {
-      if (existsSync(removedAccount.profileDir)) {
-        await rm(removedAccount.profileDir, { recursive: true, force: true });
-        console.log(`[social-accounts] Removed profile dir: ${removedAccount.profileDir}`);
+      const resolved = require('path').resolve(process.cwd(), removedAccount.profileDir);
+      const profilesBase = require('path').resolve(process.cwd(), 'profiles');
+      // Only allow deletion within the profiles/ directory to prevent path traversal
+      if (resolved.startsWith(profilesBase + '/') && existsSync(resolved)) {
+        await rm(resolved, { recursive: true, force: true });
+        console.log(`[social-accounts] Removed profile dir: ${resolved}`);
       }
     } catch (err) {
       console.error(`[social-accounts] Failed to remove profile dir: ${(err as Error).message}`);

@@ -27,7 +27,7 @@ import {
   closeBrowser,
 } from '../src/lib/quora';
 import { isWithinSchedule } from '../src/lib/schedule';
-import { logActivity } from '../src/lib/activityLog';
+import { logActivity, notifyAuthError } from '../src/lib/activityLog';
 import Post from '../src/models/Post';
 import Settings from '../src/models/Settings';
 
@@ -158,16 +158,16 @@ Write the answer now:`;
 }
 
 async function main() {
-  if (!acquireCronLock('quora', CRON_USER_ID || undefined)) {
+  if (!await acquireCronLock('quora', CRON_USER_ID || undefined)) {
     console.log(`[${new Date().toISOString()}] Quora Cron: already running for user ${CRON_USER_ID || 'default'}, exiting`);
     process.exit(0);
   }
-  process.on('exit', () => releaseCronLock('quora', CRON_USER_ID || undefined));
+  process.on('exit', () => { releaseCronLock('quora', CRON_USER_ID || undefined).catch(() => {}); });
 
   console.log(`[${new Date().toISOString()}] Quora Cron: starting (user: ${CRON_USER_ID || 'default'})`);
   if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'quora', 'info', 'cron_start', 'Quora cron started');
-  const _cronId = cronStart('quora', 'auto', CRON_USER_ID || undefined);
-  process.on('exit', (code) => cronFinish(_cronId, 'quora', code, '', CRON_USER_ID || undefined));
+  const _cronId = await cronStart('quora', 'auto', CRON_USER_ID || undefined);
+  process.on('exit', (code) => { cronFinish(_cronId, 'quora', code, '', CRON_USER_ID || undefined).catch(() => {}); });
 
   await connectDB();
 
@@ -248,7 +248,10 @@ async function main() {
       writeFileSync(join(process.cwd(), process.env.QUORA_PROFILE_DIR || '.quora-profile', '.verified'), JSON.stringify({ loggedIn: false, ts: new Date().toISOString(), message: 'Session expired — cron detected not logged in' }));
     } catch {}
     console.error('Not logged in to Quora. Use cookie login from the dashboard.');
-    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'quora', 'error', 'auth_error', 'Not logged in to Quora — re-set cookies from dashboard');
+    if (CRON_USER_ID) {
+      await logActivity(CRON_USER_ID, 'quora', 'error', 'auth_error', 'Not logged in to Quora — re-set cookies from dashboard');
+      await notifyAuthError(CRON_USER_ID, 'quora', 'Not logged in to Quora — re-set cookies from dashboard');
+    }
     await closeBrowser();
     process.exit(1);
   }

@@ -82,11 +82,11 @@ Write the follow-up now:`;
 }
 
 async function main() {
-  if (!acquireCronLock('engagement-monitor')) {
+  if (!await acquireCronLock('engagement-monitor')) {
     console.log(`[${new Date().toISOString()}] Engagement Monitor: already running, exiting`);
     process.exit(0);
   }
-  process.on('exit', () => releaseCronLock('engagement-monitor'));
+  process.on('exit', () => { releaseCronLock('engagement-monitor').catch(() => {}); });
 
   console.log(`[${new Date().toISOString()}] Engagement Monitor: starting`);
 

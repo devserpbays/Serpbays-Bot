@@ -1,121 +1,194 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { stripe } from '@/lib/stripe';
+import { paypalRequest } from '@/lib/paypal';
 import { connectDB } from '@/lib/mongodb';
 import Subscription from '@/models/Subscription';
-import Stripe from 'stripe';
 
-// In Stripe v20+, current_period_start/end are on items, not subscription root
-function getPeriodDates(sub: Stripe.Subscription): { start: Date; end: Date } {
-  const item = sub.items?.data?.[0];
-  const start = item?.current_period_start ?? Math.floor(Date.now() / 1000);
-  const end = item?.current_period_end ?? Math.floor(Date.now() / 1000) + 30 * 86400;
-  return { start: new Date(start * 1000), end: new Date(end * 1000) };
-}
-
-// Stripe sends raw body — do not parse JSON
-export async function POST(req: NextRequest) {
-  const body = await req.text();
-  const sig = req.headers.get('stripe-signature');
-
-  if (!sig || !process.env.STRIPE_WEBHOOK_SECRET) {
-    return NextResponse.json({ error: 'Missing signature' }, { status: 400 });
+/**
+ * Verify the webhook signature with PayPal.
+ * Returns true if verified, false otherwise.
+ */
+async function verifyWebhook(req: NextRequest, body: string): Promise<boolean> {
+  const webhookId = process.env.PAYPAL_WEBHOOK_ID;
+  if (!webhookId) {
+    console.error('[PayPal] PAYPAL_WEBHOOK_ID not configured');
+    return false;
   }
 
-  let event: Stripe.Event;
   try {
-    event = stripe.webhooks.constructEvent(body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+    const result = await paypalRequest<{ verification_status: string }>(
+      '/v1/notifications/verify-webhook-signature',
+      {
+        method: 'POST',
+        body: {
+          auth_algo: req.headers.get('paypal-auth-algo'),
+          cert_url: req.headers.get('paypal-cert-url'),
+          transmission_id: req.headers.get('paypal-transmission-id'),
+          transmission_sig: req.headers.get('paypal-transmission-sig'),
+          transmission_time: req.headers.get('paypal-transmission-time'),
+          webhook_id: webhookId,
+          webhook_event: JSON.parse(body),
+        },
+      }
+    );
+    return result.verification_status === 'SUCCESS';
   } catch (err) {
-    console.error('Webhook signature verification failed:', (err as Error).message);
+    console.error('[PayPal] Webhook verification failed:', (err as Error).message);
+    return false;
+  }
+}
+
+/**
+ * Map a PayPal subscription status to our internal status.
+ */
+function mapStatus(ppStatus: string): string {
+  const map: Record<string, string> = {
+    ACTIVE: 'active',
+    APPROVED: 'active',
+    SUSPENDED: 'past_due',
+    CANCELLED: 'canceled',
+    EXPIRED: 'canceled',
+  };
+  return map[ppStatus] || 'active';
+}
+
+/**
+ * Look up which plan a PayPal plan ID corresponds to.
+ */
+function planIdFromPayPalPlan(paypalPlanId: string): string {
+  const { PLANS } = require('@/lib/plans');
+  for (const [key, def] of Object.entries(PLANS) as [string, { paypalPlanId: string; paypalPlanIdYearly: string }][]) {
+    if (def.paypalPlanId === paypalPlanId || def.paypalPlanIdYearly === paypalPlanId) {
+      return key;
+    }
+  }
+  return 'free';
+}
+
+export async function POST(req: NextRequest) {
+  const body = await req.text();
+
+  // Verify webhook signature
+  const verified = await verifyWebhook(req, body);
+  if (!verified) {
     return NextResponse.json({ error: 'Invalid signature' }, { status: 400 });
   }
 
+  const event = JSON.parse(body);
+  const eventType: string = event.event_type;
+  const resource = event.resource;
+
   await connectDB();
 
-  switch (event.type) {
-    case 'checkout.session.completed': {
-      const session = event.data.object as Stripe.Checkout.Session;
-      const userId = session.metadata?.userId;
-      const planId = session.metadata?.planId;
-      if (!userId || !planId) break;
+  switch (eventType) {
+    // Subscription activated (first payment succeeded)
+    case 'BILLING.SUBSCRIPTION.ACTIVATED': {
+      const userId = resource.custom_id;
+      if (!userId) break;
 
-      const subscriptionId = session.subscription as string;
-      const stripeSub = await stripe.subscriptions.retrieve(subscriptionId);
-      const period = getPeriodDates(stripeSub);
+      const planId = planIdFromPayPalPlan(resource.plan_id);
+      const periodStart = resource.billing_info?.last_payment?.time
+        ? new Date(resource.billing_info.last_payment.time)
+        : new Date();
+      const periodEnd = resource.billing_info?.next_billing_time
+        ? new Date(resource.billing_info.next_billing_time)
+        : undefined;
 
       await Subscription.findOneAndUpdate(
         { userId },
         {
           userId,
-          stripeCustomerId: session.customer as string,
-          stripeSubscriptionId: subscriptionId,
+          paypalSubscriptionId: resource.id,
+          paypalPayerId: resource.subscriber?.payer_id || '',
           plan: planId,
           status: 'active',
-          currentPeriodStart: period.start,
-          currentPeriodEnd: period.end,
-          cancelAtPeriodEnd: stripeSub.cancel_at_period_end,
+          currentPeriodStart: periodStart,
+          currentPeriodEnd: periodEnd,
+          cancelAtPeriodEnd: false,
         },
         { upsert: true, new: true }
       );
-      console.log(`[Stripe] Checkout completed: ${userId} → ${planId}`);
+      console.log(`[PayPal] Subscription activated: ${userId} → ${planId}`);
       break;
     }
 
-    case 'customer.subscription.updated': {
-      const sub = event.data.object as Stripe.Subscription;
-      const userId = sub.metadata?.userId;
+    // Subscription updated (plan change, status change)
+    case 'BILLING.SUBSCRIPTION.UPDATED': {
+      const userId = resource.custom_id;
       if (!userId) break;
 
-      const planId = sub.metadata?.planId || 'free';
-      const statusMap: Record<string, string> = {
-        active: 'active',
-        past_due: 'past_due',
-        canceled: 'canceled',
-        trialing: 'trialing',
-        incomplete: 'incomplete',
-        incomplete_expired: 'canceled',
-        unpaid: 'past_due',
-        paused: 'canceled',
-      };
-
-      const period = getPeriodDates(sub);
+      const planId = planIdFromPayPalPlan(resource.plan_id);
+      const status = mapStatus(resource.status);
+      const periodEnd = resource.billing_info?.next_billing_time
+        ? new Date(resource.billing_info.next_billing_time)
+        : undefined;
 
       await Subscription.findOneAndUpdate(
         { userId },
         {
           plan: planId,
-          status: statusMap[sub.status] || 'active',
-          currentPeriodStart: period.start,
-          currentPeriodEnd: period.end,
-          cancelAtPeriodEnd: sub.cancel_at_period_end,
+          status,
+          ...(periodEnd && { currentPeriodEnd: periodEnd }),
         }
       );
-      console.log(`[Stripe] Subscription updated: ${userId} → ${sub.status}`);
+      console.log(`[PayPal] Subscription updated: ${userId} → ${resource.status}`);
       break;
     }
 
-    case 'customer.subscription.deleted': {
-      const sub = event.data.object as Stripe.Subscription;
-      const userId = sub.metadata?.userId;
+    // Subscription cancelled
+    case 'BILLING.SUBSCRIPTION.CANCELLED':
+    case 'BILLING.SUBSCRIPTION.EXPIRED': {
+      const userId = resource.custom_id;
       if (!userId) break;
 
       await Subscription.findOneAndUpdate(
         { userId },
         { plan: 'free', status: 'canceled', cancelAtPeriodEnd: false }
       );
-      console.log(`[Stripe] Subscription canceled: ${userId}`);
+      console.log(`[PayPal] Subscription canceled: ${userId}`);
       break;
     }
 
-    case 'invoice.payment_failed': {
-      const invoice = event.data.object as Stripe.Invoice & { subscription?: string };
-      const subId = invoice.subscription;
-      if (!subId) break;
+    // Subscription suspended (payment failed)
+    case 'BILLING.SUBSCRIPTION.SUSPENDED': {
+      const userId = resource.custom_id;
+      if (!userId) break;
 
       await Subscription.findOneAndUpdate(
-        { stripeSubscriptionId: subId },
+        { userId },
         { status: 'past_due' }
       );
-      console.log(`[Stripe] Payment failed for subscription: ${subId}`);
+      console.log(`[PayPal] Subscription suspended (payment failed): ${userId}`);
+      break;
+    }
+
+    // Payment completed (renewal)
+    case 'PAYMENT.SALE.COMPLETED': {
+      const subId = resource.billing_agreement_id;
+      if (!subId) break;
+
+      // Fetch the subscription to get the next billing time
+      try {
+        const ppSub = await paypalRequest<{
+          custom_id: string;
+          billing_info: { next_billing_time?: string };
+        }>(`/v1/billing/subscriptions/${subId}`);
+
+        if (ppSub.custom_id) {
+          await Subscription.findOneAndUpdate(
+            { userId: ppSub.custom_id },
+            {
+              status: 'active',
+              currentPeriodStart: new Date(),
+              ...(ppSub.billing_info?.next_billing_time && {
+                currentPeriodEnd: new Date(ppSub.billing_info.next_billing_time),
+              }),
+            }
+          );
+          console.log(`[PayPal] Payment completed for: ${ppSub.custom_id}`);
+        }
+      } catch (err) {
+        console.error(`[PayPal] Error fetching subscription ${subId}:`, (err as Error).message);
+      }
       break;
     }
   }

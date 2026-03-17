@@ -237,23 +237,24 @@ function isValidComment(text: string): boolean {
   if (!text || text.trim().length < 10) return false;
   if (text.trim().length > 2000) return false;
 
+  // Patterns that indicate the text is a code dump or error output, not a real comment.
+  // These are intentionally specific to avoid false positives on conversational text
+  // that naturally mentions words like "error" or "failed".
   const errorPatterns = [
-    /error/i,
-    /Error:/,
-    /ERR_/,
-    /failed/i,
-    /exception/i,
-    /stack\s*trace/i,
-    /undefined/i,
-    /null/i,
-    /NaN/,
+    /Error:\s*\w+/,                        // "Error: something" (structured error output)
+    /ERR_/,                                 // Node.js error codes
+    /stack\s*trace/i,                       // stack trace dumps
+    /\bundefined\b.*\bundefined\b/i,        // multiple "undefined" = likely a dump
+    /\bnull\b.*\bnull\b/i,                  // multiple "null" = likely a dump
+    /\bNaN\b.*\bNaN\b/,                     // multiple NaN
     /\b(500|404|403|401|400)\b.*\b(status|code|error)\b/i,
-    /at\s+\w+\s*\(/,
-    /^\s*\{[\s\S]*\}\s*$/,
-    /^\s*\[[\s\S]*\]\s*$/,
-    /TypeError|ReferenceError|SyntaxError/,
-    /ECONNREFUSED|ETIMEDOUT|ENOTFOUND/,
+    /at\s+\w+\s*\(.*:\d+:\d+\)/,           // stack frame: "at func (file:line:col)"
+    /^\s*\{[\s\S]*\}\s*$/,                  // entire text is a JSON object
+    /^\s*\[[\s\S]*\]\s*$/,                  // entire text is a JSON array
+    /TypeError|ReferenceError|SyntaxError/, // JS error type names
+    /ECONNREFUSED|ETIMEDOUT|ENOTFOUND/,     // Node.js network error codes
     /Could not parse/i,
+    /```[\s\S]*```/,                        // markdown code blocks
   ];
 
   for (const pattern of errorPatterns) {
@@ -278,56 +279,172 @@ export async function postQuoraAnswer(
     await page.goto(questionUrl, { waitUntil: 'domcontentloaded' });
     await sleep(SLOW_WAIT);
 
+    // Wait extra for Quora's React app to fully hydrate
+    await sleep(3000);
+
     // Scroll down to find the answer area
     await page.mouse.wheel(0, 400);
     await sleep(2000);
 
-    // Click "Answer" button to open the answer editor
+    // --- Strategy 1: Click "Answer" button/link to open the editor ---
     const answerBtnSelectors = [
       'button:has-text("Answer")',
       '[aria-label="Answer"]',
+      '[aria-label="Answer question"]',
       'a:has-text("Answer")',
       '.q-box button:has-text("Answer")',
+      'div[role="tab"]:has-text("Answer")',
+      'div[role="button"]:has-text("Answer")',
     ];
 
     let clickedAnswer = false;
     for (const sel of answerBtnSelectors) {
-      const btns = await page.$$(sel);
-      for (const btn of btns) {
-        const text = await btn.textContent().catch(() => '');
-        if (text && /^answer$/i.test(text.trim()) && await btn.isVisible().catch(() => false)) {
-          await btn.click({ force: true });
-          clickedAnswer = true;
-          await sleep(3000);
-          break;
+      try {
+        const btns = await page.$$(sel);
+        for (const btn of btns) {
+          const text = await btn.textContent().catch(() => '');
+          const trimmed = (text || '').trim();
+          // Match "Answer", "Answer · N", or "Write Answer"
+          if (trimmed && /^(write\s+)?answer(\s+·\s*\d+)?$/i.test(trimmed) && await btn.isVisible().catch(() => false)) {
+            await btn.click({ force: true });
+            clickedAnswer = true;
+            console.log(`Clicked answer button: "${trimmed}" via ${sel}`);
+            await sleep(3000);
+            break;
+          }
         }
-      }
+      } catch { /* selector may not match */ }
       if (clickedAnswer) break;
+    }
+
+    // --- Strategy 2: Click the "Write your answer" placeholder prompt ---
+    if (!clickedAnswer) {
+      const promptSelectors = [
+        'text="Write your answer"',
+        'text="Answer"',
+        '[data-placeholder="Write your answer"]',
+        '[placeholder="Write your answer"]',
+        'span:has-text("Write your answer")',
+      ];
+      for (const sel of promptSelectors) {
+        try {
+          const el = page.locator(sel).first();
+          if (await el.isVisible({ timeout: 2000 }).catch(() => false)) {
+            await el.click({ force: true });
+            clickedAnswer = true;
+            console.log(`Clicked answer prompt via ${sel}`);
+            await sleep(3000);
+            break;
+          }
+        } catch { /* selector may not match */ }
+      }
+    }
+
+    // --- Strategy 3: Use page.evaluate to find and click answer-related elements ---
+    if (!clickedAnswer) {
+      const clicked = await page.evaluate(() => {
+        const allEls = document.querySelectorAll('button, a, [role="button"], [role="tab"], span, div');
+        for (const el of allEls) {
+          const text = (el.textContent || '').trim();
+          if (/^(write\s+)?answer(\s+·\s*\d+)?$/i.test(text) && (el as HTMLElement).offsetParent !== null) {
+            (el as HTMLElement).click();
+            return 'answer-btn';
+          }
+        }
+        for (const el of allEls) {
+          const text = (el.textContent || '').trim();
+          if (/write your answer/i.test(text) && (el as HTMLElement).offsetParent !== null) {
+            (el as HTMLElement).click();
+            return 'write-prompt';
+          }
+        }
+        return '';
+      }).catch(() => '');
+
+      if (clicked) {
+        clickedAnswer = true;
+        console.log(`Clicked answer element via evaluate: ${clicked}`);
+        await sleep(3000);
+      }
+    }
+
+    if (!clickedAnswer) {
+      console.warn('Could not find Answer button — will still search for editor');
     }
 
     // Find the answer editor (rich text contenteditable)
     const editorSelectors = [
       'div[contenteditable="true"][data-placeholder]',
       'div[contenteditable="true"].q-box',
-      'div[contenteditable="true"]',
       '.doc[contenteditable="true"]',
       'div[role="textbox"][contenteditable="true"]',
+      'div[contenteditable="true"][class*="editor"]',
+      'div[contenteditable="true"][class*="Editor"]',
+      'div[contenteditable="true"][data-lexical-editor]',
+      'div[contenteditable="true"]',
+      'p[contenteditable="true"]',
+      '[contenteditable="plaintext-only"]',
     ];
 
     let editor = null;
-    for (const sel of editorSelectors) {
-      const elements = await page.$$(sel);
-      for (const el of elements) {
-        if (await el.isVisible().catch(() => false)) {
-          editor = el;
-          break;
-        }
+
+    // Try multiple times with increasing waits — Quora editor can be slow to mount
+    for (let attempt = 0; attempt < 3; attempt++) {
+      for (const sel of editorSelectors) {
+        try {
+          const elements = await page.$$(sel);
+          for (const el of elements) {
+            if (await el.isVisible().catch(() => false)) {
+              // Skip search box inputs
+              const ariaLabel = await el.evaluate((e) => e.getAttribute('aria-label') || '').catch(() => '');
+              if (ariaLabel.toLowerCase().includes('search')) continue;
+              // Skip tiny elements that are not an editor
+              const box = await el.boundingBox().catch(() => null);
+              if (box && box.height < 30) continue;
+              editor = el;
+              console.log(`Found editor: ${sel} (attempt ${attempt + 1})`);
+              break;
+            }
+          }
+        } catch { /* selector may not match */ }
+        if (editor) break;
       }
       if (editor) break;
+
+      // Not found yet — scroll down, re-click, and wait
+      if (attempt < 2) {
+        console.log(`Editor not found (attempt ${attempt + 1}), scrolling and retrying...`);
+        await page.mouse.wheel(0, 300);
+        await sleep(2000);
+        // Try clicking an answer element again
+        await page.evaluate(() => {
+          const els = document.querySelectorAll('button, a, [role="button"], [role="tab"]');
+          for (const el of els) {
+            const text = (el.textContent || '').trim();
+            if (/^(write\s+)?answer/i.test(text) && (el as HTMLElement).offsetParent !== null) {
+              (el as HTMLElement).click();
+              return;
+            }
+          }
+        }).catch(() => {});
+        await sleep(3000);
+      }
     }
 
     if (!editor) {
-      console.error('Could not find answer editor on question:', questionUrl);
+      // Dump diagnostics for debugging
+      const diag = await page.evaluate(() => {
+        const btns = Array.from(document.querySelectorAll('button, [role="button"]'))
+          .map(b => (b.textContent || '').trim().slice(0, 50)).filter(t => t.length > 0).slice(0, 20);
+        const editables = Array.from(document.querySelectorAll('[contenteditable]')).map(e => ({
+          tag: e.tagName, ce: e.getAttribute('contenteditable'),
+          visible: (e as HTMLElement).offsetParent !== null,
+          ariaLabel: e.getAttribute('aria-label') || '',
+        }));
+        return { url: window.location.href, title: document.title, btns, editables };
+      }).catch(() => ({ url: '', title: '', btns: [] as string[], editables: [] as unknown[] }));
+      console.error('Editor not found. Page diagnostics:', JSON.stringify(diag, null, 2));
+
       await page.screenshot({ path: '/tmp/quora-answer-failed.png', fullPage: false }).catch(() => {});
       return { success: false, error: 'Answer editor not found — question may be closed, or login session expired' };
     }
@@ -336,9 +453,13 @@ export async function postQuoraAnswer(
     await editor.click({ force: true });
     await sleep(1000);
 
+    // Clear any existing placeholder content
+    await page.keyboard.press('Control+a');
+    await sleep(200);
+
     // Type the answer with human-like delay
     await page.keyboard.type(answer, { delay: 30 });
-    await sleep(1000);
+    await sleep(2000);
 
     // Find and click the Submit/Post button
     const submitSelectors = [
@@ -346,23 +467,46 @@ export async function postQuoraAnswer(
       'button:has-text("Submit")',
       'button[type="submit"]:has-text("Post")',
       'button.q-click-wrapper:has-text("Post")',
+      'button:has-text("Add Answer")',
+      'div[role="button"]:has-text("Post")',
+      'div[role="button"]:has-text("Submit")',
     ];
 
     let submitted = false;
     for (const sel of submitSelectors) {
-      const btns = await page.$$(sel);
-      for (const btn of btns) {
-        if (await btn.isVisible().catch(() => false)) {
-          await btn.click({ force: true });
-          submitted = true;
-          break;
+      try {
+        const btns = await page.$$(sel);
+        for (const btn of btns) {
+          const text = await btn.textContent().catch(() => '');
+          const trimmed = (text || '').trim();
+          if (await btn.isVisible().catch(() => false) && /^(post|submit|add answer)$/i.test(trimmed)) {
+            await btn.click({ force: true });
+            submitted = true;
+            console.log(`Clicked submit button: "${trimmed}"`);
+            break;
+          }
         }
-      }
+      } catch { /* selector may not match */ }
       if (submitted) break;
     }
 
+    // Broader submit button search via evaluate
     if (!submitted) {
-      // Try Ctrl+Enter as fallback
+      submitted = await page.evaluate(() => {
+        const allBtns = document.querySelectorAll('button, [role="button"]');
+        for (const btn of allBtns) {
+          const text = (btn.textContent || '').trim();
+          if (/^(post|submit|add answer)$/i.test(text) && (btn as HTMLElement).offsetParent !== null) {
+            (btn as HTMLElement).click();
+            return true;
+          }
+        }
+        return false;
+      }).catch(() => false);
+    }
+
+    if (!submitted) {
+      console.log('No submit button found, trying Ctrl+Enter');
       await page.keyboard.press('Control+Enter');
     }
 

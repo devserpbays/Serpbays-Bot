@@ -18,6 +18,7 @@ config({ path: '.env.local' });
 import { connectDB } from '../src/lib/mongodb';
 import Settings from '../src/models/Settings';
 import { isWithinSchedule } from '../src/lib/schedule';
+import { checkAndNotifyCookieExpiry } from '../src/lib/cookieExpiryChecker';
 import { spawn } from 'child_process';
 import { join } from 'path';
 
@@ -267,6 +268,17 @@ async function main() {
 
   const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
   console.log(`[${new Date().toISOString()}] Master Cron: complete | ${completed} tasks in ${totalTime}s | ${failed} failed`);
+
+  // Check for expired cookies and send email/WhatsApp notifications
+  try {
+    const expiryResult = await checkAndNotifyCookieExpiry();
+    if (expiryResult.notified.length > 0) {
+      console.log(`[master-cron] Cookie expiry notifications sent: ${expiryResult.notified.join(', ')}`);
+    }
+  } catch (err) {
+    console.error('[master-cron] Cookie expiry check failed:', (err as Error).message);
+  }
+
   process.exit(0);
 }
 

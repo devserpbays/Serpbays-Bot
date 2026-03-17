@@ -29,7 +29,7 @@ import {
   closeBrowser,
 } from '../src/lib/reddit';
 import { isWithinSchedule } from '../src/lib/schedule';
-import { logActivity } from '../src/lib/activityLog';
+import { logActivity, notifyAuthError } from '../src/lib/activityLog';
 import Post from '../src/models/Post';
 import Settings from '../src/models/Settings';
 
@@ -164,16 +164,16 @@ Write the comment now:`;
 }
 
 async function main() {
-  if (!acquireCronLock('reddit', CRON_USER_ID || undefined)) {
+  if (!await acquireCronLock('reddit', CRON_USER_ID || undefined)) {
     console.log(`[${new Date().toISOString()}] Reddit Cron: already running for user ${CRON_USER_ID || 'default'}, exiting`);
     process.exit(0);
   }
-  process.on('exit', () => releaseCronLock('reddit', CRON_USER_ID || undefined));
+  process.on('exit', () => { releaseCronLock('reddit', CRON_USER_ID || undefined).catch(() => {}); });
 
   console.log(`[${new Date().toISOString()}] Reddit Cron: starting (user: ${CRON_USER_ID || 'default'})`);
   if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'reddit', 'info', 'cron_start', 'Reddit cron started');
-  const _cronId = cronStart('reddit', 'auto', CRON_USER_ID || undefined);
-  process.on('exit', (code) => cronFinish(_cronId, 'reddit', code, '', CRON_USER_ID || undefined));
+  const _cronId = await cronStart('reddit', 'auto', CRON_USER_ID || undefined);
+  process.on('exit', (code) => { cronFinish(_cronId, 'reddit', code, '', CRON_USER_ID || undefined).catch(() => {}); });
 
   await connectDB();
 
@@ -253,7 +253,10 @@ async function main() {
       writeFileSync(join(process.cwd(), '.reddit-profile', '.verified'), JSON.stringify({ loggedIn: false, ts: new Date().toISOString(), message: 'Session expired — cron detected not logged in' }));
     } catch {}
     console.error('Not logged in to Reddit. Use cookie login from the dashboard.');
-    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'reddit', 'error', 'auth_error', 'Not logged in to Reddit — re-set cookies from dashboard');
+    if (CRON_USER_ID) {
+      await logActivity(CRON_USER_ID, 'reddit', 'error', 'auth_error', 'Not logged in to Reddit — re-set cookies from dashboard');
+      await notifyAuthError(CRON_USER_ID, 'reddit', 'Not logged in to Reddit — re-set cookies from dashboard');
+    }
     await closeBrowser();
     process.exit(1);
   }

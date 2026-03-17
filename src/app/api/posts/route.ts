@@ -55,11 +55,16 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: 'Post ID required' }, { status: 400 });
   }
 
+  // Only allow user-facing status transitions (not 'posted' — that's set by the worker)
+  const ALLOWED_STATUSES = ['approved', 'rejected'] as const;
+
   const update: Record<string, unknown> = {};
   if (status) {
+    if (!ALLOWED_STATUSES.includes(status)) {
+      return NextResponse.json({ error: `Invalid status. Allowed: ${ALLOWED_STATUSES.join(', ')}` }, { status: 400 });
+    }
     update.status = status;
     if (status === 'approved') update.approvedAt = new Date();
-    if (status === 'posted') update.postedAt = new Date();
   }
   if (editedReply !== undefined) update.editedReply = editedReply;
 

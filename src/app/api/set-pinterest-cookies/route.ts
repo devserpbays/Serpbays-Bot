@@ -1,15 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { chromium } from 'playwright';
-import { join } from 'path';
-import { writeFileSync, unlinkSync, mkdirSync } from 'fs';
-import { execSync } from 'child_process';
 import { connectDB } from '@/lib/mongodb';
 import Settings from '@/models/Settings';
 import { getAuthUserId } from '@/lib/apiAuth';
 import { checkPlanLimit } from '@/lib/featureGate';
+import { enqueueJob } from '@/lib/queue';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
 
 interface ParsedCookie {
   name: string;
@@ -53,7 +49,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const { cookies, accountIndex = 0 } = body;
+  const { cookies } = body;
   if (!cookies) {
     return NextResponse.json({ error: 'cookies field required' }, { status: 400 });
   }
@@ -96,109 +92,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'No valid cookies parsed' }, { status: 400 });
   }
 
-  const PROFILE_DIR = join(process.cwd(), 'profiles', userId, 'pinterest');
-  mkdirSync(PROFILE_DIR, { recursive: true });
+  // Enqueue validation to worker — return immediately
+  const jobId = await enqueueJob({
+    type: 'validate-cookies',
+    userId,
+    platform: 'pinterest',
+    cookies: cookieList,
+  });
 
-  // Kill orphaned Chromium processes using this profile, then clear lock files
-  try { execSync(`pkill -f "${PROFILE_DIR}" 2>/dev/null || true`, { stdio: 'ignore' }); } catch {}
-  await new Promise(r => setTimeout(r, 600));
-  try { unlinkSync(join(PROFILE_DIR, 'SingletonLock')); } catch {}
-  try { unlinkSync('/root/snap/chromium/common/chromium/SingletonLock'); } catch {}
-
-  let context;
-  try {
-    context = await chromium.launchPersistentContext(PROFILE_DIR, {
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-blink-features=AutomationControlled'],
-      userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
-    });
-
-    await context.addCookies(cookieList);
-
-    const page = context.pages()[0] || (await context.newPage());
-    await page.goto('https://www.pinterest.com', { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.waitForTimeout(4000);
-
-    const url = page.url();
-
-    if (url.includes('/login') || url.includes('/auth/')) {
-      await context.close();
-      context = undefined;
-      writeFileSync(join(PROFILE_DIR, '.verified'), JSON.stringify({ loggedIn: false, ts: new Date().toISOString(), message: 'Cookies invalid — redirected to login' }));
-      return NextResponse.json({ success: false, loggedIn: false, message: 'Cookies invalid — Pinterest redirected to login' });
-    }
-
-    // Extract username and display name
-    let username = '';
-    let displayName = '';
-    try {
-      const info = await page.evaluate(() => {
-        let uname = '';
-        let dname = '';
-        // Avatar link href contains username
-        const avatarLink = document.querySelector('[data-test-id="header-avatar"], [data-test-id="header-profile-link"]') as HTMLAnchorElement | null;
-        if (avatarLink?.href) {
-          const m = avatarLink.href.match(/\/([^/]+)\/?$/);
-          if (m && m[1] && m[1] !== 'settings') uname = m[1];
-        }
-        // Try profile menu display name
-        const nameEl = document.querySelector('[data-test-id="user-display-name"], [aria-label*="Your profile"]');
-        if (nameEl) dname = (nameEl.textContent || '').trim();
-        return { username: uname, displayName: dname };
-      });
-      username = info.username || '';
-      displayName = info.displayName || username;
-    } catch {}
-
-    // Save cookies to JSON so cron scripts can re-inject them into fresh browser contexts
-    const cookies2 = await context.cookies();
-    try {
-      writeFileSync(join(PROFILE_DIR, 'cookies.json'), JSON.stringify(cookies2, null, 2), 'utf8');
-    } catch (e) { console.error('Failed to save cookies.json:', e); }
-
-    await context.close();
-    context = undefined;
-
-    const accountId = username ? `pt_${username}` : `pt_${Date.now()}`;
-    writeFileSync(join(PROFILE_DIR, '.verified'), JSON.stringify({
-      loggedIn: true, ts: new Date().toISOString(),
-      accountId, username, displayName,
-    }));
-
-    // Save to Settings.socialAccounts (per-user)
-    try {
-      await connectDB();
-      const profileDirRelative = `profiles/${userId}/pinterest`;
-      const newAccount = {
-        id: accountId,
-        platform: 'pinterest',
-        username: username || '',
-        displayName: displayName || username || '',
-        profileDir: profileDirRelative,
-        accountIndex: 0,
-        addedAt: new Date().toISOString(),
-        active: true,
-      };
-      let settings = await Settings.findOne({ userId });
-      if (!settings) {
-        settings = await Settings.create({ userId, companyName: '', companyDescription: '', socialAccounts: [newAccount] });
-      } else {
-        settings.socialAccounts = (settings.socialAccounts || []).filter(
-          (a: { platform: string }) => a.platform !== 'pinterest'
-        );
-        settings.socialAccounts.push(newAccount);
-        await settings.save();
-      }
-    } catch (e) { console.error('Failed to save account to settings:', e); }
-
-    return NextResponse.json({
-      success: true, loggedIn: true, url,
-      accountId, username, displayName,
-      profileDir: PROFILE_DIR, accountIndex,
-      message: 'Pinterest cookies injected and session verified',
-    });
-  } catch (err) {
-    await context?.close().catch(() => {});
-    return NextResponse.json({ success: false, error: (err as Error).message }, { status: 500 });
-  }
+  return NextResponse.json({ jobId, message: 'Cookie validation queued' }, { status: 202 });
 }

@@ -48,6 +48,9 @@ const PostSchema = new Schema({
   followUpText: String,
   followUpPostedAt: Date,
   monitorUntil: Date,
+  postAttempts: { type: Number, default: 0 },
+  // TTL: auto-delete terminal posts after expiry
+  ttlExpireAt: { type: Date, default: null },
 }, { timestamps: true });
 
 PostSchema.index({ userId: 1, url: 1 }, { unique: true, sparse: true });
@@ -57,5 +60,7 @@ PostSchema.index({ scrapedAt: -1 });
 PostSchema.index({ platform: 1, postedByAccount: 1, postedAt: -1 });
 PostSchema.index({ platform: 1, status: 1, postedAt: -1 });
 PostSchema.index({ userId: 1, platform: 1, status: 1 });
+PostSchema.index({ userId: 1, postedAt: -1 });
+PostSchema.index({ ttlExpireAt: 1 }, { expireAfterSeconds: 0, sparse: true });
 
 export default mongoose.models.Post || mongoose.model('Post', PostSchema);

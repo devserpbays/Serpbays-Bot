@@ -1,68 +1,42 @@
 /**
- * File-based browser semaphore — limits concurrent Chromium instances
- * across all child processes to prevent OOM on limited servers.
+ * Redis-based browser semaphore — limits concurrent Chromium instances
+ * across all workers to prevent OOM on limited servers.
  *
- * Works across separate Node.js processes because it uses the filesystem.
+ * Cluster-safe: uses Redis INCR/DECR with TTL auto-cleanup.
  */
 
-import { readFileSync, writeFileSync, mkdirSync, readdirSync, unlinkSync, statSync } from 'fs';
-import { join } from 'path';
+import { getRedis } from './redis';
 
-const SEMAPHORE_DIR = join(process.cwd(), 'data', 'browser-slots');
+const SEMAPHORE_KEY = 'browser-slots:count';
 const MAX_BROWSERS = parseInt(process.env.MAX_BROWSER_CONCURRENCY || '3', 10);
-const SLOT_TTL_MS = 10 * 60 * 1000; // 10 min — auto-expire stale slots
+const SLOT_TTL = 600; // 10 min — auto-expire if worker crashes
 
-let _mySlotFile: string | null = null;
-
-function ensureDir() {
-  mkdirSync(SEMAPHORE_DIR, { recursive: true });
-}
-
-function cleanStaleSlots() {
-  try {
-    const files = readdirSync(SEMAPHORE_DIR);
-    const now = Date.now();
-    for (const f of files) {
-      const fullPath = join(SEMAPHORE_DIR, f);
-      try {
-        const stat = statSync(fullPath);
-        if (now - stat.mtimeMs > SLOT_TTL_MS) {
-          unlinkSync(fullPath);
-        }
-      } catch {}
-    }
-  } catch {}
-}
-
-function activeSlotCount(): number {
-  try {
-    return readdirSync(SEMAPHORE_DIR).filter(f => f.endsWith('.slot')).length;
-  } catch {
-    return 0;
-  }
-}
+// Atomic Lua script: INCR + EXPIRE + capacity check in one round-trip
+const ACQUIRE_LUA = `
+local count = redis.call('INCR', KEYS[1])
+redis.call('EXPIRE', KEYS[1], tonumber(ARGV[1]))
+if count > tonumber(ARGV[2]) then
+  redis.call('DECR', KEYS[1])
+  return 0
+end
+return 1
+`;
 
 /**
  * Try to acquire a browser slot. Returns true if acquired, false if at capacity.
- * Non-blocking — caller should skip or retry later.
+ * Uses atomic Lua script to prevent race conditions between INCR and capacity check.
  */
-export function acquireBrowserSlot(label: string = 'unknown'): boolean {
-  ensureDir();
-  cleanStaleSlots();
+export async function acquireBrowserSlot(label: string = 'unknown'): Promise<boolean> {
+  const redis = getRedis();
+  const result = await redis.eval(ACQUIRE_LUA, 1, SEMAPHORE_KEY, SLOT_TTL, MAX_BROWSERS);
 
-  if (activeSlotCount() >= MAX_BROWSERS) {
-    return false;
-  }
+  if (result === 0) return false;
 
-  const slotFile = `${Date.now()}-${process.pid}-${label}.slot`;
-  const fullPath = join(SEMAPHORE_DIR, slotFile);
-  try {
-    writeFileSync(fullPath, JSON.stringify({ pid: process.pid, label, ts: new Date().toISOString() }));
-    _mySlotFile = fullPath;
-    return true;
-  } catch {
-    return false;
-  }
+  // Track individual slot for debugging
+  const slotKey = `browser-slot:${process.pid}:${Date.now()}`;
+  await redis.set(slotKey, JSON.stringify({ pid: process.pid, label, ts: new Date().toISOString() }), 'EX', SLOT_TTL);
+
+  return true;
 }
 
 /**
@@ -71,27 +45,26 @@ export function acquireBrowserSlot(label: string = 'unknown'): boolean {
 export async function waitForBrowserSlot(label: string, timeoutMs: number = 60000): Promise<boolean> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    if (acquireBrowserSlot(label)) return true;
+    if (await acquireBrowserSlot(label)) return true;
     await new Promise(r => setTimeout(r, 2000));
   }
   return false;
 }
 
 /**
- * Release the browser slot held by this process.
+ * Release a browser slot.
  */
-export function releaseBrowserSlot(): void {
-  if (_mySlotFile) {
-    try { unlinkSync(_mySlotFile); } catch {}
-    _mySlotFile = null;
-  }
+export async function releaseBrowserSlot(): Promise<void> {
+  const redis = getRedis();
+  const val = await redis.decr(SEMAPHORE_KEY);
+  if (val < 0) await redis.set(SEMAPHORE_KEY, '0', 'EX', SLOT_TTL);
 }
 
 /**
  * Get current usage stats.
  */
-export function getBrowserSlotStats(): { active: number; max: number } {
-  ensureDir();
-  cleanStaleSlots();
-  return { active: activeSlotCount(), max: MAX_BROWSERS };
+export async function getBrowserSlotStats(): Promise<{ active: number; max: number }> {
+  const redis = getRedis();
+  const count = parseInt(await redis.get(SEMAPHORE_KEY) || '0', 10);
+  return { active: Math.max(0, count), max: MAX_BROWSERS };
 }

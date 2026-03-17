@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useUser } from '@clerk/nextjs';
+import { API_BASE } from '@/lib/apiBase';
 import type { SocialAccount, ISettings } from '@/lib/types';
 
 /* ── Types ───────────────────────────────────────────────────────── */
@@ -110,7 +111,8 @@ export default function OverviewPage() {
     useEffect(() => {
         fetchStats();
         fetchSettings();
-        const id = setInterval(fetchStats, POLL_INTERVAL);
+        const tick = () => { if (!document.hidden) fetchStats(); };
+        const id = setInterval(tick, POLL_INTERVAL);
         return () => clearInterval(id);
     }, [fetchStats, fetchSettings]);
 

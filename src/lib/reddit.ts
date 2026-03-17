@@ -356,25 +356,26 @@ export async function scrapeRedditSearch(
 // --- Validate comment text before posting ---
 function isValidComment(text: string): boolean {
   if (!text || text.trim().length < 5) return false;
-  if (text.trim().length > 300) return false;
+  if (text.trim().length > 2000) return false;
 
+  // Patterns that indicate the text is a code dump or error output, not a real comment.
+  // These are intentionally specific to avoid false positives on conversational text
+  // that naturally mentions words like "error" or "failed".
   const errorPatterns = [
-    /error/i,
-    /Error:/,
-    /ERR_/,
-    /failed/i,
-    /exception/i,
-    /stack\s*trace/i,
-    /undefined/i,
-    /null/i,
-    /NaN/,
+    /Error:\s*\w+/,                        // "Error: something" (structured error output)
+    /ERR_/,                                 // Node.js error codes
+    /stack\s*trace/i,                       // stack trace dumps
+    /\bundefined\b.*\bundefined\b/i,        // multiple "undefined" = likely a dump
+    /\bnull\b.*\bnull\b/i,                  // multiple "null" = likely a dump
+    /\bNaN\b.*\bNaN\b/,                     // multiple NaN
     /\b(500|404|403|401|400)\b.*\b(status|code|error)\b/i,
-    /at\s+\w+\s*\(/,
-    /^\s*\{[\s\S]*\}\s*$/,
-    /^\s*\[[\s\S]*\]\s*$/,
-    /TypeError|ReferenceError|SyntaxError/,
-    /ECONNREFUSED|ETIMEDOUT|ENOTFOUND/,
+    /at\s+\w+\s*\(.*:\d+:\d+\)/,           // stack frame: "at func (file:line:col)"
+    /^\s*\{[\s\S]*\}\s*$/,                  // entire text is a JSON object
+    /^\s*\[[\s\S]*\]\s*$/,                  // entire text is a JSON array
+    /TypeError|ReferenceError|SyntaxError/, // JS error type names
+    /ECONNREFUSED|ETIMEDOUT|ENOTFOUND/,     // Node.js network error codes
     /Could not parse/i,
+    /```[\s\S]*```/,                        // markdown code blocks
   ];
 
   for (const pattern of errorPatterns) {
@@ -485,16 +486,21 @@ export async function postRedditComment(
 
   try {
     const page = await getPage();
-    // Use new Reddit for commenting (better comment box support)
+    // Use new Reddit for commenting
     const newRedditUrl = postUrl.replace('old.reddit.com', 'www.reddit.com');
     await page.goto(newRedditUrl, { waitUntil: 'domcontentloaded' });
     await sleep(SLOW_WAIT);
 
-    // Scroll down to find the comment box
-    await page.mouse.wheel(0, 500);
+    // Scroll down progressively to trigger lazy-loading of comment composer
+    for (let i = 0; i < 3; i++) {
+      await page.mouse.wheel(0, 400);
+      await sleep(1000);
+    }
+    // Scroll back up to where the comment box usually appears (below post, above comments)
+    await page.evaluate(() => window.scrollTo(0, 300));
     await sleep(2000);
 
-    // Try multiple comment box selectors (new Reddit Shreddit + old Reddit)
+    // Comment box selectors for new Reddit (shreddit web components) + old Reddit
     const commentSelectors = [
       'shreddit-composer [contenteditable="true"]',
       'shreddit-comment-composer [contenteditable="true"]',
@@ -502,60 +508,78 @@ export async function postRedditComment(
       'div[contenteditable="true"][data-lexical-editor]',
       'div[contenteditable="true"][role="textbox"]',
       'div[contenteditable="plaintext-only"]',
-      'div[contenteditable="true"]',
       'textarea[name="comment"]',
       'textarea[placeholder*="comment" i]',
       '.public-DraftEditor-content',
+      'div[contenteditable="true"]',
     ];
 
-    let commentBox = null;
-    for (const sel of commentSelectors) {
-      const elements = await page.$$(sel);
-      for (const el of elements) {
-        if (await el.isVisible().catch(() => false)) {
-          commentBox = el;
-          break;
+    // Helper: try to find a visible comment box
+    const findCommentBox = async () => {
+      for (const sel of commentSelectors) {
+        const elements = await page.$$(sel);
+        for (const el of elements) {
+          if (await el.isVisible().catch(() => false)) {
+            return el;
+          }
         }
       }
-      if (commentBox) break;
-    }
+      return null;
+    };
 
-    // If not found, try clicking the "Join the conversation" or "Add a comment" placeholder to expand
+    let commentBox = await findCommentBox();
+
+    // If not found, try clicking various activator elements
     if (!commentBox) {
-      const placeholderSelectors = [
+      // Strategy 1: Click on the comment composer placeholder area
+      const activators = [
         'shreddit-composer',
         'shreddit-comment-composer',
         'faceplate-tracker[noun="comment_composer"]',
-        'faceplate-tracker[noun="comment_composer"] div[role="textbox"]',
         'div[data-click-id="text"]',
         '[placeholder*="comment" i]',
         '[placeholder*="conversation" i]',
-        'span:has-text("Add a comment")',
-        'span:has-text("Join the conversation")',
-        'p:has-text("Join the conversation")',
-        'div:has-text("Join the conversation"):not(:has(div))',
-        'button:has-text("Add a comment")',
       ];
-      for (const sel of placeholderSelectors) {
-        const phs = await page.$$(sel);
-        for (const ph of phs) {
-          if (await ph.isVisible().catch(() => false)) {
-            await ph.click({ force: true });
-            await sleep(2000);
-            break;
-          }
-        }
-        // Check if comment box appeared
-        for (const cSel of commentSelectors) {
-          const elements = await page.$$(cSel);
-          for (const el of elements) {
-            if (await el.isVisible().catch(() => false)) {
-              commentBox = el;
-              break;
-            }
-          }
+      for (const sel of activators) {
+        const el = await page.$(sel);
+        if (el && await el.isVisible().catch(() => false)) {
+          await el.click({ force: true });
+          await sleep(2500);
+          commentBox = await findCommentBox();
           if (commentBox) break;
         }
+      }
+    }
+
+    // Strategy 2: Find text-based activators using evaluate
+    if (!commentBox) {
+      await page.evaluate(() => {
+        const texts = ['Add a comment', 'Join the conversation', 'What are your thoughts'];
+        const all = document.querySelectorAll('span, p, div, button, input');
+        for (const el of all) {
+          const t = el.textContent?.trim() || '';
+          const placeholder = (el as HTMLInputElement).placeholder || '';
+          if (texts.some(txt => t === txt || placeholder.includes(txt))) {
+            (el as HTMLElement).click();
+            return;
+          }
+        }
+      });
+      await sleep(3000);
+      commentBox = await findCommentBox();
+    }
+
+    // Strategy 3: Tab into the comment box (keyboard navigation)
+    if (!commentBox) {
+      // Click the post body first to give the page focus context
+      const postBody = await page.$('[data-click-id="body"], article, [slot="post-media-container"]');
+      if (postBody) await postBody.click({ force: true }).catch(() => {});
+      await sleep(500);
+      // Tab forward to find an editable element
+      for (let i = 0; i < 10; i++) {
+        await page.keyboard.press('Tab');
+        await sleep(300);
+        commentBox = await findCommentBox();
         if (commentBox) break;
       }
     }

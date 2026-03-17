@@ -65,6 +65,8 @@ export interface ISettings {
   cronEndHour?: number;
   cronDays?: number[];
   cronIntervalMinutes?: number;
+  notificationEmail?: string;
+  notifyViaEmail?: boolean;
 }
 
 export interface AIEvaluation {

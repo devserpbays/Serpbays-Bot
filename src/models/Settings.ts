@@ -47,6 +47,13 @@ const SettingsSchema = new Schema({
   cronIntervalMinutes: { type: Number, default: 15, min: 15, max: 360 },
   lastCronRunAt: { type: Date, default: null },
   isAdmin: { type: Boolean, default: false },
+  // Notification preferences
+  notificationEmail: { type: String, default: '' },
+  notifyViaEmail: { type: Boolean, default: true },
+  lastNotificationEmailSentAt: { type: Date, default: null },
 }, { timestamps: true });
+
+// Index for cron scheduler query: find active users not paused
+SettingsSchema.index({ autoPostingPaused: 1, userId: 1 });
 
 export default mongoose.models.Settings || mongoose.model('Settings', SettingsSchema);

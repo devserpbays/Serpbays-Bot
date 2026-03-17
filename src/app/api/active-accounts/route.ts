@@ -16,7 +16,12 @@ interface AccountInfo {
 
 function readVerified(profileDir: string): AccountInfo | null {
   try {
-    const raw = readFileSync(join(process.cwd(), profileDir, '.verified'), 'utf-8');
+    const { resolve } = require('path');
+    const fullPath = resolve(process.cwd(), profileDir, '.verified');
+    const profilesBase = resolve(process.cwd(), 'profiles');
+    // Block path traversal — only read within profiles/ directory
+    if (!fullPath.startsWith(profilesBase + '/')) return null;
+    const raw = readFileSync(fullPath, 'utf-8');
     const data = JSON.parse(raw);
     if (!data.loggedIn) return null;
     return {

@@ -1,58 +1,49 @@
-interface RateLimitEntry {
-  count: number;
-  resetAt: number;
-}
-
-const store = new Map<string, RateLimitEntry>();
-
-// Clean up expired entries periodically
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, entry] of store) {
-    if (entry.resetAt <= now) store.delete(key);
-  }
-}, 60_000);
-
-interface RateLimitConfig {
-  maxRequests: number;
-  windowMs: number;
-}
+import { getRedis } from './redis';
 
 export const RATE_LIMITS = {
-  api: { maxRequests: 60, windowMs: 60_000 },           // 60 req/min for general API
-  scrape: { maxRequests: 5, windowMs: 300_000 },         // 5 per 5 min for scraping
-  post: { maxRequests: 20, windowMs: 60_000 },           // 20 posts/min
-  auth: { maxRequests: 10, windowMs: 60_000 },           // 10 auth attempts/min
-  billing: { maxRequests: 10, windowMs: 60_000 },        // 10 billing ops/min
+  api: { maxRequests: 60, windowSec: 60 },           // 60 req/min for general API
+  scrape: { maxRequests: 5, windowSec: 300 },         // 5 per 5 min for scraping
+  post: { maxRequests: 20, windowSec: 60 },           // 20 posts/min
+  auth: { maxRequests: 10, windowSec: 60 },           // 10 auth attempts/min
+  billing: { maxRequests: 10, windowSec: 60 },        // 10 billing ops/min
 } as const;
 
 export type RateLimitTier = keyof typeof RATE_LIMITS;
 
 /**
  * Check rate limit for a given key (usually userId or IP).
+ * Uses Redis INCR + EXPIRE for cross-process atomicity.
  * Returns null if allowed, or { error, retryAfter } if blocked.
+ * Fails open (allows request) if Redis is unavailable.
  */
-export function checkRateLimit(
+export async function checkRateLimit(
   key: string,
   tier: RateLimitTier = 'api'
-): { error: string; retryAfter: number } | null {
+): Promise<{ error: string; retryAfter: number } | null> {
   const config = RATE_LIMITS[tier];
-  const now = Date.now();
-  const existing = store.get(key);
+  const redisKey = `rl:${tier}:${key}`;
 
-  if (!existing || existing.resetAt <= now) {
-    store.set(key, { count: 1, resetAt: now + config.windowMs });
+  try {
+    const redis = getRedis();
+    const count = await redis.incr(redisKey);
+
+    // Set TTL on first request in window
+    if (count === 1) {
+      await redis.expire(redisKey, config.windowSec);
+    }
+
+    if (count > config.maxRequests) {
+      const ttl = await redis.ttl(redisKey);
+      const retryAfter = ttl > 0 ? ttl : config.windowSec;
+      return {
+        error: `Rate limit exceeded. Try again in ${retryAfter}s.`,
+        retryAfter,
+      };
+    }
+
+    return null;
+  } catch {
+    // Fail open — allow the request if Redis is down
     return null;
   }
-
-  existing.count++;
-  if (existing.count > config.maxRequests) {
-    const retryAfter = Math.ceil((existing.resetAt - now) / 1000);
-    return {
-      error: `Rate limit exceeded. Try again in ${retryAfter}s.`,
-      retryAfter,
-    };
-  }
-
-  return null;
 }

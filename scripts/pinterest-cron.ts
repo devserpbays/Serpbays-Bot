@@ -12,7 +12,7 @@ config({ path: '.env.local' });
 
 const CRON_USER_ID = process.env.CRON_USER_ID;
 
-import { readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
 import { execSync } from 'child_process';
 import { chromium, type BrowserContext, type Page } from 'playwright';
@@ -20,7 +20,7 @@ import { connectDB } from '../src/lib/mongodb';
 import { cronStart, cronFinish, acquireCronLock, releaseCronLock } from '../src/lib/cronState';
 import { evaluatePost, askOpenClaw } from '../src/lib/openclaw';
 import { isWithinSchedule } from '../src/lib/schedule';
-import { logActivity } from '../src/lib/activityLog';
+import { logActivity, notifyAuthError } from '../src/lib/activityLog';
 import Post from '../src/models/Post';
 import Settings from '../src/models/Settings';
 
@@ -80,6 +80,34 @@ async function getPage(): Promise<Page> {
     viewport: { width: 1280, height: 900 },
     locale: 'en-US',
   });
+
+  // Inject cookies from cookies.json if available
+  const cookiesJsonPath = join(PROFILE_DIR, 'cookies.json');
+  if (existsSync(cookiesJsonPath)) {
+    try {
+      const savedCookies = JSON.parse(readFileSync(cookiesJsonPath, 'utf8'));
+      if (Array.isArray(savedCookies) && savedCookies.length > 0) {
+        const normalized = savedCookies.map((c: Record<string, unknown>) => {
+          const ss = String(c.sameSite || 'Lax').toLowerCase();
+          const sameSite = ss === 'no_restriction' || ss === 'none' ? 'None'
+            : ss === 'strict' ? 'Strict' : 'Lax';
+          return {
+            name: String(c.name),
+            value: String(c.value),
+            domain: String(c.domain),
+            path: String(c.path || '/'),
+            expires: Math.floor(Number(c.expirationDate || c.expires || 0)) || undefined,
+            secure: c.secure !== false,
+            httpOnly: !!c.httpOnly,
+            sameSite: sameSite as 'Strict' | 'Lax' | 'None',
+          };
+        });
+        await _ctx.addCookies(normalized);
+      }
+    } catch (e) {
+      console.error('Failed to load cookies.json:', (e as Error).message);
+    }
+  }
 
   _page = _ctx.pages()[0] || (await _ctx.newPage());
   _page.setDefaultTimeout(NAVIGATION_TIMEOUT);
@@ -348,16 +376,16 @@ async function getTodayCommentCount(accountId: string): Promise<number> {
 }
 
 async function main() {
-  if (!acquireCronLock('pinterest', CRON_USER_ID || undefined)) {
+  if (!await acquireCronLock('pinterest', CRON_USER_ID || undefined)) {
     console.log(`[${new Date().toISOString()}] Pinterest Cron: already running for user ${CRON_USER_ID || 'default'}, exiting`);
     process.exit(0);
   }
-  process.on('exit', () => releaseCronLock('pinterest', CRON_USER_ID || undefined));
+  process.on('exit', () => { releaseCronLock('pinterest', CRON_USER_ID || undefined).catch(() => {}); });
 
   console.log(`[${new Date().toISOString()}] Pinterest Cron: starting (user: ${CRON_USER_ID || 'default'})`);
   if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'pinterest', 'info', 'cron_start', 'Pinterest cron started');
-  const _cronId = cronStart('pinterest', 'auto', CRON_USER_ID || undefined);
-  process.on('exit', (code) => cronFinish(_cronId, 'pinterest', code, '', CRON_USER_ID || undefined));
+  const _cronId = await cronStart('pinterest', 'auto', CRON_USER_ID || undefined);
+  process.on('exit', (code) => { cronFinish(_cronId, 'pinterest', code, '', CRON_USER_ID || undefined).catch(() => {}); });
 
   await connectDB();
 
@@ -436,7 +464,10 @@ async function main() {
       }));
     } catch {}
     console.error('Not logged in to Pinterest. Use cookie login from the dashboard.');
-    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'pinterest', 'error', 'auth_error', 'Not logged in to Pinterest — re-set cookies from dashboard');
+    if (CRON_USER_ID) {
+      await logActivity(CRON_USER_ID, 'pinterest', 'error', 'auth_error', 'Not logged in to Pinterest — re-set cookies from dashboard');
+      await notifyAuthError(CRON_USER_ID, 'pinterest', 'Not logged in to Pinterest — re-set cookies from dashboard');
+    }
     await closeBrowser();
     process.exit(1);
   }

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { API_BASE } from '@/lib/apiBase';
 import UpgradeBanner from '@/components/UpgradeBanner';
 
 interface PipelineResult {
@@ -17,11 +18,11 @@ interface PipelineResult {
 
 interface CronPlatformStatus {
     running: boolean;
-    lastStarted: string;
-    lastFinished: string;
-    lastExitCode: number;
+    lastStarted: string | null;
+    lastFinished: string | null;
+    lastExitCode: number | null;
     lastMessage: string;
-    lastTrigger: string;
+    lastTrigger: 'auto' | 'manual' | null;
 }
 
 interface CronStatusData {
@@ -35,15 +36,6 @@ interface StatsData {
     byStatus: Record<string, number>;
     byPlatform: Record<string, number>;
     postedByPlatform: Record<string, number>;
-}
-
-interface CronPlatformStatus {
-    running: boolean;
-    lastStarted: string | null;
-    lastFinished: string | null;
-    lastExitCode: number | null;
-    lastMessage: string;
-    lastTrigger: 'auto' | 'manual' | null;
 }
 
 const ALL_PLATFORMS = [
@@ -73,17 +65,14 @@ const PLATFORM_ICONS: Record<string, string> = {
     pinterest: '📌',
 };
 
-function timeAgo(dateStr: string): string {
-    if (!dateStr) return '—';
-    const diff = Date.now() - new Date(dateStr).getTime();
-    const mins = Math.floor(diff / 60000);
-    if (mins < 1) return 'just now';
-    if (mins < 60) return `${mins}m ago`;
-    const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return `${hrs}h ago`;
-    const days = Math.floor(hrs / 24);
-    return `${days}d ago`;
-}
+const PLATFORM_LABELS: Record<string, string> = {
+    twitter: 'Twitter / X',
+    reddit: 'Reddit',
+    facebook: 'Facebook',
+    quora: 'Quora',
+    youtube: 'YouTube',
+    pinterest: 'Pinterest',
+};
 
 function formatDuration(start: string, end: string): string {
     if (!start || !end) return '—';
@@ -149,11 +138,11 @@ export default function PipelinePage() {
 
     useEffect(() => {
         fetchSettings();
-        fetchCronStatus();
+        fetchCronControl();
         // Poll cron status every 5s
-        pollingRef.current = setInterval(fetchCronStatus, 5000);
+        pollingRef.current = setInterval(fetchCronControl, 5000);
         return () => { if (pollingRef.current) clearInterval(pollingRef.current); };
-    }, [fetchSettings, fetchCronStatus]);
+    }, [fetchSettings, fetchCronControl]);
 
     /* ── Handlers ── */
     const handleToggleCron = async () => {
@@ -184,14 +173,14 @@ export default function PipelinePage() {
             }
         } catch { /* silent */ }
         // Poll will pick up the running state
-        setTimeout(fetchCronStatus, 1000);
+        setTimeout(fetchCronControl, 1000);
     };
 
     const handlePipeline = async () => {
         setPipelineRunning(true);
         setPipelineResult(null);
         setUpgradeMessage('');
-        setPipelineStep('Scraping all platforms…');
+        setPipelineStep('Queuing pipeline…');
         try {
             const res = await fetch('/api/run-pipeline', { method: 'POST' });
             if (res.status === 403) {
@@ -203,11 +192,65 @@ export default function PipelinePage() {
                     return;
                 }
             }
-            const data: PipelineResult = await res.json();
-            setPipelineResult(data);
-            setPipelineStep('');
-            fetchStats();
-            fetchCronStatus();
+            const data = await res.json();
+
+            // Route now returns 202 with jobId — poll until complete
+            if (res.status === 202 && data.jobId) {
+                setPipelineStep('Scraping all platforms…');
+                const jobId = data.jobId;
+                const maxAttempts = 90; // 2s * 90 = 180s max
+                for (let i = 0; i < maxAttempts; i++) {
+                    await new Promise(r => setTimeout(r, 2000));
+                    try {
+                        const statusRes = await fetch(`/api/job-status/${jobId}`);
+                        const statusData = await statusRes.json();
+
+                        // Show progressive status
+                        if (statusData.progress && typeof statusData.progress === 'string') {
+                            setPipelineStep(statusData.progress);
+                        } else if (statusData.state === 'active') {
+                            setPipelineStep('Pipeline running…');
+                        }
+
+                        if (statusData.state === 'completed') {
+                            const result = statusData.result || {};
+                            setPipelineResult({
+                                scraped: result.totalScraped ?? 0,
+                                newPosts: result.newPosts ?? 0,
+                                evaluated: 0,
+                                skipped: 0,
+                                autoApproved: 0,
+                                errors: result.errors ?? [],
+                                startedAt: statusData.timestamp ? new Date(statusData.timestamp).toISOString() : '',
+                                finishedAt: statusData.finishedOn ? new Date(statusData.finishedOn).toISOString() : '',
+                                duration: statusData.finishedOn && statusData.timestamp
+                                    ? `${Math.round((statusData.finishedOn - statusData.timestamp) / 1000)}s`
+                                    : '',
+                            });
+                            setPipelineStep('');
+                            fetchCronControl();
+                            break;
+                        }
+                        if (statusData.state === 'failed') {
+                            setPipelineResult({
+                                scraped: 0, newPosts: 0, evaluated: 0, skipped: 0, autoApproved: 0,
+                                errors: [statusData.failedReason || 'Pipeline failed'],
+                                startedAt: '', finishedAt: '', duration: '',
+                            });
+                            setPipelineStep('');
+                            break;
+                        }
+                    } catch {
+                        // Network glitch — keep polling
+                    }
+                }
+            } else {
+                // Fallback: old-style synchronous response
+                const result = data as PipelineResult;
+                setPipelineResult(result);
+                setPipelineStep('');
+                fetchCronControl();
+            }
         } catch {
             setPipelineStep('');
             setPipelineResult({

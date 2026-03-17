@@ -29,7 +29,7 @@ import {
   closeBrowser,
 } from '../src/lib/facebook';
 import { isWithinSchedule } from '../src/lib/schedule';
-import { logActivity } from '../src/lib/activityLog';
+import { logActivity, notifyAuthError } from '../src/lib/activityLog';
 import Post from '../src/models/Post';
 import Settings from '../src/models/Settings';
 
@@ -167,16 +167,16 @@ Write the comment now:`;
 }
 
 async function main() {
-  if (!acquireCronLock('facebook', CRON_USER_ID || undefined)) {
+  if (!await acquireCronLock('facebook', CRON_USER_ID || undefined)) {
     console.log(`[${new Date().toISOString()}] FB Comment Cron: already running for user ${CRON_USER_ID || 'default'}, exiting`);
     process.exit(0);
   }
-  process.on('exit', () => releaseCronLock('facebook', CRON_USER_ID || undefined));
+  process.on('exit', () => { releaseCronLock('facebook', CRON_USER_ID || undefined).catch(() => {}); });
 
   console.log(`[${new Date().toISOString()}] FB Comment Cron: starting (user: ${CRON_USER_ID || 'default'})`);
   if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'facebook', 'info', 'cron_start', 'Facebook cron started');
-  const _cronId = cronStart('facebook', 'auto', CRON_USER_ID || undefined);
-  process.on('exit', (code) => cronFinish(_cronId, 'facebook', code, '', CRON_USER_ID || undefined));
+  const _cronId = await cronStart('facebook', 'auto', CRON_USER_ID || undefined);
+  process.on('exit', (code) => { cronFinish(_cronId, 'facebook', code, '', CRON_USER_ID || undefined).catch(() => {}); });
 
   await connectDB();
 
@@ -257,7 +257,10 @@ async function main() {
       writeFileSync(join(process.cwd(), process.env.FACEBOOK_PROFILE_DIR || '.fb-profile', '.verified'), JSON.stringify({ loggedIn: false, ts: new Date().toISOString(), message: 'Session expired — cron detected not logged in' }));
     } catch {}
     console.error('Not logged in to Facebook. Re-set cookies from dashboard.');
-    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'facebook', 'error', 'auth_error', 'Not logged in to Facebook — re-set cookies from dashboard');
+    if (CRON_USER_ID) {
+      await logActivity(CRON_USER_ID, 'facebook', 'error', 'auth_error', 'Not logged in to Facebook — re-set cookies from dashboard');
+      await notifyAuthError(CRON_USER_ID, 'facebook', 'Not logged in to Facebook — re-set cookies from dashboard');
+    }
     await closeBrowser();
     process.exit(1);
   }

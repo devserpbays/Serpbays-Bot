@@ -84,6 +84,48 @@
   --shadow-glow: 0 0 40px rgba(124, 58, 237, 0.2);
 }
 
+/* ── Light Theme ────────────────────────────────────────────────── */
+[data-theme="light"] {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f4f4f5;
+  --bg-card: rgba(0, 0, 0, 0.02);
+  --bg-card-hover: rgba(0, 0, 0, 0.04);
+  --bg-card-solid: #ffffff;
+  --bg-sidebar: #f4f4f5;
+  --bg-input: rgba(0, 0, 0, 0.04);
+
+  --border-subtle: rgba(0, 0, 0, 0.06);
+  --border-default: rgba(0, 0, 0, 0.1);
+  --border-hover: rgba(0, 0, 0, 0.18);
+
+  --text-primary: #09090b;
+  --text-secondary: #52525b;
+  --text-muted: #a1a1aa;
+  --text-inverse: #fafafa;
+
+  --accent: #7c3aed;
+  --accent-light: #a78bfa;
+  --accent-hover: #6d28d9;
+  --accent-bg: rgba(124, 58, 237, 0.08);
+  --accent-border: rgba(124, 58, 237, 0.2);
+  --accent-glow: rgba(124, 58, 237, 0.1);
+
+  --gradient-primary: linear-gradient(135deg, #7c3aed 0%, #2563eb 100%);
+  --gradient-warm: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%);
+  --gradient-surface: linear-gradient(180deg, rgba(124, 58, 237, 0.04) 0%, transparent 100%);
+
+  --status-new-bg: rgba(59, 130, 246, 0.08);
+  --status-evaluating-bg: rgba(245, 158, 11, 0.08);
+  --status-evaluated-bg: rgba(167, 139, 250, 0.08);
+  --status-approved-bg: rgba(16, 185, 129, 0.08);
+  --status-rejected-bg: rgba(239, 68, 68, 0.08);
+  --status-posted-bg: rgba(113, 113, 122, 0.08);
+
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --shadow-elevated: 0 4px 16px rgba(0, 0, 0, 0.1);
+  --shadow-glow: 0 0 40px rgba(124, 58, 237, 0.1);
+}
+
 @theme inline {
   --color-background: var(--bg-primary);
   --color-foreground: var(--text-primary);
@@ -1114,217 +1156,118 @@ select.input option:hover {
     grid-template-columns: repeat(2, 1fr);
   }
 
-  .auth-container {
-    padding: 0 16px;
-  }
-
-  .auth-brand h1 {
-    font-size: 22px;
-  }
-
-  .auth-tagline {
-    font-size: 13px;
-  }
 }
 
 /* ── Auth Pages (Login / Signup) ───────────────────────────────────────────── */
-
-.auth-page {
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(135deg, #f0f0ff 0%, #e8eaf6 30%, #ede7f6 60%, #f3e5f5 100%);
-  position: relative;
-  overflow: hidden;
-}
-
-/* Animated background */
-.auth-bg {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 0;
-}
-
-.auth-bg-orb {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(80px);
-  opacity: 0;
-  animation: authOrbFade 1.2s ease-out forwards;
-}
-
-.auth-bg-orb-1 {
-  width: 600px;
-  height: 600px;
-  top: -20%;
-  left: 50%;
-  transform: translateX(-50%);
-  background: radial-gradient(circle, rgba(124, 58, 237, 0.12) 0%, transparent 70%);
-  animation-delay: 0s;
-}
-
-.auth-bg-orb-2 {
-  width: 400px;
-  height: 400px;
-  bottom: -10%;
-  right: -5%;
-  background: radial-gradient(circle, rgba(37, 99, 235, 0.08) 0%, transparent 70%);
-  animation-delay: 0.3s;
-}
-
-.auth-bg-orb-3 {
-  width: 300px;
-  height: 300px;
-  bottom: 20%;
-  left: -5%;
-  background: radial-gradient(circle, rgba(236, 72, 153, 0.06) 0%, transparent 70%);
-  animation-delay: 0.6s;
-}
-
-@keyframes authOrbFade {
-  from { opacity: 0; transform: scale(0.8) translateX(-50%); }
-  to   { opacity: 1; transform: scale(1) translateX(-50%); }
-}
-
-.auth-bg-orb-2, .auth-bg-orb-3 {
-  animation-name: authOrbFadeSimple;
-}
-
-@keyframes authOrbFadeSimple {
-  from { opacity: 0; transform: scale(0.8); }
-  to   { opacity: 1; transform: scale(1); }
-}
-
-/* Subtle grid overlay */
-.auth-bg-grid {
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(0, 0, 0, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 0, 0, 0.03) 1px, transparent 1px);
-  background-size: 60px 60px;
-  mask-image: radial-gradient(ellipse 60% 50% at 50% 50%, black 30%, transparent 70%);
-  -webkit-mask-image: radial-gradient(ellipse 60% 50% at 50% 50%, black 30%, transparent 70%);
-}
-
-/* Container */
-.auth-container {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 24px;
-  animation: authSlideUp 0.6s ease-out;
-}
 
 @keyframes authSlideUp {
   from { opacity: 0; transform: translateY(20px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
-/* Branding */
-.auth-brand {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin-bottom: 12px;
-}
-
-.auth-logo {
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
-  background: var(--gradient-primary);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow:
-    0 0 40px rgba(124, 58, 237, 0.35),
-    0 0 80px rgba(124, 58, 237, 0.15),
-    inset 0 1px 0 rgba(255, 255, 255, 0.15);
-  position: relative;
-}
-
-.auth-logo::after {
-  content: '';
-  position: absolute;
-  inset: -2px;
-  border-radius: 14px;
-  background: var(--gradient-primary);
-  opacity: 0.3;
-  filter: blur(8px);
-  z-index: -1;
-}
-
-.auth-brand-text h1 {
-  color: #1a1a2e;
-  font-weight: 800;
-  font-size: 26px;
-  letter-spacing: -0.04em;
-  line-height: 1;
-  margin: 0;
-}
-
-.auth-brand-text p {
-  color: #6b7280;
-  font-size: 12px;
-  font-weight: 500;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  margin: 3px 0 0;
-}
-
-/* Tagline */
-.auth-tagline {
-  color: #4b5563;
-  font-size: 15px;
-  font-weight: 400;
-  margin: 0 0 32px;
-  text-align: center;
-  max-width: 340px;
-  line-height: 1.5;
-}
-
-/* Card wrapper for Clerk form */
-.auth-card {
-  position: relative;
-  background: #ffffff;
-  border-radius: 16px;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08), 0 1px 4px rgba(0, 0, 0, 0.04);
-  padding: 4px;
-}
-
-.auth-card::before {
-  content: '';
-  position: absolute;
-  inset: -1px;
-  border-radius: 17px;
-  background: linear-gradient(180deg, rgba(124, 58, 237, 0.2) 0%, rgba(37, 99, 235, 0.08) 100%);
-  z-index: -1;
-}
-
-/* Override Clerk theme inside auth card */
-.auth-card .cl-card,
-.auth-card .cl-rootBox,
-.auth-card .cl-signIn-root,
-.auth-card .cl-signUp-root {
+/* Clerk component overrides for dark auth cards */
+.cl-card,
+.cl-rootBox,
+.cl-signIn-root,
+.cl-signUp-root {
   background: transparent !important;
   box-shadow: none !important;
 }
 
-/* Footer */
-.auth-footer {
-  margin-top: 28px;
-  text-align: center;
+/* Force all Clerk text visible on dark backgrounds */
+.cl-signIn-root *,
+.cl-signUp-root * {
+  --clerk-foreground: #fafafa;
 }
 
-.auth-footer p {
-  color: #6b7280;
-  font-size: 12px;
-  font-weight: 400;
-  margin: 0;
-  letter-spacing: 0.01em;
+.cl-formFieldAction,
+.cl-formFieldAction__password {
+  color: #a78bfa !important;
+}
+
+.cl-footerActionLink {
+  color: #a78bfa !important;
+}
+
+.cl-footerActionText {
+  color: #71717a !important;
+}
+
+.cl-headerTitle {
+  color: #fafafa !important;
+}
+
+.cl-headerSubtitle {
+  color: #a1a1aa !important;
+}
+
+.cl-formFieldLabel {
+  color: #d4d4d8 !important;
+}
+
+.cl-internal-button {
+  color: #d4d4d8 !important;
+}
+
+.cl-dividerText {
+  color: #71717a !important;
+}
+
+.cl-dividerLine {
+  background: rgba(255,255,255,0.08) !important;
+}
+
+.cl-socialButtonsBlockButton__text,
+.cl-socialButtonsBlockButtonText {
+  color: #d4d4d8 !important;
+}
+
+.cl-formFieldInput {
+  color: #fafafa !important;
+  background: rgba(255,255,255,0.05) !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
+}
+
+.cl-formFieldInput::placeholder {
+  color: #52525b !important;
+}
+
+.cl-identityPreviewText {
+  color: #d4d4d8 !important;
+}
+
+.cl-identityPreviewEditButton {
+  color: #a78bfa !important;
+}
+
+.cl-backLink {
+  color: #a78bfa !important;
+}
+
+.cl-alertText {
+  color: #d4d4d8 !important;
+}
+
+.cl-formFieldErrorText {
+  color: #f87171 !important;
+}
+
+.cl-otpCodeFieldInput {
+  color: #fafafa !important;
+  background: rgba(255,255,255,0.05) !important;
+  border: 1px solid rgba(255,255,255,0.1) !important;
+}
+
+.cl-formResendCodeLink {
+  color: #a78bfa !important;
+}
+
+/* Catch-all for any remaining Clerk text */
+[class^="cl-"] button,
+[class^="cl-"] a,
+[class^="cl-"] span,
+[class^="cl-"] p,
+[class^="cl-"] label,
+[class^="cl-"] div {
+  color: inherit;
 }

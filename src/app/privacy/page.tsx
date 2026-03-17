@@ -105,8 +105,8 @@ export default function PrivacyPolicy() {
               session management. Clerk processes your email, name, and login credentials under its own privacy policy.
             </li>
             <li style={{ marginBottom: "0.5rem" }}>
-              <strong style={{ color: "#ffffff" }}>Stripe</strong> — Processes subscription payments and billing. Stripe
-              handles your payment card details directly; we do not store your full card number on our servers.
+              <strong style={{ color: "#ffffff" }}>PayPal</strong> — Processes subscription payments and billing. PayPal
+              handles your payment details directly; we do not store your payment information on our servers.
             </li>
             <li style={{ marginBottom: "0.5rem" }}>
               <strong style={{ color: "#ffffff" }}>AI Services</strong> — We use artificial intelligence services for

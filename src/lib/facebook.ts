@@ -47,16 +47,28 @@ async function getPage(): Promise<Page> {
     locale: 'en-US',
   });
 
-  // Inject cookies from cookies.json if available
+  // Inject cookies from cookies.json if available (normalize sameSite for Playwright)
   const cookiesJsonPath = join(PROFILE_DIR, 'cookies.json');
   if (existsSync(cookiesJsonPath)) {
     try {
       const savedCookies = JSON.parse(readFileSync(cookiesJsonPath, 'utf8'));
       if (Array.isArray(savedCookies) && savedCookies.length > 0) {
-        await _context.addCookies(savedCookies);
+        const normalized = savedCookies.map((c: Record<string, unknown>) => {
+          const ss = String(c.sameSite || 'Lax').toLowerCase();
+          const sameSite = ss === 'no_restriction' || ss === 'none' ? 'None'
+            : ss === 'strict' ? 'Strict' : 'Lax';
+          return {
+            name: String(c.name), value: String(c.value), domain: String(c.domain),
+            path: String(c.path || '/'),
+            expires: Math.floor(Number(c.expirationDate || c.expires || 0)) || undefined,
+            secure: c.secure !== false, httpOnly: !!c.httpOnly,
+            sameSite: sameSite as 'Strict' | 'Lax' | 'None',
+          };
+        });
+        await _context.addCookies(normalized);
       }
     } catch (e) {
-      console.error('Failed to load cookies.json:', e);
+      console.error('Failed to load cookies.json:', (e as Error).message);
     }
   }
 
@@ -422,27 +434,26 @@ export async function likeFacebookPost(postUrl: string): Promise<boolean> {
 // --- Validate comment text before posting ---
 function isValidComment(text: string): boolean {
   if (!text || text.trim().length < 5) return false;
-  if (text.trim().length > 500) return false;
+  if (text.trim().length > 2000) return false;
 
-  // Reject anything that looks like an error or code
+  // Patterns that indicate the text is a code dump or error output, not a real comment.
+  // These are intentionally specific to avoid false positives on conversational text
+  // that naturally mentions words like "error" or "failed".
   const errorPatterns = [
-    /error/i,
-    /Error:/,
-    /ERR_/,
-    /failed/i,
-    /exception/i,
-    /stack\s*trace/i,
-    /undefined/i,
-    /null/i,
-    /NaN/,
+    /Error:\s*\w+/,                        // "Error: something" (structured error output)
+    /ERR_/,                                 // Node.js error codes
+    /stack\s*trace/i,                       // stack trace dumps
+    /\bundefined\b.*\bundefined\b/i,        // multiple "undefined" = likely a dump
+    /\bnull\b.*\bnull\b/i,                  // multiple "null" = likely a dump
+    /\bNaN\b.*\bNaN\b/,                     // multiple NaN
     /\b(500|404|403|401|400)\b.*\b(status|code|error)\b/i,
-    /at\s+\w+\s*\(/,           // stack trace lines
-    /^\s*\{[\s\S]*\}\s*$/,     // raw JSON
-    /^\s*\[[\s\S]*\]\s*$/,     // raw JSON array
-    /TypeError|ReferenceError|SyntaxError/,
-    /ECONNREFUSED|ETIMEDOUT|ENOTFOUND/,
+    /at\s+\w+\s*\(.*:\d+:\d+\)/,           // stack frame: "at func (file:line:col)"
+    /^\s*\{[\s\S]*\}\s*$/,                  // entire text is a JSON object
+    /^\s*\[[\s\S]*\]\s*$/,                  // entire text is a JSON array
+    /TypeError|ReferenceError|SyntaxError/, // JS error type names
+    /ECONNREFUSED|ETIMEDOUT|ENOTFOUND/,     // Node.js network error codes
     /Could not parse/i,
-    /OpenClaw.*failed/i,
+    /```[\s\S]*```/,                        // markdown code blocks
   ];
 
   for (const pattern of errorPatterns) {
@@ -468,6 +479,12 @@ export async function postComment(
     await page.goto(postUrl, { waitUntil: 'domcontentloaded' });
     await sleep(SLOW_WAIT);
 
+    // Scroll the page to load all elements including comment section
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await sleep(2000);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await sleep(1000);
+
     // Post may open in a modal — scroll down inside it to reveal comment box
     const modal = await page.$('[role="dialog"]');
     if (modal) {
@@ -487,11 +504,16 @@ export async function postComment(
 
     // Find comment box — try multiple selectors, check visibility
     const commentSelectors = [
+      '[aria-label*="comment" i][contenteditable="true"]',
       '[aria-label*="Comment as"]',
       '[aria-label="Write a comment"]',
       '[aria-label="Write a comment…"]',
       '[aria-label="Write a comment\u2026"]',
+      '[aria-label*="Write a comment"]',
+      '[aria-label*="Write a public comment"]',
+      '[placeholder*="comment" i]',
       'div[contenteditable="true"][role="textbox"]',
+      'form div[contenteditable="true"]',
     ];
 
     let commentBox = null;
@@ -506,19 +528,32 @@ export async function postComment(
       if (commentBox) break;
     }
 
-    // If not found, try clicking a "Comment" button to expand
+    // If not found, try clicking comment/action buttons to reveal the comment box
     if (!commentBox) {
-      const commentBtns = await page.$$('div[role="button"]');
-      for (const btn of commentBtns) {
-        const text = await btn.textContent().catch(() => '');
-        if (text?.trim() === 'Comment') {
+      // Try multiple button patterns
+      const buttonTexts = ['Comment', 'comment', 'Write a comment'];
+      const allButtons = await page.$$('[role="button"], button, span[role="button"]');
+      for (const btn of allButtons) {
+        const text = (await btn.textContent().catch(() => ''))?.trim() || '';
+        if (buttonTexts.some(t => text.includes(t))) {
           await btn.click({ force: true });
+          await sleep(2500);
+          break;
+        }
+      }
+
+      // Also try clicking the comment icon (SVG near like/share buttons)
+      const commentIcons = await page.$$('[aria-label*="comment" i], [aria-label*="Comment" i]');
+      for (const icon of commentIcons) {
+        const tag = await icon.evaluate(el => el.tagName.toLowerCase()).catch(() => '');
+        if (tag === 'div' || tag === 'span' || tag === 'i') {
+          await icon.click({ force: true }).catch(() => {});
           await sleep(2000);
           break;
         }
       }
 
-      // Retry finding comment box
+      // Retry finding comment box with all selectors
       for (const sel of commentSelectors) {
         const elements = await page.$$(sel);
         for (const el of elements) {
