@@ -66,7 +66,7 @@ export async function readCronStatus(): Promise<CronStatusMap> {
     const all = await redis.hgetall(STATUS_HASH);
     const result: CronStatusMap = {};
     for (const [key, val] of Object.entries(all)) {
-      try { result[key] = JSON.parse(val); } catch {}
+      try { result[key] = JSON.parse(val); } catch { }
     }
     return result;
   } catch {
@@ -185,7 +185,64 @@ export async function cronFinish(entryId: string, platform: string, exitCode: nu
       const newJson = JSON.stringify(entry);
       await redis.zadd(LOG_KEY, score, newJson);
       // Update hash
-      await redis.hset(LOG_ENTRY_HASH, entryId, JSON.stringify({ score, json: newJson }));
+      await redis.hset(LOG_ENTRY_HASH, entry.id, JSON.stringify({ score, json: newJson }));
     }
+  } catch { /* best effort */ }
+}
+
+/**
+ * Force-stop a running cron job for the given user+platform.
+ * Resets the status hash, updates the running log entry to 'failed',
+ * releases the distributed lock, and sets an abort signal for the worker.
+ */
+export async function forceStopCron(platform: string, userId?: string): Promise<void> {
+  const key = statusKey(platform, userId);
+
+  try {
+    const redis = getRedis();
+
+    // 1. Update status hash — mark as stopped
+    const existing = await redis.hget(STATUS_HASH, key);
+    if (existing) {
+      const status: CronPlatformStatus = JSON.parse(existing);
+      status.running = false;
+      status.lastFinished = new Date().toISOString();
+      status.lastExitCode = 1;
+      status.lastMessage = 'Stopped by user';
+      await redis.hset(STATUS_HASH, key, JSON.stringify(status));
+    }
+
+    // 2. Find and update the running log entry for this platform
+    const allEntries = await redis.zrevrange(LOG_KEY, 0, 200);
+    for (const raw of allEntries) {
+      try {
+        const entry: CronLogEntry = JSON.parse(raw);
+        if (
+          entry.status === 'running' &&
+          entry.platform === platform &&
+          (!userId || entry.userId === userId)
+        ) {
+          // Remove old entry, add updated one
+          await redis.zrem(LOG_KEY, raw);
+          entry.status = 'failed';
+          entry.finishedAt = new Date().toISOString();
+          entry.exitCode = 1;
+          entry.message = 'Stopped by user';
+          const score = new Date(entry.startedAt).getTime();
+          const newJson = JSON.stringify(entry);
+          await redis.zadd(LOG_KEY, score, newJson);
+          // Update entry hash too
+          await redis.hset(LOG_ENTRY_HASH, entry.id, JSON.stringify({ score, json: newJson }));
+          break; // only one running entry per platform
+        }
+      } catch { /* skip malformed */ }
+    }
+
+    // 3. Release the distributed lock
+    await redis.del(lockKey(platform, userId));
+
+    // 4. Set abort signal so the worker kills the child process
+    const abortKey = `cron:abort:${userId ?? 'global'}:${platform}`;
+    await redis.set(abortKey, '1', 'EX', 60); // 60s TTL
   } catch { /* best effort */ }
 }

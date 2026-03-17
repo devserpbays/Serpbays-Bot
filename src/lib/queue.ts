@@ -160,3 +160,57 @@ export async function getJobStatus(jobId: string) {
     finishedOn: job.finishedOn,
   };
 }
+
+/**
+ * Stop all cron-run jobs for a specific user+platform.
+ * Removes waiting jobs and discards active ones.
+ * Returns the number of jobs that were stopped.
+ */
+export async function stopCronJobs(userId: string, platform: string): Promise<number> {
+  const queue = getBrowserQueue();
+  let stopped = 0;
+
+  try {
+    // Get waiting and active jobs
+    const [waiting, active] = await Promise.all([
+      queue.getJobs(['waiting', 'delayed']),
+      queue.getJobs(['active']),
+    ]);
+
+    // Remove matching waiting/delayed jobs
+    for (const job of waiting) {
+      if (
+        job.data?.type === 'cron-run' &&
+        job.data?.userId === userId &&
+        job.data?.platform === platform
+      ) {
+        await job.remove().catch(() => { });
+        await releaseUserSlot(userId);
+        stopped++;
+      }
+    }
+
+    // For active jobs, we can't directly stop them — set the abort signal
+    // (the worker checks this and kills the child process)
+    for (const job of active) {
+      if (
+        job.data?.type === 'cron-run' &&
+        job.data?.userId === userId &&
+        job.data?.platform === platform
+      ) {
+        // Mark as failed so BullMQ considers it done
+        try {
+          await job.moveToFailed(new Error('Stopped by user'), '0', true);
+          await releaseUserSlot(userId);
+          stopped++;
+        } catch {
+          // Job might have completed between our check and action
+        }
+      }
+    }
+  } catch (err) {
+    console.error(`[queue] Error stopping cron jobs for ${userId}/${platform}:`, (err as Error).message);
+  }
+
+  return stopped;
+}

@@ -96,6 +96,7 @@ export default function PipelinePage() {
 
     const [cronStatuses, setCronStatuses] = useState<Record<string, CronPlatformStatus>>({});
     const [runningPlatforms, setRunningPlatforms] = useState<Set<string>>(new Set());
+    const [stoppingPlatforms, setStoppingPlatforms] = useState<Set<string>>(new Set());
     const [nextRunAt, setNextRunAt] = useState<string | null>(null);
     const [connectedPlatforms, setConnectedPlatforms] = useState<string[]>([]);
     const [upgradeMessage, setUpgradeMessage] = useState('');
@@ -174,6 +175,23 @@ export default function PipelinePage() {
         } catch { /* silent */ }
         // Poll will pick up the running state
         setTimeout(fetchCronControl, 1000);
+    };
+
+    const handleStopPlatform = async (platform: string) => {
+        setStoppingPlatforms(prev => new Set(prev).add(platform));
+        try {
+            await fetch('/api/stop-cron', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ platform }),
+            });
+        } catch { /* silent */ }
+        // Refresh status and clear stopping state
+        setTimeout(async () => {
+            await fetchCronControl();
+            setRunningPlatforms(prev => { const next = new Set(prev); next.delete(platform); return next; });
+            setStoppingPlatforms(prev => { const next = new Set(prev); next.delete(platform); return next; });
+        }, 1000);
     };
 
     const handlePipeline = async () => {
@@ -459,23 +477,38 @@ export default function PipelinePage() {
                                                 )}
                                             </td>
                                             <td style={{ padding: '12px 16px', textAlign: 'right' }}>
-                                                <button
-                                                    className={`btn btn-sm ${isRunning ? 'btn-outline' : 'btn-primary'}`}
-                                                    disabled={isRunning || (!isConnected && id !== 'twitter')}
-                                                    onClick={() => handleRunPlatform(id)}
-                                                    style={{ minWidth: 70 }}
-                                                >
+                                                <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
                                                     {isRunning ? (
-                                                        <><svg className="animate-spin" style={{ width: 12, height: 12 }} fill="none" viewBox="0 0 24 24">
-                                                            <circle style={{ opacity: 0.25 }} cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                                                            <path style={{ opacity: 0.75 }} fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                                                        </svg> Running</>
+                                                        <button
+                                                            className="btn btn-sm btn-danger"
+                                                            disabled={stoppingPlatforms.has(id)}
+                                                            onClick={() => handleStopPlatform(id)}
+                                                            style={{ minWidth: 70 }}
+                                                        >
+                                                            {stoppingPlatforms.has(id) ? (
+                                                                <><svg className="animate-spin" style={{ width: 12, height: 12 }} fill="none" viewBox="0 0 24 24">
+                                                                    <circle style={{ opacity: 0.25 }} cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                                                    <path style={{ opacity: 0.75 }} fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                                                                </svg> Stopping…</>
+                                                            ) : (
+                                                                <><svg style={{ width: 12, height: 12 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                                    <rect x="6" y="6" width="12" height="12" rx="1" />
+                                                                </svg> Stop</>
+                                                            )}
+                                                        </button>
                                                     ) : (
-                                                        <><svg style={{ width: 12, height: 12 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 3l14 9-14 9V3z" />
-                                                        </svg> Run</>
+                                                        <button
+                                                            className="btn btn-sm btn-primary"
+                                                            disabled={!isConnected && id !== 'twitter'}
+                                                            onClick={() => handleRunPlatform(id)}
+                                                            style={{ minWidth: 70 }}
+                                                        >
+                                                            <svg style={{ width: 12, height: 12 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 3l14 9-14 9V3z" />
+                                                            </svg> Run
+                                                        </button>
                                                     )}
-                                                </button>
+                                                </div>
                                             </td>
                                         </tr>
                                     );

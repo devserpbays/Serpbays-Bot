@@ -8,6 +8,7 @@ import { connectDB } from './mongodb';
 import { loadCookies, getCookieMeta } from './cookieStore';
 import { cronStart, cronFinish, acquireCronLock, releaseCronLock } from './cronState';
 import { logActivity, notifyAuthError } from './activityLog';
+import { getRedis } from './redis';
 import Settings from '@/models/Settings';
 import { spawn } from 'child_process';
 import { join, resolve } from 'path';
@@ -123,11 +124,13 @@ export async function runCronForPlatform(
       ...(envKey ? { [envKey]: profileDir } : {}),
     };
 
-    // Spawn with timeout
+    // Spawn with timeout + abort signal support
     const result = await spawnWithTimeout(
       join(PROJECT_ROOT, scriptPath),
       env,
       CRON_TIMEOUT_MS,
+      userId,
+      platform,
     );
 
     exitCode = result.code;
@@ -149,12 +152,12 @@ export async function runCronForPlatform(
   } catch (err) {
     exitCode = 1;
     message = (err as Error).message;
-    await logActivity(userId, platform, 'error', 'cron_error', `Cron failed: ${message}`).catch(() => {});
+    await logActivity(userId, platform, 'error', 'cron_error', `Cron failed: ${message}`).catch(() => { });
     return { success: false, message };
   } finally {
     // ALWAYS call cronFinish — this was the missing piece
-    await cronFinish(cronId, platform, exitCode, message, userId).catch(() => {});
-    await releaseCronLock(platform, userId).catch(() => {});
+    await cronFinish(cronId, platform, exitCode, message, userId).catch(() => { });
+    await releaseCronLock(platform, userId).catch(() => { });
   }
 }
 
@@ -162,8 +165,10 @@ function spawnWithTimeout(
   scriptPath: string,
   env: NodeJS.ProcessEnv,
   timeoutMs: number,
+  userId?: string,
+  platform?: string,
 ): Promise<{ code: number; stderr: string }> {
-  return new Promise((resolve) => {
+  return new Promise((resolvePromise) => {
     const child = spawn('npx', ['tsx', scriptPath], {
       cwd: PROJECT_ROOT,
       env,
@@ -180,15 +185,37 @@ function spawnWithTimeout(
         settled = true;
         child.kill('SIGTERM');
         setTimeout(() => child.kill('SIGKILL'), 5000);
-        resolve({ code: 1, stderr: `Cron timed out after ${timeoutMs / 1000}s` });
+        resolvePromise({ code: 1, stderr: `Cron timed out after ${timeoutMs / 1000}s` });
       }
     }, timeoutMs);
+
+    // Poll Redis abort signal every 5s so user can stop stuck jobs
+    let abortInterval: ReturnType<typeof setInterval> | null = null;
+    if (userId && platform) {
+      const abortKey = `cron:abort:${userId}:${platform}`;
+      abortInterval = setInterval(async () => {
+        try {
+          const redis = getRedis();
+          const val = await redis.get(abortKey);
+          if (val && !settled) {
+            settled = true;
+            clearTimeout(timeout);
+            if (abortInterval) clearInterval(abortInterval);
+            child.kill('SIGTERM');
+            setTimeout(() => { try { child.kill('SIGKILL'); } catch { } }, 5000);
+            await redis.del(abortKey);
+            resolvePromise({ code: 1, stderr: 'Stopped by user' });
+          }
+        } catch { /* Redis down — skip check */ }
+      }, 5000);
+    }
 
     child.on('close', (code) => {
       if (!settled) {
         settled = true;
         clearTimeout(timeout);
-        resolve({ code: code ?? 1, stderr });
+        if (abortInterval) clearInterval(abortInterval);
+        resolvePromise({ code: code ?? 1, stderr });
       }
     });
 
@@ -196,7 +223,8 @@ function spawnWithTimeout(
       if (!settled) {
         settled = true;
         clearTimeout(timeout);
-        resolve({ code: 1, stderr: err.message });
+        if (abortInterval) clearInterval(abortInterval);
+        resolvePromise({ code: 1, stderr: err.message });
       }
     });
   });
