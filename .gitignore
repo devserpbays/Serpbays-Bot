@@ -67,3 +67,6 @@ scripts/instantly-to-sheets.ts
 
 # Claude Code workspace
 .claude/
+
+# clerk configuration (can include secrets)
+/.clerk/
