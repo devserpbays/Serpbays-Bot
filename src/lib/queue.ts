@@ -162,43 +162,47 @@ export async function getJobStatus(jobId: string) {
 }
 
 /**
- * Stop all cron-run jobs for a specific user+platform.
+ * Stop all pipeline jobs (scrape, evaluate, cron-run) for a specific user.
+ * If platform is provided, only stops cron-run jobs for that platform.
  * Removes waiting jobs and discards active ones.
  * Returns the number of jobs that were stopped.
  */
-export async function stopCronJobs(userId: string, platform: string): Promise<number> {
+export async function stopPipelineJobs(userId: string, platform?: string): Promise<number> {
   const queue = getBrowserQueue();
   let stopped = 0;
 
   try {
     // Get waiting and active jobs
     const [waiting, active] = await Promise.all([
-      queue.getJobs(['waiting', 'delayed']),
+      queue.getJobs(['waiting', 'delayed', 'paused']),
       queue.getJobs(['active']),
     ]);
 
+    const isMatch = (job: any) => {
+      const data = job.data;
+      if (data?.userId !== userId) return false;
+
+      // If specific platform requested, only match cron-run for that platform
+      if (platform && platform !== 'all') {
+        return data.type === 'cron-run' && data.platform === platform;
+      }
+
+      // Otherwise match all pipeline-related types
+      return ['cron-run', 'scrape', 'evaluate-posts'].includes(data.type);
+    };
+
     // Remove matching waiting/delayed jobs
     for (const job of waiting) {
-      if (
-        job.data?.type === 'cron-run' &&
-        job.data?.userId === userId &&
-        job.data?.platform === platform
-      ) {
+      if (isMatch(job)) {
         await job.remove().catch(() => { });
         await releaseUserSlot(userId);
         stopped++;
       }
     }
 
-    // For active jobs, we can't directly stop them — set the abort signal
-    // (the worker checks this and kills the child process)
+    // For active jobs, we mark them as failed and set the abort signal
     for (const job of active) {
-      if (
-        job.data?.type === 'cron-run' &&
-        job.data?.userId === userId &&
-        job.data?.platform === platform
-      ) {
-        // Mark as failed so BullMQ considers it done
+      if (isMatch(job)) {
         try {
           await job.moveToFailed(new Error('Stopped by user'), '0', true);
           await releaseUserSlot(userId);
@@ -209,7 +213,7 @@ export async function stopCronJobs(userId: string, platform: string): Promise<nu
       }
     }
   } catch (err) {
-    console.error(`[queue] Error stopping cron jobs for ${userId}/${platform}:`, (err as Error).message);
+    console.error(`[queue] Error stopping pipeline jobs for ${userId}:`, (err as Error).message);
   }
 
   return stopped;

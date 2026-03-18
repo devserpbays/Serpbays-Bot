@@ -173,7 +173,7 @@ export async function cronFinish(entryId: string, platform: string, exitCode: nu
     // O(1) lookup via entry hash instead of scanning sorted set
     const stored = await redis.hget(LOG_ENTRY_HASH, entryId);
     if (stored) {
-      const { score, json: oldJson } = JSON.parse(stored);
+      const { score, json: oldJson } = JSON.parse(stored as string); // Cast to string to fix lint error
       const entry: CronLogEntry = JSON.parse(oldJson);
       // Remove old entry from sorted set
       await redis.zrem(LOG_KEY, oldJson);
@@ -245,4 +245,12 @@ export async function forceStopCron(platform: string, userId?: string): Promise<
     const abortKey = `cron:abort:${userId ?? 'global'}:${platform}`;
     await redis.set(abortKey, '1', 'EX', 60); // 60s TTL
   } catch { /* best effort */ }
+}
+
+/**
+ * Force-stop all running cron jobs for the given user across all platforms.
+ */
+export async function forceStopAllCrons(userId: string): Promise<void> {
+  const platforms = ['twitter', 'facebook', 'reddit', 'quora', 'pinterest', 'youtube'];
+  await Promise.all(platforms.map(p => forceStopCron(p, userId)));
 }

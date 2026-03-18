@@ -19,6 +19,19 @@ interface Stats {
     postedByPlatform: Record<string, number>;
 }
 
+interface CronPlatformStatus {
+    running: boolean;
+    lastFinished?: string;
+    lastExitCode?: number;
+    lastMessage?: string;
+    lastTrigger?: 'manual' | 'scheduled';
+}
+
+interface CronStatusResponse {
+    crons: Record<string, CronPlatformStatus>;
+    paused: boolean;
+}
+
 /* ── Platform metadata ──────────────────────────────────────────── */
 interface PlatformMeta {
     id: string;
@@ -76,6 +89,8 @@ export default function OverviewPage() {
     });
     const [settings, setSettings] = useState<ISettings | null>(null);
     const [accounts, setAccounts] = useState<SocialAccount[]>([]);
+    const [cronStatus, setCronStatus] = useState<CronStatusResponse | null>(null);
+    const [stoppingPlatforms, setStoppingPlatforms] = useState<Set<string>>(new Set());
 
     const fetchStats = useCallback(async () => {
         try {
@@ -97,24 +112,58 @@ export default function OverviewPage() {
 
     const fetchSettings = useCallback(async () => {
         try {
-            const [settRes, accRes] = await Promise.all([
+            const [settRes, accRes, cronRes] = await Promise.all([
                 fetch(`${API_BASE}/api/settings`),
                 fetch(`${API_BASE}/api/social-accounts`),
+                fetch(`${API_BASE}/api/cron-status`),
             ]);
             const settData = await settRes.json();
             const accData = await accRes.json();
+            const cronData = await cronRes.json();
             setSettings(settData.settings ?? null);
             setAccounts(accData.accounts ?? []);
+            setCronStatus(cronData);
         } catch { /* silent */ }
     }, []);
+
+    const fetchOnlyCronStatus = useCallback(async () => {
+        try {
+            const res = await fetch(`${API_BASE}/api/cron-status`);
+            const data = await res.json();
+            setCronStatus(data);
+        } catch { /* silent */ }
+    }, []);
+
+    const handleStopPlatform = async (e: React.MouseEvent, platform: string) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setStoppingPlatforms(prev => new Set(prev).add(platform));
+        try {
+            await fetch(`${API_BASE}/api/stop-cron`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ platform }),
+            });
+        } catch { /* silent */ }
+        // Refresh status
+        setTimeout(async () => {
+            await fetchOnlyCronStatus();
+            setStoppingPlatforms(prev => { const next = new Set(prev); next.delete(platform); return next; });
+        }, 1000);
+    };
 
     useEffect(() => {
         fetchStats();
         fetchSettings();
-        const tick = () => { if (!document.hidden) fetchStats(); };
+        const tick = () => {
+            if (!document.hidden) {
+                fetchStats();
+                fetchOnlyCronStatus();
+            }
+        };
         const id = setInterval(tick, POLL_INTERVAL);
         return () => clearInterval(id);
-    }, [fetchStats, fetchSettings]);
+    }, [fetchStats, fetchSettings, fetchOnlyCronStatus]);
 
     const accountsFor = (pid: string) => accounts.filter((a) => a.platform === pid);
     const enabledPlatforms = settings?.platforms ?? [];
@@ -284,7 +333,32 @@ export default function OverviewPage() {
                                         <div style={{ flex: 1 }}>
                                             <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{p.label}</div>
                                         </div>
-                                        {platAccounts.length > 0 && (
+                                        {cronStatus?.crons[p.id]?.running ? (
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                <span style={{
+                                                    fontSize: 10, fontWeight: 700, padding: '3px 8px',
+                                                    borderRadius: 20, background: 'rgba(59,130,246,0.1)',
+                                                    color: '#3b82f6', display: 'flex', alignItems: 'center', gap: 4
+                                                }}>
+                                                    <svg className="animate-spin" style={{ width: 10, height: 10 }} fill="none" viewBox="0 0 24 24">
+                                                        <circle style={{ opacity: 0.25 }} cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                                        <path style={{ opacity: 0.75 }} fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                                                    </svg>
+                                                    Running
+                                                </span>
+                                                <button
+                                                    onClick={(e) => handleStopPlatform(e, p.id)}
+                                                    disabled={stoppingPlatforms.has(p.id)}
+                                                    style={{
+                                                        background: 'rgba(239,68,68,0.1)', color: '#ef4444',
+                                                        border: 'none', borderRadius: 4, padding: '2px 6px',
+                                                        fontSize: 10, fontWeight: 700, cursor: 'pointer'
+                                                    }}
+                                                >
+                                                    {stoppingPlatforms.has(p.id) ? 'Stopping…' : 'Stop'}
+                                                </button>
+                                            </div>
+                                        ) : platAccounts.length > 0 && (
                                             <span style={{
                                                 fontSize: 10, fontWeight: 700, padding: '3px 8px',
                                                 borderRadius: 20, background: 'rgba(16,185,129,0.1)',

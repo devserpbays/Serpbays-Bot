@@ -97,6 +97,7 @@ export default function PipelinePage() {
     const [cronStatuses, setCronStatuses] = useState<Record<string, CronPlatformStatus>>({});
     const [runningPlatforms, setRunningPlatforms] = useState<Set<string>>(new Set());
     const [stoppingPlatforms, setStoppingPlatforms] = useState<Set<string>>(new Set());
+    const [isStoppingAll, setIsStoppingAll] = useState(false);
     const [nextRunAt, setNextRunAt] = useState<string | null>(null);
     const [connectedPlatforms, setConnectedPlatforms] = useState<string[]>([]);
     const [upgradeMessage, setUpgradeMessage] = useState('');
@@ -192,6 +193,27 @@ export default function PipelinePage() {
             setRunningPlatforms(prev => { const next = new Set(prev); next.delete(platform); return next; });
             setStoppingPlatforms(prev => { const next = new Set(prev); next.delete(platform); return next; });
         }, 1000);
+    };
+
+    const handleStopAll = async () => {
+        setIsStoppingAll(true);
+        // Mark all currently running as stopping for UI feedback
+        setStoppingPlatforms(new Set(runningPlatforms));
+        try {
+            await fetch('/api/stop-cron', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ platform: 'all' }),
+            });
+        } catch { /* silent */ }
+        // Refresh everything
+        setTimeout(async () => {
+            await fetchCronControl();
+            setRunningPlatforms(new Set());
+            setStoppingPlatforms(new Set());
+            setIsStoppingAll(false);
+            setPipelineRunning(false); // Also stop the scrape pipeline state
+        }, 1500);
     };
 
     const handlePipeline = async () => {
@@ -324,6 +346,16 @@ export default function PipelinePage() {
                                     Next run: {new Date(nextRunAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                 </span>
                             )}
+                            {anyPlatformRunning && (
+                                <button
+                                    className="btn btn-sm btn-danger"
+                                    disabled={isStoppingAll}
+                                    onClick={handleStopAll}
+                                    style={{ marginLeft: 8 }}
+                                >
+                                    {isStoppingAll ? 'Stopping…' : 'Stop All'}
+                                </button>
+                            )}
                             <button
                                 className={`btn btn-sm ${cronPaused ? 'btn-success' : 'btn-danger'}`}
                                 disabled={cronToggling}
@@ -389,17 +421,28 @@ export default function PipelinePage() {
                 <div className="card">
                     <div className="card-header">
                         <span className="card-title">Platform Cron Jobs</span>
-                        <button
-                            className="btn btn-sm btn-primary"
-                            disabled={anyPlatformRunning || cronPaused}
-                            onClick={handleRunAll}
-                            title={cronPaused ? 'Resume automation first' : 'Run all platform crons'}
-                        >
-                            <svg style={{ width: 14, height: 14 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 3l14 9-14 9V3z" />
-                            </svg>
-                            {' '}Run All
-                        </button>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                            <button
+                                className="btn btn-sm btn-danger"
+                                disabled={isStoppingAll || (!anyPlatformRunning && !pipelineRunning)}
+                                onClick={handleStopAll}
+                            >
+                                <svg style={{ width: 12, height: 12 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <rect x="6" y="6" width="12" height="12" rx="1" />
+                                </svg> Stop All
+                            </button>
+                            <button
+                                className="btn btn-sm btn-outline"
+                                disabled={anyPlatformRunning}
+                                onClick={handleRunAll}
+                                title={cronPaused ? 'Resume automation first' : 'Run all platform crons'}
+                            >
+                                <svg style={{ width: 14, height: 14 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 3l14 9-14 9V3z" />
+                                </svg>
+                                {' '}Run All
+                            </button>
+                        </div>
                     </div>
                     <div className="card-body" style={{ padding: 0 }}>
                         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -527,17 +570,29 @@ export default function PipelinePage() {
                                 Scrapes all connected platforms for new posts, then evaluates each with AI.
                             </p>
                         </div>
-                        <button
-                            className="btn btn-primary"
-                            disabled={pipelineRunning}
-                            onClick={handlePipeline}
-                        >
-                            {pipelineRunning ? (
-                                <><svg className="animate-spin" style={{ width: 14, height: 14 }} fill="none" viewBox="0 0 24 24"><circle style={{ opacity: 0.25 }} cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path style={{ opacity: 0.75 }} fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" /></svg> Running…</>
-                            ) : (
-                                <><svg style={{ width: 14, height: 14 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg> Scrape & Evaluate</>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                            {pipelineRunning && (
+                                <button
+                                    className="btn btn-sm btn-danger"
+                                    disabled={isStoppingAll}
+                                    onClick={handleStopAll}
+                                >
+                                    Stop
+                                </button>
                             )}
-                        </button>
+                            <button
+                                className="btn btn-sm btn-primary"
+                                disabled={pipelineRunning || anyPlatformRunning}
+                                onClick={handlePipeline}
+                            >
+                                {pipelineRunning ? (
+                                    <><svg className="animate-spin" style={{ width: 12, height: 12 }} fill="none" viewBox="0 0 24 24">
+                                        <circle style={{ opacity: 0.25 }} cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                        <path style={{ opacity: 0.75 }} fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                                    </svg> Running Pipeline…</>
+                                ) : 'Scrape & Evaluate Now'}
+                            </button>
+                        </div>
                     </div>
 
                     {pipelineStep && (
