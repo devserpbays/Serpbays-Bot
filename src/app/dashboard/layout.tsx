@@ -10,7 +10,10 @@ import { ThemeToggleCompact } from '@/components/ThemeProvider';
 
 /* ── Alert Poller ──────────────────────────────────────────────── */
 // Only show toasts for actions the user actually needs to know about
-const TOAST_ACTIONS = new Set(['post', 'post_failed', 'auth_error', 'config_error', 'limit']);
+const TOAST_ACTIONS = new Set([
+  'post', 'post_failed', 'auth_error', 'config_error', 'limit',
+  'automation_block', 'rate_limit', 'duplicate', 'account_suspended',
+]);
 
 function getToastConfig(log: { level: string; action: string }): { type: 'success' | 'error' | 'warning' | 'info'; autoClose: number } {
   if (log.action === 'post') return { type: 'success', autoClose: 5000 };
@@ -18,6 +21,10 @@ function getToastConfig(log: { level: string; action: string }): { type: 'succes
   if (log.action === 'auth_error') return { type: 'error', autoClose: 8000 };
   if (log.action === 'config_error') return { type: 'warning', autoClose: 6000 };
   if (log.action === 'limit') return { type: 'info', autoClose: 5000 };
+  if (log.action === 'automation_block') return { type: 'warning', autoClose: 10000 };
+  if (log.action === 'rate_limit')       return { type: 'info',    autoClose: 6000  };
+  if (log.action === 'duplicate')        return { type: 'info',    autoClose: 4000  };
+  if (log.action === 'account_suspended') return { type: 'error',  autoClose: 0     };
   if (log.level === 'error') return { type: 'error', autoClose: 8000 };
   if (log.level === 'warn') return { type: 'warning', autoClose: 6000 };
   if (log.level === 'success') return { type: 'success', autoClose: 5000 };
@@ -164,21 +171,26 @@ function NotificationBell() {
         style={{
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           width: 38, height: 38, position: 'relative',
-          background: 'rgba(255,255,255,0.04)',
-          border: '1px solid var(--border-subtle)',
+          background: open ? 'rgba(168, 85, 247, 0.14)' : 'rgba(168, 85, 247, 0.07)',
+          border: `1px solid ${open ? 'rgba(168,85,247,0.38)' : 'var(--border-default)'}`,
           borderRadius: 10,
-          color: 'var(--text-secondary)',
+          color: open ? 'var(--accent-light)' : 'var(--text-secondary)',
           cursor: 'pointer', transition: 'all 180ms',
+          boxShadow: open ? '0 0 14px rgba(168,85,247,0.18)' : 'none',
         }}
         onMouseEnter={(e) => {
-          e.currentTarget.style.background = 'rgba(124, 58, 237, 0.1)';
-          e.currentTarget.style.borderColor = 'rgba(124, 58, 237, 0.25)';
-          e.currentTarget.style.color = 'var(--text-primary)';
+          if (!open) {
+            e.currentTarget.style.background = 'rgba(168, 85, 247, 0.12)';
+            e.currentTarget.style.borderColor = 'rgba(168, 85, 247, 0.32)';
+            e.currentTarget.style.color = 'var(--accent-light)';
+          }
         }}
         onMouseLeave={(e) => {
-          e.currentTarget.style.background = 'rgba(255,255,255,0.04)';
-          e.currentTarget.style.borderColor = 'var(--border-subtle)';
-          e.currentTarget.style.color = 'var(--text-secondary)';
+          if (!open) {
+            e.currentTarget.style.background = 'rgba(168, 85, 247, 0.07)';
+            e.currentTarget.style.borderColor = 'var(--border-default)';
+            e.currentTarget.style.color = 'var(--text-secondary)';
+          }
         }}
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} width="18" height="18">
@@ -187,12 +199,15 @@ function NotificationBell() {
         </svg>
         {unreadCount > 0 && (
           <span style={{
-            position: 'absolute', top: -4, right: -4,
+            position: 'absolute', top: -5, right: -5,
             minWidth: 18, height: 18, borderRadius: 9,
-            background: '#ed4245', color: '#fff',
-            fontSize: 11, fontWeight: 700,
+            background: 'linear-gradient(135deg, #a855f7, #7c3aed)',
+            color: '#fff',
+            fontSize: 10, fontWeight: 700,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             padding: '0 5px',
+            boxShadow: '0 0 8px rgba(168,85,247,0.5)',
+            border: '1.5px solid rgba(13,9,20,0.8)',
           }}>
             {unreadCount > 9 ? '9+' : unreadCount}
           </span>
@@ -205,33 +220,45 @@ function NotificationBell() {
           position: 'absolute',
           top: '100%',
           right: 0,
-          marginTop: 8,
-          width: 360, maxHeight: 440,
-          background: 'var(--bg-secondary, #131316)',
-          border: '1px solid rgba(255,255,255,0.08)',
-          borderRadius: 12,
-          boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+          marginTop: 10,
+          width: 368, maxHeight: 460,
+          background: 'rgba(19, 10, 30, 0.96)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
+          border: '1px solid rgba(139, 92, 246, 0.25)',
+          borderRadius: 14,
+          boxShadow: '0 16px 48px rgba(0,0,0,0.6), 0 0 0 1px rgba(168,85,247,0.08), 0 0 40px rgba(168,85,247,0.1)',
           zIndex: 1000,
           overflow: 'hidden',
           display: 'flex', flexDirection: 'column',
+          animation: 'fadeIn 150ms ease-out',
         }}>
+          {/* Purple top line */}
+          <div style={{
+            height: 2,
+            background: 'linear-gradient(90deg, transparent, #a855f7, #7c3aed, transparent)',
+            flexShrink: 0,
+          }} />
           {/* Header */}
           <div style={{
-            padding: '14px 16px',
-            borderBottom: '1px solid rgba(255,255,255,0.06)',
+            padding: '14px 18px',
+            borderBottom: '1px solid rgba(139, 92, 246, 0.14)',
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            flexShrink: 0,
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary, #fafafa)' }}>
+              <span style={{ fontSize: 14, fontWeight: 700, color: '#f0eaff' }}>
                 Notifications
               </span>
               {unreadCount > 0 && (
                 <span style={{
                   minWidth: 20, height: 20, borderRadius: 10,
-                  background: '#ed4245', color: '#fff',
-                  fontSize: 11, fontWeight: 700,
+                  background: 'linear-gradient(135deg, #a855f7, #7c3aed)',
+                  color: '#fff',
+                  fontSize: 10, fontWeight: 700,
                   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                   padding: '0 6px',
+                  boxShadow: '0 0 8px rgba(168,85,247,0.4)',
                 }}>
                   {unreadCount}
                 </span>
@@ -242,13 +269,13 @@ function NotificationBell() {
                 onClick={markAllRead}
                 style={{
                   background: 'none', border: 'none',
-                  color: '#7c3aed', fontSize: 12, fontWeight: 600,
+                  color: '#c084fc', fontSize: 12, fontWeight: 600,
                   cursor: 'pointer', padding: '4px 8px',
                   borderRadius: 6,
-                  transition: 'background 150ms',
+                  transition: 'all 150ms',
                 }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(124, 58, 237, 0.1)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(168, 85, 247, 0.12)'; e.currentTarget.style.color = '#d8b4fe'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = '#c084fc'; }}
               >
                 Mark all read
               </button>
@@ -259,14 +286,24 @@ function NotificationBell() {
           <div style={{ overflowY: 'auto', flex: 1 }}>
             {notifications.length === 0 ? (
               <div style={{
-                padding: 40, textAlign: 'center',
-                color: 'var(--text-muted, #71717a)', fontSize: 13,
+                padding: '48px 20px', textAlign: 'center',
+                color: 'var(--text-muted)', fontSize: 13,
               }}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} width="32" height="32" style={{ margin: '0 auto 10px', opacity: 0.4 }}>
-                  <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" />
-                  <path d="M13.73 21a2 2 0 01-3.46 0" />
-                </svg>
-                <div>All caught up!</div>
+                <div style={{
+                  width: 48, height: 48, borderRadius: '50%',
+                  background: 'rgba(168, 85, 247, 0.08)',
+                  border: '1px solid rgba(168, 85, 247, 0.15)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  margin: '0 auto 12px',
+                  opacity: 0.6,
+                }}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="#a855f7" strokeWidth={1.5} width="22" height="22">
+                    <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                    <path d="M13.73 21a2 2 0 01-3.46 0" />
+                  </svg>
+                </div>
+                <div style={{ fontWeight: 600, color: '#b8a8d4', marginBottom: 4 }}>All caught up!</div>
+                <div style={{ fontSize: 12 }}>No unread notifications</div>
               </div>
             ) : (
               notifications.map(n => (
@@ -274,51 +311,53 @@ function NotificationBell() {
                   key={n._id}
                   onClick={() => handleNotificationClick(n)}
                   style={{
-                    padding: '12px 16px',
-                    borderBottom: '1px solid rgba(255,255,255,0.04)',
-                    background: 'rgba(124, 58, 237, 0.04)',
-                    display: 'flex', gap: 10, alignItems: 'flex-start',
+                    padding: '12px 18px',
+                    borderBottom: '1px solid rgba(139, 92, 246, 0.08)',
+                    background: 'rgba(168, 85, 247, 0.04)',
+                    display: 'flex', gap: 12, alignItems: 'flex-start',
                     cursor: 'pointer',
                     transition: 'background 150ms',
                   }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(124, 58, 237, 0.1)'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(124, 58, 237, 0.04)'; }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(168, 85, 247, 0.1)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(168, 85, 247, 0.04)'; }}
                 >
                   <div style={{
                     width: 8, height: 8, borderRadius: '50%',
                     background: getDotColor(n.type),
-                    marginTop: 6, flexShrink: 0,
+                    marginTop: 5, flexShrink: 0,
+                    boxShadow: `0 0 6px ${getDotColor(n.type)}80`,
                   }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{
                       fontSize: 13, fontWeight: 600,
-                      color: 'var(--text-primary, #fafafa)',
-                      marginBottom: 3,
+                      color: '#f0eaff',
+                      marginBottom: 4,
                     }}>
                       {n.title}
                     </div>
-                    <div style={{ fontSize: 12, color: 'var(--text-muted, #a1a1aa)', lineHeight: 1.4 }}>
+                    <div style={{ fontSize: 12, color: '#b8a8d4', lineHeight: 1.5 }}>
                       {n.message}
                     </div>
-                    <div style={{ fontSize: 11, marginTop: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ fontSize: 11, marginTop: 7, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                       {n.platform && (
                         <span style={{
                           textTransform: 'capitalize',
-                          background: 'rgba(124, 58, 237, 0.12)',
-                          color: '#a78bfa',
-                          padding: '1px 8px',
+                          background: 'rgba(168, 85, 247, 0.12)',
+                          color: '#c084fc',
+                          padding: '2px 8px',
                           borderRadius: 4,
                           fontSize: 11,
-                          fontWeight: 500,
+                          fontWeight: 600,
+                          border: '1px solid rgba(168, 85, 247, 0.2)',
                         }}>
                           {n.platform}
                         </span>
                       )}
-                      <span style={{ color: 'var(--text-muted, #52525b)' }}>{timeAgo(n.createdAt)}</span>
+                      <span style={{ color: '#6e5a8e' }}>{timeAgo(n.createdAt)}</span>
                       {(n.actionUrl || n.type === 'cookie_expired') && (
                         <span style={{
                           marginLeft: 'auto',
-                          color: '#7c3aed',
+                          color: '#c084fc',
                           fontSize: 11,
                           fontWeight: 600,
                         }}>
@@ -436,29 +475,186 @@ const ADMIN_NAV_ITEM = {
   ),
 };
 
+/* ── Blocked Screen ─────────────────────────────────────────────── */
+function BlockedScreen({ blockedUntil, onSignOut }: { blockedUntil: string | null; onSignOut: () => void }) {
+  const until = blockedUntil ? new Date(blockedUntil) : null;
+  const untilStr = until
+    ? until.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+    : null;
+
+  return (
+    <div style={{
+      minHeight: '100vh', display: 'flex', flexDirection: 'column',
+      alignItems: 'center', justifyContent: 'center',
+      background: 'var(--bg-base)',
+      padding: '24px',
+    }}>
+      {/* Card */}
+      <div style={{
+        width: '100%', maxWidth: 480,
+        background: 'var(--bg-card)',
+        border: '1px solid rgba(239,68,68,0.25)',
+        borderRadius: 16,
+        overflow: 'hidden',
+        boxShadow: '0 24px 80px rgba(0,0,0,0.5)',
+      }}>
+        {/* Red top bar */}
+        <div style={{ height: 3, background: 'linear-gradient(90deg, #ef4444, #dc2626, #ef4444)' }} />
+
+        <div style={{ padding: '40px 36px 36px' }}>
+          {/* Icon */}
+          <div style={{
+            width: 64, height: 64, borderRadius: 16,
+            background: 'rgba(239,68,68,0.1)',
+            border: '1px solid rgba(239,68,68,0.25)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            margin: '0 0 24px',
+          }}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth={1.5} width={30} height={30}>
+              <rect x="3" y="11" width="18" height="11" rx="2"/>
+              <path d="M7 11V7a5 5 0 0110 0v4"/>
+            </svg>
+          </div>
+
+          {/* Heading */}
+          <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 10px', letterSpacing: '-0.03em' }}>
+            Account Suspended
+          </h1>
+
+          {/* Status badge */}
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            padding: '4px 12px', borderRadius: 20, marginBottom: 20,
+            background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)',
+          }}>
+            <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#ef4444', boxShadow: '0 0 6px #ef4444' }} />
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#ef4444', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+              Access Restricted
+            </span>
+          </div>
+
+          {/* Description */}
+          <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.7, margin: '0 0 16px' }}>
+            Your access to <strong style={{ color: 'var(--text-primary)' }}>GetMention</strong> has been temporarily suspended.
+            This may be due to a violation of our terms of service, unusual activity, or an admin action.
+          </p>
+
+          {/* Expiry */}
+          {untilStr && (
+            <div style={{
+              padding: '12px 16px', borderRadius: 10, marginBottom: 20,
+              background: 'rgba(245,158,11,0.07)', border: '1px solid rgba(245,158,11,0.2)',
+              display: 'flex', alignItems: 'center', gap: 10,
+            }}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth={1.8} width={16} height={16} style={{ flexShrink: 0 }}>
+                <circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/>
+              </svg>
+              <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+                Suspension expires on <strong style={{ color: '#f59e0b' }}>{untilStr}</strong>
+              </span>
+            </div>
+          )}
+
+          {/* Contact box */}
+          <div style={{
+            padding: '16px', borderRadius: 10, marginBottom: 28,
+            background: 'rgba(168,85,247,0.06)', border: '1px solid rgba(168,85,247,0.2)',
+          }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+              Think this is a mistake?
+            </div>
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 10px', lineHeight: 1.6 }}>
+              If you believe your account was suspended in error, our support team is here to help.
+              Please reach out and include your account email.
+            </p>
+            <a
+              href="mailto:dev@serpbay.com?subject=Account%20Suspension%20Appeal"
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 7,
+                padding: '8px 16px', borderRadius: 8,
+                background: 'rgba(168,85,247,0.12)', border: '1px solid rgba(168,85,247,0.3)',
+                color: '#c084fc', fontSize: 13, fontWeight: 600,
+                textDecoration: 'none', transition: 'all 150ms',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(168,85,247,0.2)'; e.currentTarget.style.color = '#d8b4fe'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(168,85,247,0.12)'; e.currentTarget.style.color = '#c084fc'; }}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} width={14} height={14}>
+                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                <polyline points="22,6 12,13 2,6"/>
+              </svg>
+              dev@serpbay.com
+            </a>
+          </div>
+
+          {/* Sign out */}
+          <button
+            onClick={onSignOut}
+            style={{
+              width: '100%', padding: '12px', fontSize: 14, fontWeight: 700,
+              borderRadius: 10, cursor: 'pointer', transition: 'all 150ms',
+              background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-default)',
+              color: 'var(--text-secondary)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} width={16} height={16}>
+              <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/>
+              <polyline points="16,17 21,12 16,7"/>
+              <line x1="21" y1="12" x2="9" y2="12"/>
+            </svg>
+            Sign Out
+          </button>
+        </div>
+      </div>
+
+      {/* Footer */}
+      <p style={{ marginTop: 24, fontSize: 12, color: 'var(--text-muted)', textAlign: 'center' }}>
+        GetMention · <a href="mailto:dev@serpbay.com" style={{ color: 'var(--text-muted)', textDecoration: 'underline' }}>dev@serpbay.com</a>
+      </p>
+    </div>
+  );
+}
+
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [settingsExpanded, setSettingsExpanded] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isBlocked, setIsBlocked] = useState(false);
+  const [blockedUntil, setBlockedUntil] = useState<string | null>(null);
   const { user } = useUser();
   const { signOut } = useClerk();
   const userName = user?.fullName || user?.firstName || '';
   const userEmail = user?.emailAddresses?.[0]?.emailAddress ?? '';
   const userInitial = (userName || userEmail || '?')[0].toUpperCase();
 
-  // Check admin status — cached in sessionStorage to avoid repeated API calls
+  // Check if account is blocked
+  useEffect(() => {
+    fetch('/api/me/status')
+      .then(r => r.json())
+      .then(data => {
+        if (data.isBlocked) {
+          setIsBlocked(true);
+          setBlockedUntil(data.blockedUntil ?? null);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Check admin status — cache '1' (admin confirmed) but never cache '0',
+  // so newly promoted users see the admin nav on next page load without manual cache clearing.
   useEffect(() => {
     const cached = sessionStorage.getItem('gm_isAdmin');
     if (cached === '1') { setIsAdmin(true); return; }
-    if (cached === '0') return;
     let cancelled = false;
     (async () => {
       try {
         const res = await fetch('/api/admin/stats');
         if (!cancelled && res.ok) { setIsAdmin(true); sessionStorage.setItem('gm_isAdmin', '1'); }
-        else { sessionStorage.setItem('gm_isAdmin', '0'); }
-      } catch { sessionStorage.setItem('gm_isAdmin', '0'); }
+      } catch { /* non-admin — no cache, will re-check on next mount */ }
     })();
     return () => { cancelled = true; };
   }, []);
@@ -472,6 +668,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     if (href === '/dashboard') return pathname === '/dashboard';
     return pathname.startsWith(href);
   };
+
+  if (isBlocked) {
+    return (
+      <BlockedScreen
+        blockedUntil={blockedUntil}
+        onSignOut={() => signOut(() => { window.location.href = '/'; })}
+      />
+    );
+  }
 
   return (
     <div className="dashboard-layout">

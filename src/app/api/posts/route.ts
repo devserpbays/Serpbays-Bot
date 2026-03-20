@@ -18,11 +18,17 @@ export async function GET(req: NextRequest) {
 
   const from = searchParams.get('from');
   const to = searchParams.get('to');
+  const source = searchParams.get('source'); // 'community' | 'keyword'
 
   const filter: Record<string, unknown> = { userId };
   if (status) filter.status = status;
   if (platform) filter.platform = platform;
   if (minScore) filter.aiRelevanceScore = { $gte: parseInt(minScore) };
+  if (source === 'community') {
+    filter.keywordsMatched = { $elemMatch: { $regex: '^community:' } };
+  } else if (source === 'keyword') {
+    filter.keywordsMatched = { $not: { $elemMatch: { $regex: '^community:' } } };
+  }
   if (from || to) {
     const dateFilter: Record<string, Date> = {};
     if (from) dateFilter.$gte = new Date(from);
@@ -68,7 +74,7 @@ export async function PATCH(req: NextRequest) {
   }
   if (editedReply !== undefined) update.editedReply = editedReply;
 
-  const post = await Post.findOneAndUpdate({ _id: id, userId }, update, { new: true }).lean();
+  const post = await Post.findOneAndUpdate({ _id: id, userId }, update, { returnDocument: 'after' }).lean();
 
   if (!post) {
     return NextResponse.json({ error: 'Post not found' }, { status: 404 });

@@ -23,3 +23,29 @@ export function getRedis(): InstanceType<typeof IORedis> {
   }
   return global._redisClient;
 }
+
+declare global {
+  // eslint-disable-next-line no-var
+  var _redisSubscriber: InstanceType<typeof IORedis> | undefined;
+}
+
+/** Separate subscriber connection (ioredis can't mix subscribe + commands on one conn). */
+export function getRedisSubscriber(): InstanceType<typeof IORedis> {
+  if (!global._redisSubscriber) {
+    global._redisSubscriber = new IORedis(REDIS_URL, {
+      maxRetriesPerRequest: null,
+      enableReadyCheck: false,
+      lazyConnect: true,
+    });
+    global._redisSubscriber.connect().catch(() => {});
+  }
+  return global._redisSubscriber;
+}
+
+/** Publish a notification event so SSE clients in any process receive it. */
+export async function publishNotification(userId: string, payload: object): Promise<void> {
+  try {
+    const redis = getRedis();
+    await redis.publish(`notif:${userId}`, JSON.stringify(payload));
+  } catch { /* Redis down — skip */ }
+}

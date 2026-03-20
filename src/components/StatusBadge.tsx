@@ -8,7 +8,7 @@ const statusConfig: Record<PostStatus, { label: string; className: string }> = {
   evaluated: { label: 'Evaluated', className: 'bg-purple-100 text-purple-800' },
   approved: { label: 'Approved', className: 'bg-green-100 text-green-800' },
   rejected: { label: 'Rejected', className: 'bg-red-100 text-red-800' },
-  posted: { label: 'Posted', className: 'bg-gray-100 text-gray-800' },
+  posted: { label: 'Comment Posted', className: 'bg-gray-100 text-gray-800' },
 };
 
 export default function StatusBadge({ status }: { status: PostStatus }) {

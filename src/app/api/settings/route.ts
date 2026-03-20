@@ -78,7 +78,7 @@ export async function PUT(req: NextRequest) {
   // String arrays
   const arrayFields = [
     'keywords', 'subreddits', 'facebookGroups', 'facebookKeywords',
-    'twitterKeywords', 'redditKeywords', 'quoraKeywords',
+    'twitterKeywords', 'twitterCommunityIds', 'redditKeywords', 'quoraKeywords',
     'youtubeKeywords', 'pinterestKeywords',
   ] as const;
   for (const key of arrayFields) {
@@ -135,6 +135,13 @@ export async function PUT(req: NextRequest) {
           ? a.profileDir
           : '',
       }));
+  }
+
+  // Validate cron hour ordering
+  const startHour = data.cronStartHour !== undefined ? (data.cronStartHour as number) : undefined;
+  const endHour = data.cronEndHour !== undefined ? (data.cronEndHour as number) : undefined;
+  if (startHour !== undefined && endHour !== undefined && startHour >= endHour) {
+    return NextResponse.json({ error: 'Cron start hour must be before end hour' }, { status: 400 });
   }
 
   const settings = await upsertSettings(userId, data);

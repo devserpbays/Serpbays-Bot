@@ -38,11 +38,31 @@ async function getPage(): Promise<Page> {
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-blink-features=AutomationControlled',
+      '--disable-features=IsolateOrigins,site-per-process',
+      '--flag-switches-begin',
+      '--disable-site-isolation-trials',
+      '--flag-switches-end',
+      '--disable-dev-shm-usage',
+      '--no-first-run',
+      '--no-default-browser-check',
     ],
     userAgent:
-      'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
-    viewport: { width: 1280, height: 900 },
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    viewport: { width: 1366, height: 768 },
     locale: 'en-US',
+    timezoneId: 'America/New_York',
+    extraHTTPHeaders: {
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+      'sec-ch-ua': '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+      'sec-ch-ua-mobile': '?0',
+      'sec-ch-ua-platform': '"Windows"',
+      'Sec-Fetch-Dest': 'document',
+      'Sec-Fetch-Mode': 'navigate',
+      'Sec-Fetch-Site': 'none',
+      'Sec-Fetch-User': '?1',
+      'Upgrade-Insecure-Requests': '1',
+    },
   });
 
   // Inject cookies from cookies.json if available
@@ -82,6 +102,15 @@ export async function ensureQuoraLoggedIn(): Promise<boolean> {
     const page = await getPage();
     await page.goto('https://www.quora.com', { waitUntil: 'domcontentloaded' });
     await sleep(SLOW_WAIT);
+
+    // Wait out any Cloudflare challenge
+    for (let i = 0; i < 6; i++) {
+      const title = await page.title().catch(() => '');
+      const bodyText = await page.textContent('body').catch(() => '');
+      const isCloudflare = title.includes('Just a moment') || (bodyText || '').includes('Performing security verification');
+      if (!isCloudflare) break;
+      await sleep(5000);
+    }
 
     const url = page.url();
 
@@ -167,13 +196,13 @@ export async function scrapeQuoraQuestions(
   for (const keyword of keywords) {
     try {
       const page = await getPage();
-      const searchUrl = `https://www.quora.com/search?q=${encodeURIComponent(keyword)}&type=question&time=day`;
+      const searchUrl = `https://www.quora.com/search?q=${encodeURIComponent(keyword)}&type=question&time=week`;
       await page.goto(searchUrl, { waitUntil: 'domcontentloaded' });
       await sleep(SLOW_WAIT);
 
       // Scroll to load more results
       for (let i = 0; i < 3; i++) {
-        await page.mouse.wheel(0, 800);
+        await page.evaluate(() => window.scrollBy({ top: 800, behavior: 'smooth' }));
         await sleep(1500);
       }
 
@@ -279,11 +308,21 @@ export async function postQuoraAnswer(
     await page.goto(questionUrl, { waitUntil: 'domcontentloaded' });
     await sleep(SLOW_WAIT);
 
+    // Check for Cloudflare challenge page and wait it out
+    for (let i = 0; i < 6; i++) {
+      const title = await page.title().catch(() => '');
+      const bodyText = await page.textContent('body').catch(() => '');
+      const isCloudflare = title.includes('Just a moment') || (bodyText || '').includes('Performing security verification') || (bodyText || '').includes('Checking if the site connection is secure');
+      if (!isCloudflare) break;
+      console.log(`Quora: Cloudflare challenge detected, waiting... (attempt ${i + 1}/6)`);
+      await sleep(5000);
+    }
+
     // Wait extra for Quora's React app to fully hydrate
     await sleep(3000);
 
     // Scroll down to find the answer area
-    await page.mouse.wheel(0, 400);
+    await page.evaluate(() => window.scrollBy({ top: 400, behavior: 'smooth' }));
     await sleep(2000);
 
     // --- Strategy 1: Click "Answer" button/link to open the editor ---
@@ -414,7 +453,7 @@ export async function postQuoraAnswer(
       // Not found yet — scroll down, re-click, and wait
       if (attempt < 2) {
         console.log(`Editor not found (attempt ${attempt + 1}), scrolling and retrying...`);
-        await page.mouse.wheel(0, 300);
+        await page.evaluate(() => window.scrollBy({ top: 300, behavior: 'smooth' }));
         await sleep(2000);
         // Try clicking an answer element again
         await page.evaluate(() => {
@@ -457,9 +496,14 @@ export async function postQuoraAnswer(
     await page.keyboard.press('Control+a');
     await sleep(200);
 
-    // Type the answer with human-like delay
-    await page.keyboard.type(answer, { delay: 30 });
-    await sleep(2000);
+    // Human-like typing: variable delay, occasional natural pauses
+    await sleep(800 + Math.random() * 700);
+    for (let i = 0; i < answer.length; i++) {
+      await page.keyboard.type(answer[i]);
+      const isPause = answer[i] === ',' || answer[i] === '.' || answer[i] === '!' || answer[i] === '?' || (Math.random() < 0.03);
+      await sleep(isPause ? 350 + Math.random() * 300 : 55 + Math.random() * 100);
+    }
+    await sleep(2000 + Math.random() * 2000);
 
     // Find and click the Submit/Post button
     const submitSelectors = [
@@ -527,6 +571,171 @@ export async function postQuoraAnswer(
   } catch (err) {
     const msg = (err as Error).message;
     console.error(`Failed to post answer on ${questionUrl}:`, msg);
+    return { success: false, error: msg };
+  }
+}
+
+/**
+ * Post a comment on an existing answer on a Quora question page.
+ * Finds the first visible answer and clicks its "Add comment" button.
+ */
+export async function postQuoraComment(
+  questionUrl: string,
+  comment: string
+): Promise<{ success: boolean; error?: string }> {
+  if (!isValidComment(comment)) {
+    return { success: false, error: 'Invalid comment text detected' };
+  }
+
+  try {
+    const page = await getPage();
+    // Navigate to the question page (may already be there from a previous answer)
+    const currentUrl = page.url();
+    if (!currentUrl.includes(questionUrl.replace(/^https?:\/\/[^/]+/, ''))) {
+      await page.goto(questionUrl, { waitUntil: 'domcontentloaded' });
+      await sleep(SLOW_WAIT);
+    }
+
+    // Scroll down to load answers
+    await page.evaluate(() => window.scrollBy({ top: 600, behavior: 'smooth' }));
+    await sleep(2500);
+
+    // --- Find "Add comment" or "Comment" link on any visible answer ---
+    const commentBtnSelectors = [
+      'button:has-text("Add comment")',
+      'a:has-text("Add comment")',
+      'span:has-text("Add comment")',
+      'div[role="button"]:has-text("Add comment")',
+      'button:has-text("Comment")',
+      '[aria-label="Add comment"]',
+      '[aria-label="Comment"]',
+    ];
+
+    let clickedComment = false;
+    for (const sel of commentBtnSelectors) {
+      try {
+        const els = await page.$$(sel);
+        for (const el of els) {
+          if (await el.isVisible().catch(() => false)) {
+            await el.click({ force: true });
+            clickedComment = true;
+            console.log(`Clicked comment button via: ${sel}`);
+            await sleep(2000);
+            break;
+          }
+        }
+      } catch { /* skip */ }
+      if (clickedComment) break;
+    }
+
+    // Fallback: find via evaluate
+    if (!clickedComment) {
+      clickedComment = await page.evaluate(() => {
+        const allEls = document.querySelectorAll('button, a, span, [role="button"]');
+        for (const el of allEls) {
+          const text = (el.textContent || '').trim();
+          if (/^add comment$/i.test(text) && (el as HTMLElement).offsetParent !== null) {
+            (el as HTMLElement).click();
+            return true;
+          }
+        }
+        return false;
+      }).catch(() => false);
+      if (clickedComment) await sleep(2000);
+    }
+
+    if (!clickedComment) {
+      return { success: false, error: 'Could not find Add comment button on page' };
+    }
+
+    // Find the comment text input (smaller than the answer editor)
+    const commentInputSelectors = [
+      'div[contenteditable="true"][data-placeholder*="comment"]',
+      'div[contenteditable="true"][data-placeholder*="Comment"]',
+      'div[contenteditable="true"][aria-label*="comment"]',
+      'div[contenteditable="true"][aria-label*="Comment"]',
+      'textarea[placeholder*="comment"]',
+      'textarea[placeholder*="Comment"]',
+      'div[contenteditable="true"]',
+    ];
+
+    let commentEditor = null;
+    for (const sel of commentInputSelectors) {
+      try {
+        const els = await page.$$(sel);
+        for (const el of els) {
+          if (await el.isVisible().catch(() => false)) {
+            const box = await el.boundingBox().catch(() => null);
+            // Comment boxes are usually shorter than the answer editor
+            if (box && box.height > 15) {
+              commentEditor = el;
+              console.log(`Found comment editor: ${sel}`);
+              break;
+            }
+          }
+        }
+      } catch { /* skip */ }
+      if (commentEditor) break;
+    }
+
+    if (!commentEditor) {
+      return { success: false, error: 'Comment input not found after clicking Add comment' };
+    }
+
+    await commentEditor.click({ force: true });
+    await sleep(600);
+
+    // Human-like typing
+    for (let i = 0; i < comment.length; i++) {
+      await page.keyboard.type(comment[i]);
+      const isPause = '.!?,'.includes(comment[i]) || Math.random() < 0.03;
+      await sleep(isPause ? 250 + Math.random() * 250 : 45 + Math.random() * 80);
+    }
+    await sleep(1500 + Math.random() * 1000);
+
+    // Submit the comment
+    const submitSelectors = [
+      'button:has-text("Add Comment")',
+      'button:has-text("Submit")',
+      'button:has-text("Post")',
+      'div[role="button"]:has-text("Add Comment")',
+    ];
+
+    let submitted = false;
+    for (const sel of submitSelectors) {
+      try {
+        const btns = await page.$$(sel);
+        for (const btn of btns) {
+          if (await btn.isVisible().catch(() => false)) {
+            await btn.click({ force: true });
+            submitted = true;
+            console.log(`Submitted comment via: ${sel}`);
+            break;
+          }
+        }
+      } catch { /* skip */ }
+      if (submitted) break;
+    }
+
+    if (!submitted) {
+      await page.keyboard.press('Control+Enter');
+      submitted = true;
+    }
+
+    await sleep(3000);
+
+    const pageText = await page.textContent('body').catch(() => '');
+    const confirmed = pageText?.includes(comment.slice(0, 25)) ?? false;
+    if (confirmed) {
+      console.log(`Comment posted on: ${questionUrl}`);
+      return { success: true };
+    } else {
+      console.warn(`Comment may not have posted on: ${questionUrl}`);
+      return { success: false, error: 'Comment not confirmed on page' };
+    }
+  } catch (err) {
+    const msg = (err as Error).message;
+    console.error(`Failed to post comment on ${questionUrl}:`, msg);
     return { success: false, error: msg };
   }
 }

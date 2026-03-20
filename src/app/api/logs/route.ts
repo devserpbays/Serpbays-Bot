@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
     .lean();
 
   return NextResponse.json({
-    logs: logs.map((l: any) => ({
+    logs: logs.map((l: Record<string, unknown>) => ({
       _id: l._id,
       platform: l.platform,
       level: l.level,

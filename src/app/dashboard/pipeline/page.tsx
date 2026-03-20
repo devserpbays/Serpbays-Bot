@@ -97,10 +97,12 @@ export default function PipelinePage() {
     const [cronStatuses, setCronStatuses] = useState<Record<string, CronPlatformStatus>>({});
     const [runningPlatforms, setRunningPlatforms] = useState<Set<string>>(new Set());
     const [stoppingPlatforms, setStoppingPlatforms] = useState<Set<string>>(new Set());
+    const [restartingPlatforms, setRestartingPlatforms] = useState<Set<string>>(new Set());
     const [isStoppingAll, setIsStoppingAll] = useState(false);
     const [nextRunAt, setNextRunAt] = useState<string | null>(null);
     const [connectedPlatforms, setConnectedPlatforms] = useState<string[]>([]);
     const [upgradeMessage, setUpgradeMessage] = useState('');
+    const [platformConfig, setPlatformConfig] = useState<Record<string, any>>({});
 
     const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -114,6 +116,7 @@ export default function PipelinePage() {
                     .map((a: any) => a.platform);
                 setConnectedPlatforms([...new Set(connected)] as string[]);
             }
+            if (data.settings) setPlatformConfig(data.settings);
         } catch { /* silent */ }
     }, []);
 
@@ -193,6 +196,30 @@ export default function PipelinePage() {
             setRunningPlatforms(prev => { const next = new Set(prev); next.delete(platform); return next; });
             setStoppingPlatforms(prev => { const next = new Set(prev); next.delete(platform); return next; });
         }, 1000);
+    };
+
+    const handleRestartPlatform = async (platform: string) => {
+        setRestartingPlatforms(prev => new Set(prev).add(platform));
+        setStoppingPlatforms(prev => new Set(prev).add(platform));
+        try {
+            const res = await fetch('/api/restart-cron', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ platform }),
+            });
+            if (res.status === 403) {
+                const data = await res.json();
+                if (data.upgrade) {
+                    setUpgradeMessage(data.error);
+                }
+            }
+        } catch { /* silent */ }
+        // Wait a bit then refresh status
+        setTimeout(async () => {
+            await fetchCronControl();
+            setStoppingPlatforms(prev => { const next = new Set(prev); next.delete(platform); return next; });
+            setRestartingPlatforms(prev => { const next = new Set(prev); next.delete(platform); return next; });
+        }, 3500);
     };
 
     const handleStopAll = async () => {
@@ -319,7 +346,7 @@ export default function PipelinePage() {
         <div className="animate-fade-in">
             <div className="page-header">
                 <h2>Pipeline</h2>
-                <p>Run jobs, manage automation, and monitor the evaluate → post workflow</p>
+                <p>Run jobs, manage automation, and monitor platform workflows — Twitter (keywords + communities), Quora (answer → brand comment), and more</p>
             </div>
 
             <div className="page-body" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
@@ -368,8 +395,8 @@ export default function PipelinePage() {
                     <div className="card-body">
                         <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>
                             {cronPaused
-                                ? 'All cron jobs are paused. No automatic scraping or posting will occur.'
-                                : 'Cron jobs are active. Posts are automatically scraped, evaluated, and posted on schedule.'}
+                                ? 'All cron jobs are paused. No automatic scraping or comment publishing will occur.'
+                                : 'Cron jobs are active. Threads are automatically scraped, evaluated, and comments published on schedule.'}
                         </p>
 
                         {/* Per-platform status grid */}
@@ -489,7 +516,21 @@ export default function PipelinePage() {
                                                     }}>
                                                         {icon}
                                                     </span>
-                                                    <span style={{ fontSize: 13, fontWeight: 500 }}>{label}</span>
+                                                    <div>
+                                                        <span style={{ fontSize: 13, fontWeight: 500 }}>{label}</span>
+                                                        {id === 'quora' && (
+                                                            <div style={{ fontSize: 10, color: '#818cf8', marginTop: 2 }}>Answer → Brand Comment</div>
+                                                        )}
+                                                        {id === 'twitter' && (() => {
+                                                            const communities: string[] = platformConfig['twitterCommunityIds'] ?? [];
+                                                            const kws: string[] = platformConfig['twitterKeywords'] ?? platformConfig['keywords'] ?? [];
+                                                            return communities.length > 0 ? (
+                                                                <div style={{ fontSize: 10, color: '#1d9bf0', marginTop: 2 }}>
+                                                                    {kws.length} keyword{kws.length !== 1 ? 's' : ''} + {communities.length} communit{communities.length !== 1 ? 'ies' : 'y'}
+                                                                </div>
+                                                            ) : null;
+                                                        })()}
+                                                    </div>
                                                 </div>
                                             </td>
                                             <td style={{ padding: '12px 16px' }}>
@@ -522,23 +563,46 @@ export default function PipelinePage() {
                                             <td style={{ padding: '12px 16px', textAlign: 'right' }}>
                                                 <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
                                                     {isRunning ? (
-                                                        <button
-                                                            className="btn btn-sm btn-danger"
-                                                            disabled={stoppingPlatforms.has(id)}
-                                                            onClick={() => handleStopPlatform(id)}
-                                                            style={{ minWidth: 70 }}
-                                                        >
-                                                            {stoppingPlatforms.has(id) ? (
-                                                                <><svg className="animate-spin" style={{ width: 12, height: 12 }} fill="none" viewBox="0 0 24 24">
-                                                                    <circle style={{ opacity: 0.25 }} cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                                                                    <path style={{ opacity: 0.75 }} fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                                                                </svg> Stopping…</>
-                                                            ) : (
-                                                                <><svg style={{ width: 12, height: 12 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                                                    <rect x="6" y="6" width="12" height="12" rx="1" />
-                                                                </svg> Stop</>
-                                                            )}
-                                                        </button>
+                                                        <>
+                                                            {/* Stop button */}
+                                                            <button
+                                                                className="btn btn-sm btn-danger"
+                                                                disabled={stoppingPlatforms.has(id) || restartingPlatforms.has(id)}
+                                                                onClick={() => handleStopPlatform(id)}
+                                                                style={{ minWidth: 64 }}
+                                                                title="Stop this cron job"
+                                                            >
+                                                                {stoppingPlatforms.has(id) && !restartingPlatforms.has(id) ? (
+                                                                    <><svg className="animate-spin" style={{ width: 12, height: 12 }} fill="none" viewBox="0 0 24 24">
+                                                                        <circle style={{ opacity: 0.25 }} cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                                                        <path style={{ opacity: 0.75 }} fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                                                                    </svg> Stopping…</>
+                                                                ) : (
+                                                                    <><svg style={{ width: 12, height: 12 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                                        <rect x="6" y="6" width="12" height="12" rx="1" />
+                                                                    </svg> Stop</>
+                                                                )}
+                                                            </button>
+                                                            {/* Restart button */}
+                                                            <button
+                                                                className="btn btn-sm btn-outline"
+                                                                disabled={stoppingPlatforms.has(id) || restartingPlatforms.has(id)}
+                                                                onClick={() => handleRestartPlatform(id)}
+                                                                style={{ minWidth: 80 }}
+                                                                title="Stop then immediately restart this cron job"
+                                                            >
+                                                                {restartingPlatforms.has(id) ? (
+                                                                    <><svg className="animate-spin" style={{ width: 12, height: 12 }} fill="none" viewBox="0 0 24 24">
+                                                                        <circle style={{ opacity: 0.25 }} cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                                                        <path style={{ opacity: 0.75 }} fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                                                                    </svg> Restarting…</>
+                                                                ) : (
+                                                                    <><svg style={{ width: 13, height: 13 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                                                    </svg> Restart</>
+                                                                )}
+                                                            </button>
+                                                        </>
                                                     ) : (
                                                         <button
                                                             className="btn btn-sm btn-primary"
@@ -623,7 +687,7 @@ export default function PipelinePage() {
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: 12 }}>
                                     {[
                                         { label: 'Scraped', value: pipelineResult.scraped },
-                                        { label: 'New Posts', value: pipelineResult.newPosts },
+                                        { label: 'New Threads', value: pipelineResult.newPosts },
                                         { label: 'Evaluated', value: pipelineResult.evaluated },
                                         { label: 'Auto-Approved', value: pipelineResult.autoApproved },
                                         { label: 'Skipped', value: pipelineResult.skipped },

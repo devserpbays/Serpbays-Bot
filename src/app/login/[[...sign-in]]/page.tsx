@@ -80,12 +80,12 @@ export default function LoginPage() {
         {/* Platform icons row */}
         <div className="flex items-center gap-4 mt-5">
           {[
-            { name: 'Twitter', color: '#a1a1aa' },
-            { name: 'Reddit', color: '#ff4500' },
+            { name: 'Twitter', color: '#1d9bf0' },
+            { name: 'Reddit', color: '#3b82f6' },
             { name: 'Facebook', color: '#1877f2' },
-            { name: 'Quora', color: '#b92b27' },
-            { name: 'YouTube', color: '#ff0000' },
-            { name: 'Pinterest', color: '#e60023' },
+            { name: 'Quora', color: '#2563eb' },
+            { name: 'YouTube', color: '#0ea5e9' },
+            { name: 'Pinterest', color: '#60a5fa' },
           ].map((p) => (
             <div
               key={p.name}

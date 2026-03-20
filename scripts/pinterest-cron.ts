@@ -17,7 +17,6 @@ import { join } from 'path';
 import { execSync } from 'child_process';
 import { chromium, type BrowserContext, type Page } from 'playwright';
 import { connectDB } from '../src/lib/mongodb';
-import { cronStart, cronFinish, acquireCronLock, releaseCronLock } from '../src/lib/cronState';
 import { evaluatePost, askOpenClaw } from '../src/lib/openclaw';
 import { isWithinSchedule } from '../src/lib/schedule';
 import { logActivity, notifyAuthError } from '../src/lib/activityLog';
@@ -35,7 +34,7 @@ const VERIFIED_FILE = join(PROFILE_DIR, '.verified');
 const NAVIGATION_TIMEOUT = 30000;
 const SLOW_WAIT = 4000;
 
-const DEFAULT_DAILY_LIMIT = 5;
+const DEFAULT_DAILY_LIMIT = 2;
 const DEFAULT_AUTO_POST_THRESHOLD = 15;  // Pinterest has lower relevance ceiling for SEO content
 
 let _ctx: BrowserContext | null = null;
@@ -76,9 +75,10 @@ async function getPage(): Promise<Page> {
       '--disable-setuid-sandbox',
       '--disable-blink-features=AutomationControlled',
     ],
-    userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
-    viewport: { width: 1280, height: 900 },
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    viewport: { width: 1366, height: 768 },
     locale: 'en-US',
+    timezoneId: 'America/New_York',
   });
 
   // Inject cookies from cookies.json if available
@@ -234,9 +234,14 @@ async function postPinterestComment(pinUrl: string, comment: string): Promise<{ 
     }
 
     await commentBox.click();
-    await sleep(1000);
-    await page.keyboard.type(comment, { delay: 50 });
-    await sleep(1500);
+    await sleep(800 + Math.random() * 500);
+    // Human-like typing: variable delay per character, longer pauses after punctuation
+    for (let i = 0; i < comment.length; i++) {
+      await page.keyboard.type(comment[i]);
+      const isPause = comment[i] === ',' || comment[i] === '.' || comment[i] === '!' || (Math.random() < 0.04);
+      await sleep(isPause ? 300 + Math.random() * 300 : 60 + Math.random() * 120);
+    }
+    await sleep(1800 + Math.random() * 1200);
 
     // Pinterest shows a "Post" button (aria-label="Post") after typing
     const submitSelectors = [
@@ -294,17 +299,32 @@ async function postPinterestComment(pinUrl: string, comment: string): Promise<{ 
 async function generatePinterestComment(
   postContent: string,
   companyName: string,
-  companyDescription: string
+  companyDescription: string,
+  brandMentionRate = 25
 ): Promise<string> {
   const randomSeed = Math.floor(Math.random() * 1000);
-  const styles = [
+  const mentionBrand = Math.random() < (brandMentionRate / 100);
+
+  const brandStyles = [
     `share how ${companyName} helped with your strategy`,
-    `naturally mention ${companyName} as a solution to the topic`,
-    `give a helpful tip and briefly reference ${companyName}`,
-    `comment enthusiastically and mention ${companyName}`,
-    `provide value and suggest ${companyName} as a resource`,
+    `naturally mention ${companyName} as a helpful resource`,
+    `give a tip and briefly reference ${companyName}`,
   ];
-  const style = styles[randomSeed % styles.length];
+  const genericStyles = [
+    'share a genuine helpful tip about the topic',
+    'add a useful insight from your own experience',
+    'share something encouraging or practical',
+    'add a thoughtful observation about the topic',
+    'share a quick actionable tip',
+  ];
+
+  const style = mentionBrand
+    ? brandStyles[randomSeed % brandStyles.length]
+    : genericStyles[randomSeed % genericStyles.length];
+
+  const brandRule = mentionBrand
+    ? `- Mention "${companyName}" naturally once — tie it to backlinks, guest posting, or link building\n- NEVER include website URLs or domains — just the brand name`
+    : `- Do NOT mention any brand, company, or service by name\n- Focus entirely on giving value to the reader`;
 
   const prompt = `You are a real Pinterest user leaving a helpful comment on a pin about SEO or marketing.
 
@@ -318,9 +338,9 @@ YOUR TASK: Write a short 1-2 sentence comment that ${style}.
 RULES:
 - Write ONLY the comment text, nothing else
 - Sound like a genuine Pinterest user sharing a real tip
-- Mention "${companyName}" naturally once — tie it to backlinks, guest posting, or link building
-- NEVER include website URLs or domains — just the brand name
+${brandRule}
 - Keep it concise and Pinterest-friendly
+- Do NOT use phrases like "check out", "highly recommend", "game-changer", or "I recommend X"
 - Do NOT include any code, errors, JSON, or technical output
 - Company context: ${companyDescription}
 - Seed: ${randomSeed}
@@ -376,16 +396,8 @@ async function getTodayCommentCount(accountId: string): Promise<number> {
 }
 
 async function main() {
-  if (!await acquireCronLock('pinterest', CRON_USER_ID || undefined)) {
-    console.log(`[${new Date().toISOString()}] Pinterest Cron: already running for user ${CRON_USER_ID || 'default'}, exiting`);
-    process.exit(0);
-  }
-  process.on('exit', () => { releaseCronLock('pinterest', CRON_USER_ID || undefined).catch(() => {}); });
-
   console.log(`[${new Date().toISOString()}] Pinterest Cron: starting (user: ${CRON_USER_ID || 'default'})`);
   if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'pinterest', 'info', 'cron_start', 'Pinterest cron started');
-  const _cronId = await cronStart('pinterest', 'auto', CRON_USER_ID || undefined);
-  process.on('exit', (code) => { cronFinish(_cronId, 'pinterest', code, '', CRON_USER_ID || undefined).catch(() => {}); });
 
   await connectDB();
 
@@ -424,6 +436,8 @@ async function main() {
   }
   const dailyLimit: number = (settings as any).pinterestDailyLimit ?? DEFAULT_DAILY_LIMIT;
   const autoPostThreshold: number = (settings as any).pinterestAutoPostThreshold ?? DEFAULT_AUTO_POST_THRESHOLD;
+  const brandMentionRate: number = (settings as any).pinterestBrandMentionRate ?? 25;
+  const cooldownMinutes: number = (settings as any).pinterestCooldownMinutes ?? 90;
 
   const accountId = getCurrentAccountId();
   if (accountId) console.log(`Active Pinterest account: ${accountId}`);
@@ -437,9 +451,9 @@ async function main() {
   }
   console.log(`Comments posted today: ${todayCount}/${dailyLimit}`);
 
-  // 15-minute cooldown (skipped for manual runs)
+  // Cooldown between comments (user-configured, default 90min)
   if (!process.env.CRON_MANUAL) {
-    const MIN_COMMENT_GAP_MS = 15 * 60 * 1000;
+    const MIN_COMMENT_GAP_MS = cooldownMinutes * 60 * 1000;
     const lastPosted = await Post.findOne({ platform: 'pinterest', status: 'posted', postedAt: { $exists: true }, ...(CRON_USER_ID && { userId: CRON_USER_ID }) })
       .sort({ postedAt: -1 })
       .select('postedAt');
@@ -548,7 +562,8 @@ async function main() {
       replyText = await generatePinterestComment(
         candidate.content,
         settings.companyName,
-        settings.companyDescription
+        settings.companyDescription,
+        brandMentionRate
       );
     }
 

@@ -44,8 +44,9 @@ export async function POST(req: NextRequest) {
 
   // For "manage" — return PayPal's subscription details page
   // Users can manage their subscription directly on PayPal
-  const paypalMode = process.env.PAYPAL_MODE === 'live' ? 'www' : 'www.sandbox';
-  const manageUrl = `https://${paypalMode}.paypal.com/myaccount/autopay`;
+  const manageUrl = process.env.PAYPAL_MODE === 'live'
+    ? 'https://www.paypal.com/myaccount/autopay'
+    : 'https://sandbox.paypal.com/myaccount/autopay';
 
   return NextResponse.json({ url: manageUrl });
 }

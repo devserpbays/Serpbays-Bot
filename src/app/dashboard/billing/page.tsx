@@ -432,7 +432,7 @@ function BillingContent() {
                                     color="#7c3aed"
                                 />
                                 <UsageMeter
-                                    label="Posts Today"
+                                    label="Comments Today"
                                     current={usage?.totalPostsToday ?? 0}
                                     max={currentPlan.postsPerDay}
                                     color="#3b82f6"

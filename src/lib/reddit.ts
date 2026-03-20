@@ -61,9 +61,10 @@ async function getPage(): Promise<Page> {
       '--disable-blink-features=AutomationControlled',
     ],
     userAgent:
-      'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
-    viewport: { width: 1280, height: 900 },
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    viewport: { width: 1366, height: 768 },
     locale: 'en-US',
+    timezoneId: 'America/New_York',
   });
 
   // Inject cookies from cookies.json if available
@@ -201,7 +202,7 @@ export async function scrapeSubredditPosts(
 
     // Scroll to load more posts
     for (let i = 0; i < 2; i++) {
-      await page.mouse.wheel(0, 800);
+      await page.evaluate(() => window.scrollBy({ top: 800, behavior: 'smooth' }));
       await sleep(1500);
     }
 
@@ -493,7 +494,7 @@ export async function postRedditComment(
 
     // Scroll down progressively to trigger lazy-loading of comment composer
     for (let i = 0; i < 3; i++) {
-      await page.mouse.wheel(0, 400);
+      await page.evaluate(() => window.scrollBy({ top: 400, behavior: 'smooth' }));
       await sleep(1000);
     }
     // Scroll back up to where the comment box usually appears (below post, above comments)
@@ -594,9 +595,14 @@ export async function postRedditComment(
     await commentBox.click({ force: true });
     await sleep(1000);
 
-    // Type the comment with human-like delay
-    await page.keyboard.type(comment, { delay: 35 });
-    await sleep(1000);
+    // Human-like typing: variable delay, occasional natural pauses
+    await sleep(700 + Math.random() * 600);
+    for (let i = 0; i < comment.length; i++) {
+      await page.keyboard.type(comment[i]);
+      const isPause = comment[i] === ',' || comment[i] === '.' || comment[i] === '!' || (Math.random() < 0.04);
+      await sleep(isPause ? 320 + Math.random() * 280 : 60 + Math.random() * 110);
+    }
+    await sleep(1800 + Math.random() * 1500);
 
     // Find and click the submit button
     const submitSelectors = [

@@ -39,8 +39,8 @@ function getDateRange(filter: string): { from?: Date; to?: Date } {
 }
 
 const PLATFORM_COLORS: Record<string, string> = {
-    twitter: '#1d9bf0', facebook: '#1877f2', reddit: '#ff4500',
-    quora: '#b92b27', youtube: '#ff0000', pinterest: '#e60023',
+    twitter: '#1d9bf0', facebook: '#1877f2', reddit: '#3b82f6',
+    quora: '#2563eb', youtube: '#0ea5e9', pinterest: '#60a5fa',
 };
 
 const PLATFORM_LABELS: Record<string, string> = {
@@ -51,6 +51,12 @@ const PLATFORM_LABELS: Record<string, string> = {
 const REPLY_LABEL: Record<string, string> = {
     twitter: 'Reply', quora: 'Answer',
 };
+
+/** Returns community ID if post was sourced from a Twitter community, else null */
+function getCommunitySource(keywordsMatched?: string[]): string | null {
+    const match = (keywordsMatched ?? []).find(k => k.startsWith('community:'));
+    return match ? match.replace('community:', '') : null;
+}
 
 interface PostsResponse { posts: IPost[]; total: number; page: number; limit: number; }
 
@@ -98,7 +104,7 @@ export default function PostsPage() {
                     <p>All comments and replies successfully posted across platforms</p>
                 </div>
                 <span style={{ fontSize: 13, color: 'var(--text-muted)', alignSelf: 'center' }}>
-                    {total} post{total !== 1 ? 's' : ''}
+                    {total} comment{total !== 1 ? 's' : ''}
                 </span>
             </div>
 
@@ -151,6 +157,7 @@ export default function PostsPage() {
                             const color = PLATFORM_COLORS[post.platform] || 'var(--accent)';
                             const replyLabel = REPLY_LABEL[post.platform] || 'Comment';
                             const postedAt = post.postedAt ? new Date(post.postedAt).toLocaleString() : '';
+                            const communityId = getCommunitySource(post.keywordsMatched);
 
                             return (
                                 <div key={post._id} className="post-card" style={{ borderLeft: `3px solid ${color}` }}>
@@ -167,6 +174,24 @@ export default function PostsPage() {
                                             >
                                                 {PLATFORM_LABELS[post.platform] || post.platform}
                                             </span>
+                                            {communityId && (
+                                                <span style={{
+                                                    fontSize: 10, padding: '2px 8px', borderRadius: 6, flexShrink: 0,
+                                                    background: 'rgba(29,155,240,0.12)', border: '1px solid rgba(29,155,240,0.3)',
+                                                    color: '#1d9bf0', fontWeight: 600,
+                                                }} title={`From Twitter Community ${communityId}`}>
+                                                    Community
+                                                </span>
+                                            )}
+                                            {post.platform === 'quora' && (
+                                                <span style={{
+                                                    fontSize: 10, padding: '2px 8px', borderRadius: 6, flexShrink: 0,
+                                                    background: 'rgba(37,99,235,0.1)', border: '1px solid rgba(37,99,235,0.25)',
+                                                    color: '#60a5fa', fontWeight: 600,
+                                                }}>
+                                                    Answer
+                                                </span>
+                                            )}
                                             <span style={{
                                                 fontSize: 13, color: 'var(--text-secondary)',
                                                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
@@ -199,7 +224,7 @@ export default function PostsPage() {
                                         <div className="post-card-body">
                                             {/* Original post */}
                                             <div style={{ marginBottom: 14 }}>
-                                                <div className="label">Original Post{post.author ? ` by ${post.author}` : ''}</div>
+                                                <div className="label">Original Thread{post.author ? ` by ${post.author}` : ''}</div>
                                                 <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, margin: '6px 0 0' }}>
                                                     {post.content}
                                                 </p>
@@ -214,7 +239,7 @@ export default function PostsPage() {
                                             {/* Posted reply */}
                                             {reply && (
                                                 <div style={{ marginBottom: 14 }}>
-                                                    <div className="label">{replyLabel} Posted</div>
+                                                    <div className="label">{replyLabel} Published</div>
                                                     <div style={{
                                                         background: color + '11', border: `1px solid ${color}33`,
                                                         borderRadius: 'var(--radius-sm)', padding: '10px 14px',
@@ -228,7 +253,14 @@ export default function PostsPage() {
                                             {/* Meta row */}
                                             <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 12, color: 'var(--text-muted)', alignItems: 'center' }}>
                                                 {post.postedByAccount && <span>Account: <strong style={{ color: 'var(--text-secondary)' }}>{post.postedByAccount}</strong></span>}
-                                                {post.keywordsMatched?.length ? <span>Keywords: <strong style={{ color: 'var(--text-secondary)' }}>{post.keywordsMatched.join(', ')}</strong></span> : null}
+                                                {post.keywordsMatched?.length ? (
+                                                    <span>
+                                                        {post.keywordsMatched.some(k => k.startsWith('community:')) ? 'Source: ' : 'Keywords: '}
+                                                        <strong style={{ color: 'var(--text-secondary)' }}>
+                                                            {post.keywordsMatched.map(k => k.startsWith('community:') ? `Community ${k.replace('community:', '')}` : k).join(', ')}
+                                                        </strong>
+                                                    </span>
+                                                ) : null}
                                                 {post.replyUrl && (
                                                     <a href={post.replyUrl} target="_blank" rel="noopener noreferrer"
                                                         style={{ color: 'var(--accent)', marginLeft: 'auto' }}>

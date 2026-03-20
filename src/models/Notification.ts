@@ -2,7 +2,7 @@ import mongoose, { Schema } from 'mongoose';
 
 const NotificationSchema = new Schema({
   userId: { type: String, required: true, index: true },
-  type: { type: String, enum: ['cookie_expired', 'cookie_expiring_soon', 'account_removed', 'info'], required: true },
+  type: { type: String, enum: ['cookie_expired', 'cookie_expiring_soon', 'account_removed', 'not_connected', 'info'], required: true },
   platform: { type: String, default: '' },
   accountId: { type: String, default: '' },
   title: { type: String, required: true },

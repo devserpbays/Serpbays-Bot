@@ -4,6 +4,7 @@ import Settings from '@/models/Settings';
 import { getAuthUserId } from '@/lib/apiAuth';
 import { checkPlanLimit } from '@/lib/featureGate';
 import { enqueueJob } from '@/lib/queue';
+import { cookieUploadGuard } from '@/lib/cookieUploadGuard';
 
 export const dynamic = 'force-dynamic';
 
@@ -53,18 +54,22 @@ export async function POST(req: NextRequest) {
   const userId = await getAuthUserId();
   if (userId instanceof NextResponse) return userId;
 
-  // Enforce platform connection limit
+  // Enforce platform connection limit (only for new platforms, not cookie refreshes)
   await connectDB();
   const existingSettings = await Settings.findOne({ userId }).lean();
-  const connectedPlatforms = (existingSettings?.socialAccounts || []).filter(
-    (a: { active?: boolean }) => a.active !== false
-  ).length;
-  const platformBlocked = await checkPlanLimit(userId, 'platforms', connectedPlatforms + 1);
-  if (platformBlocked) return platformBlocked;
+  const accounts = (existingSettings?.socialAccounts || []) as Array<{ platform?: string; active?: boolean }>;
+  const alreadyConnected = accounts.some(a => a.platform === 'quora' && a.active !== false);
+  if (!alreadyConnected) {
+    const connectedPlatforms = accounts.filter(a => a.active !== false).length;
+    const platformBlocked = await checkPlanLimit(userId, 'platforms', connectedPlatforms + 1);
+    if (platformBlocked) return platformBlocked;
+  }
 
+  const guard = await cookieUploadGuard(req, userId);
+  if (guard.error) return guard.error;
   let body: { cookies: unknown; accountIndex?: number };
   try {
-    body = await req.json();
+    body = JSON.parse(guard.rawBody);
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }

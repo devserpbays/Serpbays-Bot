@@ -105,7 +105,7 @@ export async function POST(req: NextRequest) {
           currentPeriodEnd: periodEnd,
           cancelAtPeriodEnd: false,
         },
-        { upsert: true, new: true }
+        { upsert: true, returnDocument: 'after' }
       );
       console.log(`[PayPal] Subscription activated: ${userId} → ${planId}`);
       break;

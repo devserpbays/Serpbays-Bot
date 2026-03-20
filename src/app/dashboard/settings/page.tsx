@@ -7,13 +7,34 @@ import type { ISettings } from '@/lib/types';
 import UpgradeBanner from '@/components/UpgradeBanner';
 
 const PLATFORM_OPTIONS = [
-    { id: 'twitter', label: 'Twitter / X', color: '#a0a0a0' },
-    { id: 'reddit', label: 'Reddit', color: '#ff4500' },
+    { id: 'twitter', label: 'Twitter / X', color: '#1d9bf0' },
+    { id: 'reddit', label: 'Reddit', color: '#3b82f6' },
     { id: 'facebook', label: 'Facebook', color: '#1877f2' },
-    { id: 'quora', label: 'Quora', color: '#b92b27' },
-    { id: 'youtube', label: 'YouTube', color: '#ff0000' },
-    { id: 'pinterest', label: 'Pinterest', color: '#e60023' },
+    { id: 'quora', label: 'Quora', color: '#2563eb' },
+    { id: 'youtube', label: 'YouTube', color: '#0ea5e9' },
+    { id: 'pinterest', label: 'Pinterest', color: '#60a5fa' },
 ];
+
+// Minimum recommended cooldowns per platform (in minutes)
+const PLATFORM_COOLDOWN_MIN: Record<string, number> = {
+    twitter: 15, reddit: 30, facebook: 30, quora: 60, youtube: 90, pinterest: 30,
+};
+const PLATFORM_COOLDOWN_DEFAULT: Record<string, number> = {
+    twitter: 60, reddit: 90, facebook: 90, quora: 120, youtube: 180, pinterest: 90,
+};
+
+function getBrandRisk(rate: number) {
+    if (rate <= 25) return { label: 'Safe', color: '#22c55e', bg: 'rgba(34,197,94,0.1)', desc: 'Low risk — less than 1 in 4 comments promotes your brand.' };
+    if (rate <= 50) return { label: 'Moderate Risk', color: '#f59e0b', bg: 'rgba(245,158,11,0.1)', desc: 'Moderate risk — frequent brand mentions may trigger spam filters over time.' };
+    if (rate <= 75) return { label: 'High Risk', color: '#f97316', bg: 'rgba(249,115,22,0.1)', desc: 'High risk — most platforms will flag this as spam. Account may get restricted.' };
+    return { label: 'Ban Risk', color: '#ef4444', bg: 'rgba(239,68,68,0.1)', desc: 'Very high risk — almost all comments promote your brand. Your account is likely to get banned.' };
+}
+
+function formatMinutes(m: number) {
+    if (m < 60) return `${m}m`;
+    const h = Math.floor(m / 60); const rem = m % 60;
+    return rem ? `${h}h ${rem}m` : `${h}h`;
+}
 
 const ALL_TIMEZONES = [
     { value: '', label: 'Not set (run anytime)', region: '' },
@@ -83,21 +104,34 @@ export default function SettingsPage() {
         facebookKeywords: [],
         facebookDailyLimit: 5,
         facebookAutoPostThreshold: 70,
+        facebookBrandMentionRate: 25,
+        facebookCooldownMinutes: 90,
         twitterKeywords: [],
+        twitterCommunityIds: [],
         twitterDailyLimit: 10,
         twitterAutoPostThreshold: 70,
+        twitterBrandMentionRate: 25,
+        twitterCooldownMinutes: 60,
         redditKeywords: [],
         redditDailyLimit: 5,
         redditAutoPostThreshold: 70,
+        redditBrandMentionRate: 25,
+        redditCooldownMinutes: 90,
         quoraKeywords: [],
         quoraDailyLimit: 3,
         quoraAutoPostThreshold: 70,
+        quoraBrandMentionRate: 25,
+        quoraCooldownMinutes: 120,
         youtubeKeywords: [],
         youtubeDailyLimit: 5,
         youtubeAutoPostThreshold: 70,
+        youtubeBrandMentionRate: 25,
+        youtubeCooldownMinutes: 180,
         pinterestKeywords: [],
         pinterestDailyLimit: 5,
         pinterestAutoPostThreshold: 70,
+        pinterestBrandMentionRate: 25,
+        pinterestCooldownMinutes: 90,
         cronTimezone: '',
         cronStartHour: 9,
         cronEndHour: 18,
@@ -115,6 +149,8 @@ export default function SettingsPage() {
     const [errorMessage, setErrorMessage] = useState('');
     const [newKeyword, setNewKeyword] = useState('');
     const [newPlatformKeyword, setNewPlatformKeyword] = useState<Record<string, string>>({});
+    const [newCommunityId, setNewCommunityId] = useState('');
+    const [syncingCommunities, setSyncingCommunities] = useState(false);
     const [newSubreddit, setNewSubreddit] = useState('');
     const [newFbGroup, setNewFbGroup] = useState('');
     const [expandedPlatform, setExpandedPlatform] = useState<string | null>(null);
@@ -169,6 +205,7 @@ export default function SettingsPage() {
             const data = await res.json();
             if (data.settings) {
                 setSettings((prev) => ({ ...prev, ...data.settings }));
+                settingsLoaded.current = true;
             }
         } catch { /* silent */ }
     }, []);
@@ -176,26 +213,38 @@ export default function SettingsPage() {
     useEffect(() => { fetchSettings(); }, [fetchSettings]);
 
     // Auto-save: debounce settings changes by 1.2s
-    const initialLoadDone = useRef(false);
+    // settingsLoaded is set true only after fetch completes — prevents save-on-mount race
+    const settingsLoaded = useRef(false);
     const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     useEffect(() => {
-        if (!initialLoadDone.current) {
-            initialLoadDone.current = true;
-            return;
-        }
+        if (!settingsLoaded.current) return;
+
         setUpgradeMessage('');
         setErrorMessage('');
 
         if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+
+        // Validate cron hours
+        const startHour = settings.cronStartHour ?? 9;
+        const endHour = settings.cronEndHour ?? 18;
+        if (startHour >= endHour) {
+            setErrorMessage('Cron start hour must be before end hour');
+            setSaveStatus('error');
+            return;
+        }
+
         setSaveStatus('saving');
 
         saveTimeoutRef.current = setTimeout(async () => {
             try {
+                // Strip fields managed elsewhere (socialAccounts) and DB internals (_id)
+                // to avoid accidentally overwriting connected account credentials
+                const { socialAccounts: _sa, _id, ...settingsToSave } = settings as ISettings & { _id?: unknown };
                 const res = await fetch(`${API_BASE}/api/settings`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(settings),
+                    body: JSON.stringify(settingsToSave),
                 });
                 if (res.status === 403) {
                     const data = await res.json();
@@ -398,8 +447,8 @@ export default function SettingsPage() {
                 {/* ── Subreddits ── */}
                 {settings.platforms.includes('reddit') && (
                     <div id="subreddits" className="form-section" style={{ scrollMarginTop: 80 }}>
-                        <div className="form-section-title" style={{ color: '#ff4500' }}>
-                            <svg viewBox="0 0 24 24" fill="#ff4500" style={{ width: 18, height: 18 }}>
+                        <div className="form-section-title" style={{ color: '#3b82f6' }}>
+                            <svg viewBox="0 0 24 24" fill="#3b82f6" style={{ width: 18, height: 18 }}>
                                 <path d="M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0z" />
                             </svg>
                             Subreddits
@@ -534,50 +583,224 @@ export default function SettingsPage() {
                                         </div>
                                     </div>
 
-                                    {/* Expandable keywords panel */}
-                                    {isExpanded && (
-                                        <div style={{
-                                            padding: '0 18px 16px',
-                                            background: 'rgba(255,255,255,0.015)',
-                                            borderTop: '1px solid var(--border-subtle)',
-                                        }}>
-                                            <div style={{ paddingTop: 14 }}>
-                                                <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-                                                    <input
-                                                        className="input"
-                                                        style={{ fontSize: 13 }}
-                                                        placeholder={`Add ${p.label} keyword…`}
-                                                        value={pkInput}
-                                                        onChange={(e) => setNewPlatformKeyword((prev) => ({ ...prev, [p.id]: e.target.value }))}
-                                                        onKeyDown={(e) => {
-                                                            if (e.key === 'Enter') {
-                                                                addToList(kwKey, pkInput, () => setNewPlatformKeyword((prev) => ({ ...prev, [p.id]: '' })));
-                                                            }
-                                                        }}
-                                                    />
-                                                    <button
-                                                        className="btn btn-secondary"
-                                                        style={{ fontSize: 12, padding: '6px 12px' }}
-                                                        onClick={() => addToList(kwKey, pkInput, () => setNewPlatformKeyword((prev) => ({ ...prev, [p.id]: '' })))}
-                                                    >Add</button>
-                                                </div>
-                                                {platformKws.length > 0 ? (
-                                                    <div className="tag-list" style={{ gap: 6 }}>
-                                                        {platformKws.map((k) => (
-                                                            <span key={k} className="tag" style={{ background: p.color + '12', color: p.color, fontSize: 11, padding: '3px 8px' }}>
-                                                                {k}
-                                                                <button className="tag-remove" onClick={() => removeFromList(kwKey, k)}>×</button>
-                                                            </span>
-                                                        ))}
+                                    {/* Expandable panel: keywords + brand rate + cooldown */}
+                                    {isExpanded && (() => {
+                                        const brandRateKey = `${p.id}BrandMentionRate` as keyof ISettings;
+                                        const cooldownKey = `${p.id}CooldownMinutes` as keyof ISettings;
+                                        const brandRate = (settings[brandRateKey] as number) ?? 25;
+                                        const cooldown = (settings[cooldownKey] as number) ?? PLATFORM_COOLDOWN_DEFAULT[p.id];
+                                        const minCooldown = PLATFORM_COOLDOWN_MIN[p.id];
+                                        const risk = getBrandRisk(brandRate);
+                                        return (
+                                            <div style={{
+                                                padding: '0 18px 20px',
+                                                background: 'rgba(255,255,255,0.015)',
+                                                borderTop: '1px solid var(--border-subtle)',
+                                                display: 'flex', flexDirection: 'column', gap: 20,
+                                            }}>
+                                                {/* Keywords */}
+                                                <div style={{ paddingTop: 14 }}>
+                                                    <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.6px', color: 'var(--text-muted)', marginBottom: 8 }}>Keywords</div>
+                                                    <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                                                        <input
+                                                            className="input"
+                                                            style={{ fontSize: 13 }}
+                                                            placeholder={`Add ${p.label} keyword…`}
+                                                            value={pkInput}
+                                                            onChange={(e) => setNewPlatformKeyword((prev) => ({ ...prev, [p.id]: e.target.value }))}
+                                                            onKeyDown={(e) => {
+                                                                if (e.key === 'Enter') {
+                                                                    addToList(kwKey, pkInput, () => setNewPlatformKeyword((prev) => ({ ...prev, [p.id]: '' })));
+                                                                }
+                                                            }}
+                                                        />
+                                                        <button
+                                                            className="btn btn-secondary"
+                                                            style={{ fontSize: 12, padding: '6px 12px' }}
+                                                            onClick={() => addToList(kwKey, pkInput, () => setNewPlatformKeyword((prev) => ({ ...prev, [p.id]: '' })))}
+                                                        >Add</button>
                                                     </div>
-                                                ) : (
-                                                    <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: 0 }}>
-                                                        No platform-specific keywords — using default keywords
-                                                    </p>
-                                                )}
+                                                    {platformKws.length > 0 ? (
+                                                        <div className="tag-list" style={{ gap: 6 }}>
+                                                            {platformKws.map((k) => (
+                                                                <span key={k} className="tag" style={{ background: p.color + '12', color: p.color, fontSize: 11, padding: '3px 8px' }}>
+                                                                    {k}
+                                                                    <button className="tag-remove" onClick={() => removeFromList(kwKey, k)}>×</button>
+                                                                </span>
+                                                            ))}
+                                                        </div>
+                                                    ) : (
+                                                        <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: 0 }}>
+                                                            No platform-specific keywords — using default keywords
+                                                        </p>
+                                                    )}
+                                                </div>
+
+                                                {/* Twitter Communities (Twitter only) */}
+                                                {p.id === 'twitter' && (() => {
+                                                    const communityIds: string[] = (settings.twitterCommunityIds as string[]) || [];
+                                                    return (
+                                                        <div>
+                                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                                                                <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.6px', color: 'var(--text-muted)' }}>Twitter Communities</div>
+                                                                <button
+                                                                    className="btn btn-secondary"
+                                                                    style={{ fontSize: 11, padding: '4px 10px', display: 'flex', alignItems: 'center', gap: 5 }}
+                                                                    disabled={syncingCommunities}
+                                                                    onClick={async () => {
+                                                                        setSyncingCommunities(true);
+                                                                        try {
+                                                                            const res = await fetch('/api/twitter-communities', { method: 'POST' });
+                                                                            const data = await res.json();
+                                                                            if (data.communities?.length) {
+                                                                                // Reload settings to pick up new IDs
+                                                                                const setRes = await fetch('/api/settings');
+                                                                                const setData = await setRes.json();
+                                                                                if (setData.settings) setSettings(setData.settings);
+                                                                            }
+                                                                        } catch { /* silent */ }
+                                                                        setSyncingCommunities(false);
+                                                                    }}
+                                                                >
+                                                                    {syncingCommunities ? (
+                                                                        <>
+                                                                            <span style={{ width: 10, height: 10, border: '2px solid currentColor', borderTopColor: 'transparent', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.6s linear infinite' }} />
+                                                                            Syncing…
+                                                                        </>
+                                                                    ) : (
+                                                                        <>
+                                                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width="11" height="11">
+                                                                                <path d="M23 4v6h-6" /><path d="M1 20v-6h6" />
+                                                                                <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
+                                                                            </svg>
+                                                                            Sync from Account
+                                                                        </>
+                                                                    )}
+                                                                </button>
+                                                            </div>
+                                                            <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '0 0 8px', lineHeight: 1.5 }}>
+                                                                Click "Sync from Account" to auto-detect communities you've joined, or add IDs manually.<br />
+                                                                <code style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: '#c084fc' }}>x.com/i/communities/<strong>1234567890</strong></code>
+                                                            </p>
+                                                            <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                                                                <input
+                                                                    className="input"
+                                                                    style={{ fontSize: 13, fontFamily: 'var(--font-mono)' }}
+                                                                    placeholder="Community ID (numeric)"
+                                                                    value={newCommunityId}
+                                                                    onChange={(e) => setNewCommunityId(e.target.value.replace(/\D/g, ''))}
+                                                                    onKeyDown={(e) => {
+                                                                        if (e.key === 'Enter' && newCommunityId.trim()) {
+                                                                            addToList('twitterCommunityIds' as keyof ISettings, newCommunityId.trim(), () => setNewCommunityId(''));
+                                                                        }
+                                                                    }}
+                                                                />
+                                                                <button
+                                                                    className="btn btn-secondary"
+                                                                    style={{ fontSize: 12, padding: '6px 12px' }}
+                                                                    onClick={() => {
+                                                                        if (newCommunityId.trim()) {
+                                                                            addToList('twitterCommunityIds' as keyof ISettings, newCommunityId.trim(), () => setNewCommunityId(''));
+                                                                        }
+                                                                    }}
+                                                                >Add</button>
+                                                            </div>
+                                                            {communityIds.length > 0 ? (
+                                                                <div className="tag-list" style={{ gap: 6 }}>
+                                                                    {communityIds.map((id) => (
+                                                                        <span key={id} className="tag" style={{ background: '#1d9bf022', color: '#1d9bf0', fontSize: 11, padding: '3px 8px', fontFamily: 'var(--font-mono)' }}>
+                                                                            {id}
+                                                                            <button className="tag-remove" onClick={() => removeFromList('twitterCommunityIds' as keyof ISettings, id)}>×</button>
+                                                                        </span>
+                                                                    ))}
+                                                                </div>
+                                                            ) : (
+                                                                <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: 0 }}>No communities added — click "Sync from Account" or add manually</p>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })()}
+
+                                                {/* Brand Mention Rate */}
+                                                <div>
+                                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                                                        <div>
+                                                            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>Brand Mention Rate</span>
+                                                            <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 6 }}>— how often comments promote your brand</span>
+                                                        </div>
+                                                        <div style={{
+                                                            display: 'inline-flex', alignItems: 'center', gap: 5,
+                                                            padding: '3px 10px', borderRadius: 20,
+                                                            background: risk.bg, border: `1px solid ${risk.color}44`,
+                                                        }}>
+                                                            <div style={{ width: 6, height: 6, borderRadius: '50%', background: risk.color }} />
+                                                            <span style={{ fontSize: 11, fontWeight: 700, color: risk.color }}>{risk.label}</span>
+                                                        </div>
+                                                    </div>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                                        <input
+                                                            type="range" min={0} max={100} step={5}
+                                                            value={brandRate}
+                                                            onChange={e => setSettings(prev => ({ ...prev, [brandRateKey]: Number(e.target.value) }))}
+                                                            style={{ flex: 1, accentColor: risk.color }}
+                                                        />
+                                                        <span style={{ fontSize: 13, fontWeight: 700, color: risk.color, minWidth: 36, textAlign: 'right' }}>{brandRate}%</span>
+                                                    </div>
+                                                    {/* Risk precaution banner */}
+                                                    <div style={{
+                                                        marginTop: 8, padding: '8px 12px',
+                                                        borderRadius: 6, background: risk.bg,
+                                                        border: `1px solid ${risk.color}33`,
+                                                        display: 'flex', alignItems: 'flex-start', gap: 8,
+                                                    }}>
+                                                        <svg viewBox="0 0 24 24" fill="none" stroke={risk.color} strokeWidth={2} width={14} height={14} style={{ flexShrink: 0, marginTop: 1 }}>
+                                                            <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                                                            <line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
+                                                        </svg>
+                                                        <span style={{ fontSize: 11, color: risk.color, lineHeight: 1.5 }}>{risk.desc}</span>
+                                                    </div>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+                                                        <span style={{ fontSize: 10, color: '#22c55e' }}>0% — Never mention brand</span>
+                                                        <span style={{ fontSize: 10, color: '#ef4444' }}>100% — Always mention brand</span>
+                                                    </div>
+                                                </div>
+
+                                                {/* Cooldown between posts */}
+                                                <div>
+                                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                                                        <div>
+                                                            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>Post Cooldown</span>
+                                                            <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 6 }}>— minimum gap between auto-posts</span>
+                                                        </div>
+                                                        <span style={{ fontSize: 13, fontWeight: 700, color: p.color, fontFamily: 'var(--font-mono)' }}>{formatMinutes(cooldown)}</span>
+                                                    </div>
+                                                    <input
+                                                        type="range"
+                                                        min={minCooldown} max={360} step={15}
+                                                        value={cooldown}
+                                                        onChange={e => setSettings(prev => ({ ...prev, [cooldownKey]: Number(e.target.value) }))}
+                                                        style={{ width: '100%', accentColor: p.color }}
+                                                    />
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 2 }}>
+                                                        <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{formatMinutes(minCooldown)} (min recommended)</span>
+                                                        <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>6h</span>
+                                                    </div>
+                                                    {cooldown < 60 && (
+                                                        <div style={{
+                                                            marginTop: 6, padding: '6px 10px', borderRadius: 6,
+                                                            background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)',
+                                                            display: 'flex', gap: 6, alignItems: 'center',
+                                                        }}>
+                                                            <svg viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth={2} width={13} height={13} style={{ flexShrink: 0 }}>
+                                                                <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+                                                            </svg>
+                                                            <span style={{ fontSize: 11, color: '#f59e0b' }}>Short cooldowns increase spam detection risk. 60+ minutes is recommended.</span>
+                                                        </div>
+                                                    )}
+                                                </div>
                                             </div>
-                                        </div>
-                                    )}
+                                        );
+                                    })()}
                                 </div>
                             );
                         })}

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { connectDB } from '@/lib/mongodb';
 import { getAdminUserId } from '@/lib/adminAuth';
+import { clerkClient } from '@clerk/nextjs/server';
 import Post from '@/models/Post';
 import Settings from '@/models/Settings';
 import Subscription from '@/models/Subscription';
@@ -51,6 +52,25 @@ export async function GET() {
     postsTodayMap.set(p._id, p.count);
   }
 
+  // Fetch emails from Clerk for all user IDs
+  const allUserIds = allSettings.map(s => (s as unknown as { userId: string }).userId).filter(Boolean);
+  const emailMap = new Map<string, string>();
+  const nameMap = new Map<string, string>();
+  try {
+    const client = await clerkClient();
+    const batchSize = 100;
+    for (let i = 0; i < allUserIds.length; i += batchSize) {
+      const batch = allUserIds.slice(i, i + batchSize);
+      const { data: clerkUsers } = await client.users.getUserList({ userId: batch, limit: batchSize });
+      for (const cu of clerkUsers) {
+        const email = cu.emailAddresses?.[0]?.emailAddress || '';
+        const fullName = [cu.firstName, cu.lastName].filter(Boolean).join(' ');
+        emailMap.set(cu.id, email);
+        nameMap.set(cu.id, fullName);
+      }
+    }
+  } catch { /* Clerk fetch failure — emails will be empty */ }
+
   const users = allSettings.map((s) => {
     const settings = s as unknown as {
       userId: string;
@@ -64,6 +84,8 @@ export async function GET() {
     const sub = subMap.get(uid);
     return {
       userId: uid,
+      email: emailMap.get(uid) || '',
+      fullName: nameMap.get(uid) || '',
       plan: sub?.plan || 'free',
       status: sub?.status || 'active',
       companyName: settings.companyName || '',

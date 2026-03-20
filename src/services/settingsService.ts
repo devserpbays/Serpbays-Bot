@@ -107,7 +107,7 @@ export async function upsertSettings(userId: string, data: Partial<SettingsDoc>)
   return Settings.findOneAndUpdate(
     { userId },
     { $set: data, $setOnInsert: { userId } },
-    { upsert: true, new: true, runValidators: true },
+    { upsert: true, returnDocument: 'after', runValidators: true },
   ).lean() as Promise<SettingsDoc>;
 }
 

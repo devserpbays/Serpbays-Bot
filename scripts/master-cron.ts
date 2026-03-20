@@ -47,6 +47,7 @@ const PLATFORM_ENV_KEYS: Record<string, string> = {
 
 const MAX_CONCURRENT = parseInt(process.env.MAX_CONCURRENT_TASKS || '8', 10);
 const MAX_BROWSER = parseInt(process.env.MAX_BROWSER_TASKS || '3', 10);
+const INTER_PLATFORM_GAP_MS = 2 * 60 * 1000; // 2 min gap between platforms per user
 
 // --- Semaphore for controlling concurrency ---
 class Semaphore {
@@ -121,6 +122,8 @@ function runCronForUser(
     });
   });
 }
+
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 async function main() {
   const args = process.argv.slice(2);
@@ -233,31 +236,40 @@ async function main() {
   let failed = 0;
   const startTime = Date.now();
 
-  const promises = tasks.map(async (task) => {
-    await totalSem.acquire();
-    if (task.needsBrowser) {
-      await browserSem.acquire();
-    }
+  // Group tasks by userId so platforms for the same user run sequentially
+  const tasksByUser = new Map<string, typeof tasks>();
+  for (const task of tasks) {
+    if (!tasksByUser.has(task.userId)) tasksByUser.set(task.userId, []);
+    tasksByUser.get(task.userId)!.push(task);
+  }
 
-    try {
-      const result = await runCronForUser(task);
-      completed++;
-      if (result.exitCode !== 0) failed++;
+  const userPromises = [...tasksByUser.values()].map(async (userTasks) => {
+    for (let i = 0; i < userTasks.length; i++) {
+      const task = userTasks[i];
+      await totalSem.acquire();
+      if (task.needsBrowser) await browserSem.acquire();
 
-      const status = result.exitCode === 0 ? 'OK' : `FAIL(${result.exitCode})`;
-      const duration = (result.durationMs / 1000).toFixed(1);
-      console.log(`[master-cron] [${completed}/${tasks.length}] ${task.userId.slice(-8)}/${task.platform}: ${status} (${duration}s)`);
-
-      return result;
-    } finally {
-      if (task.needsBrowser) {
-        browserSem.release();
+      try {
+        const result = await runCronForUser(task);
+        completed++;
+        if (result.exitCode !== 0) failed++;
+        const status = result.exitCode === 0 ? 'OK' : `FAIL(${result.exitCode})`;
+        const duration = (result.durationMs / 1000).toFixed(1);
+        console.log(`[master-cron] [${completed}/${tasks.length}] ${task.userId.slice(-8)}/${task.platform}: ${status} (${duration}s)`);
+      } finally {
+        if (task.needsBrowser) browserSem.release();
+        totalSem.release();
       }
-      totalSem.release();
+
+      // Wait between platforms for this user (not after the last one)
+      if (i < userTasks.length - 1) {
+        console.log(`[master-cron] Waiting ${INTER_PLATFORM_GAP_MS / 1000}s before next platform for user ${task.userId.slice(-8)}...`);
+        await sleep(INTER_PLATFORM_GAP_MS);
+      }
     }
   });
 
-  const results = await Promise.all(promises);
+  await Promise.all(userPromises);
 
   // Update lastCronRunAt for each user that had tasks
   const userIds = [...new Set(tasks.map(t => t.userId))];

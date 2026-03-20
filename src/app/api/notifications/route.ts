@@ -3,11 +3,15 @@
  * GET ?limit=N  → JSON list of notifications
  * GET (no limit) → SSE stream
  * PATCH → mark all as read
+ *
+ * Real-time push: worker processes publish to Redis channel `notif:{userId}`.
+ * A single module-level Redis subscriber routes those messages to SSE clients.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthUserId } from '@/lib/apiAuth';
 import { connectDB } from '@/lib/mongodb';
 import Notification from '@/models/Notification';
+import { getRedisSubscriber } from '@/lib/redis';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,6 +25,10 @@ interface ClientEntry {
 const clients = new Set<ClientEntry>();
 const encoder = new TextEncoder();
 
+// Track which Redis channels we're subscribed to (per-userId)
+const subscribedChannels = new Set<string>();
+let redisListenerAttached = false;
+
 function send(ctrl: Controller, data: string) {
   try {
     ctrl.enqueue(encoder.encode(`data: ${data}\n\n`));
@@ -32,6 +40,50 @@ function send(ctrl: Controller, data: string) {
       }
     }
   }
+}
+
+/** Ensure the single Redis subscriber is listening and routes messages to SSE clients. */
+function ensureRedisListener() {
+  if (redisListenerAttached) return;
+  try {
+    const sub = getRedisSubscriber();
+    sub.on('message', (channel: string, message: string) => {
+      // channel = notif:{userId}
+      const userId = channel.startsWith('notif:') ? channel.slice(6) : null;
+      if (!userId) return;
+      for (const entry of clients) {
+        if (entry.userId === userId) {
+          send(entry.ctrl, message);
+        }
+      }
+    });
+    redisListenerAttached = true;
+  } catch { /* Redis unavailable — fallback to client polling */ }
+}
+
+/** Subscribe to a user's Redis channel (once), routing messages to their SSE clients. */
+async function subscribeUser(userId: string) {
+  ensureRedisListener();
+  const channel = `notif:${userId}`;
+  if (subscribedChannels.has(channel)) return;
+  try {
+    const sub = getRedisSubscriber();
+    await sub.subscribe(channel);
+    subscribedChannels.add(channel);
+  } catch { /* Redis unavailable */ }
+}
+
+/** Unsubscribe from a user's Redis channel when they have no more active SSE clients. */
+async function unsubscribeUserIfIdle(userId: string) {
+  const channel = `notif:${userId}`;
+  if (!subscribedChannels.has(channel)) return;
+  const hasActiveClients = [...clients].some(e => e.userId === userId);
+  if (hasActiveClients) return;
+  try {
+    const sub = getRedisSubscriber();
+    await sub.unsubscribe(channel);
+    subscribedChannels.delete(channel);
+  } catch { /* ignore */ }
 }
 
 /** Push a notification to a specific user's SSE clients. */
@@ -79,29 +131,32 @@ export async function GET(req: NextRequest) {
   }
 
   // Otherwise SSE stream
+  let _entry: ClientEntry | undefined;
+  let _ping: ReturnType<typeof setInterval> | undefined;
+
   const stream = new ReadableStream<Uint8Array>({
-    start(ctrl) {
-      const entry: ClientEntry = { ctrl, userId };
-      clients.add(entry);
+    async start(ctrl) {
+      _entry = { ctrl, userId };
+      clients.add(_entry);
 
       send(ctrl, JSON.stringify({ type: 'info', title: 'Connected', message: 'SSE connected', ts: Date.now() }));
 
-      const ping = setInterval(() => {
+      _ping = setInterval(() => {
         try {
           ctrl.enqueue(encoder.encode(': ping\n\n'));
         } catch {
-          clearInterval(ping);
-          clients.delete(entry);
+          clearInterval(_ping);
+          if (_entry) clients.delete(_entry);
         }
       }, 25000);
+
+      // Subscribe to this user's Redis channel for cross-process push
+      await subscribeUser(userId);
     },
-    cancel(ctrl) {
-      for (const entry of clients) {
-        if (entry.ctrl === ctrl) {
-          clients.delete(entry);
-          break;
-        }
-      }
+    async cancel() {
+      if (_ping) clearInterval(_ping);
+      if (_entry) clients.delete(_entry);
+      await unsubscribeUserIfIdle(userId);
     },
   });
 

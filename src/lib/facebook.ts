@@ -42,9 +42,10 @@ async function getPage(): Promise<Page> {
       '--disable-blink-features=AutomationControlled',
     ],
     userAgent:
-      'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
-    viewport: { width: 1280, height: 900 },
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    viewport: { width: 1366, height: 768 },
     locale: 'en-US',
+    timezoneId: 'America/New_York',
   });
 
   // Inject cookies from cookies.json if available (normalize sameSite for Playwright)
@@ -148,8 +149,8 @@ export async function ensureFacebookLoggedIn(): Promise<boolean> {
       return true;
     }
 
-    console.warn('Facebook login state uncertain');
-    return false;
+    console.warn('Facebook login state uncertain — assuming logged in');
+    return true;
   } catch (err) {
     console.error('Failed to check Facebook login:', (err as Error).message);
     return false;
@@ -213,7 +214,7 @@ export async function getJoinedGroups(): Promise<string[]> {
     await sleep(SLOW_WAIT);
 
     // Scroll a bit to load more groups in the sidebar
-    await page.mouse.wheel(0, 800);
+    await page.evaluate(() => window.scrollBy({ top: 800, behavior: 'smooth' }));
     await sleep(2000);
 
     // Extract group links from the page
@@ -254,7 +255,7 @@ export async function scrapeGroupPosts(
 
     // Scroll down a couple times to load more posts
     for (let i = 0; i < 3; i++) {
-      await page.mouse.wheel(0, 1000);
+      await page.evaluate(() => window.scrollBy({ top: 1000, behavior: 'smooth' }));
       await sleep(1500);
     }
 
@@ -345,7 +346,7 @@ export async function scrapeCommentEngagement(
 
     // Scroll to load comments
     for (let i = 0; i < 3; i++) {
-      await page.mouse.wheel(0, 800);
+      await page.evaluate(() => window.scrollBy({ top: 800, behavior: 'smooth' }));
       await sleep(1500);
     }
 
@@ -476,14 +477,55 @@ export async function postComment(
 
   try {
     const page = await getPage();
-    await page.goto(postUrl, { waitUntil: 'domcontentloaded' });
-    await sleep(SLOW_WAIT);
 
-    // Scroll the page to load all elements including comment section
-    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-    await sleep(2000);
+    // Navigate with a longer wait for group post permalinks (Facebook SPA is slow)
+    await page.goto(postUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+    // Extra wait — let React render the comment section
+    await sleep(6000);
+
+    // Check if the page redirected to login or a "join group" gate
+    const currentUrl = page.url();
+    if (currentUrl.includes('/login') || currentUrl.includes('accounts.google') || currentUrl.includes('/checkpoint/')) {
+      return { success: false, error: 'Facebook session expired — re-upload cookies from dashboard' };
+    }
+
+    // Check for "See more on Facebook" login modal (session expired but no URL redirect)
+    const hasLoginModal = await page.evaluate(() => {
+      const dialogs = document.querySelectorAll('[role="dialog"]');
+      for (const d of dialogs) {
+        const text = (d.textContent || '').toLowerCase();
+        if (text.includes('see more on facebook') || text.includes('log in to facebook') || text.includes('log in or sign up')) {
+          return true;
+        }
+      }
+      // Also check for login form injected into the page
+      const loginHeadings = document.querySelectorAll('h2, h1');
+      for (const h of loginHeadings) {
+        const t = (h.textContent || '').toLowerCase();
+        if (t.includes('see more on facebook') || t.includes('log in to facebook')) return true;
+      }
+      return false;
+    }).catch(() => false);
+    if (hasLoginModal) {
+      return { success: false, error: 'Facebook session expired — re-upload cookies from dashboard' };
+    }
+
+    // Check for "join group" / membership requirement
+    const requiresMembership = await page.evaluate(() => {
+      const bodyText = document.body?.innerText || '';
+      return /join (this )?group|become a member|request to join/i.test(bodyText.slice(0, 3000));
+    }).catch(() => false);
+    if (requiresMembership) {
+      return { success: false, error: 'Post is in a private group — account must be a member to comment' };
+    }
+
+    // Scroll incrementally to trigger lazy-loading of the comment section
+    for (let i = 1; i <= 4; i++) {
+      await page.evaluate((pct) => window.scrollTo(0, document.body.scrollHeight * pct), i * 0.25);
+      await sleep(1000);
+    }
     await page.evaluate(() => window.scrollTo(0, 0));
-    await sleep(1000);
+    await sleep(1200);
 
     // Post may open in a modal — scroll down inside it to reveal comment box
     const modal = await page.$('[role="dialog"]');
@@ -493,91 +535,179 @@ export async function postComment(
         dialogs.forEach((d) => {
           const children = d.querySelectorAll('div');
           children.forEach((c) => {
-            if (c.scrollHeight > c.clientHeight) {
-              c.scrollTop = c.scrollHeight;
-            }
+            if (c.scrollHeight > c.clientHeight) c.scrollTop = c.scrollHeight;
           });
         });
       });
       await sleep(2000);
     }
 
-    // Find comment box — try multiple selectors, check visibility
-    const commentSelectors = [
-      '[aria-label*="comment" i][contenteditable="true"]',
-      '[aria-label*="Comment as"]',
-      '[aria-label="Write a comment"]',
-      '[aria-label="Write a comment…"]',
-      '[aria-label="Write a comment\u2026"]',
-      '[aria-label*="Write a comment"]',
-      '[aria-label*="Write a public comment"]',
-      '[placeholder*="comment" i]',
-      'div[contenteditable="true"][role="textbox"]',
-      'form div[contenteditable="true"]',
-    ];
-
-    let commentBox = null;
-    for (const sel of commentSelectors) {
-      const elements = await page.$$(sel);
-      for (const el of elements) {
-        if (await el.isVisible().catch(() => false)) {
-          commentBox = el;
-          break;
-        }
-      }
-      if (commentBox) break;
-    }
-
-    // If not found, try clicking comment/action buttons to reveal the comment box
-    if (!commentBox) {
-      // Try multiple button patterns
-      const buttonTexts = ['Comment', 'comment', 'Write a comment'];
-      const allButtons = await page.$$('[role="button"], button, span[role="button"]');
-      for (const btn of allButtons) {
-        const text = (await btn.textContent().catch(() => ''))?.trim() || '';
-        if (buttonTexts.some(t => text.includes(t))) {
-          await btn.click({ force: true });
-          await sleep(2500);
-          break;
-        }
-      }
-
-      // Also try clicking the comment icon (SVG near like/share buttons)
-      const commentIcons = await page.$$('[aria-label*="comment" i], [aria-label*="Comment" i]');
-      for (const icon of commentIcons) {
-        const tag = await icon.evaluate(el => el.tagName.toLowerCase()).catch(() => '');
-        if (tag === 'div' || tag === 'span' || tag === 'i') {
-          await icon.click({ force: true }).catch(() => {});
-          await sleep(2000);
-          break;
-        }
-      }
-
-      // Retry finding comment box with all selectors
+    // Helper: find visible comment box from a list of selectors
+    async function findCommentBox() {
+      const commentSelectors = [
+        // Lexical editor (Facebook's current comment editor)
+        'div[contenteditable="true"][data-lexical-editor="true"]',
+        // aria-label based (most reliable when present)
+        '[aria-label="Write a comment\u2026"][contenteditable="true"]',
+        '[aria-label="Write a comment…"][contenteditable="true"]',
+        '[aria-label="Write a comment"][contenteditable="true"]',
+        '[aria-label*="Write a comment"][contenteditable="true"]',
+        '[aria-label="Leave a comment"][contenteditable="true"]',
+        '[aria-label*="Comment as"][contenteditable="true"]',
+        '[aria-label*="Write a public comment"][contenteditable="true"]',
+        '[aria-label*="comment" i][contenteditable="true"]',
+        // Role-based
+        'div[contenteditable="true"][role="textbox"]',
+        'div[contenteditable="true"][spellcheck="true"]',
+        // Inside form
+        'form div[contenteditable="true"]',
+        // Generic fallback — pick non-post editable divs
+        'div[contenteditable="true"]',
+      ];
       for (const sel of commentSelectors) {
         const elements = await page.$$(sel);
         for (const el of elements) {
           if (await el.isVisible().catch(() => false)) {
-            commentBox = el;
-            break;
+            // Exclude the post editor (not a comment box)
+            const parentRole = await el.evaluate((e: Element) => {
+              const p = e.closest('[data-pagelet="FeedUnit"], [data-pagelet="ProfileTimeline"]');
+              return p ? 'post-feed' : '';
+            }).catch(() => '');
+            if (parentRole === 'post-feed') continue;
+            return el;
           }
         }
+      }
+      return null;
+    }
+
+    // Helper: click the Comment action button using multiple approaches
+    async function clickCommentButton(): Promise<boolean> {
+      // Approach 1: aria-label based triggers (non-contenteditable)
+      const triggerSelectors = [
+        '[aria-label="Leave a comment"]',
+        '[aria-label="Write a comment"]',
+        '[aria-label="Comment"]',
+      ];
+      for (const sel of triggerSelectors) {
+        const els = await page.$$(sel);
+        for (const el of els) {
+          const editable = await el.evaluate((e: Element) => e.getAttribute('contenteditable')).catch(() => null);
+          if (editable === 'true') continue; // skip the editor itself
+          if (await el.isVisible().catch(() => false)) {
+            await el.click({ force: true }).catch(() => {});
+            return true;
+          }
+        }
+      }
+      // Approach 2: text-match any role=button with "Comment"
+      return page.evaluate(() => {
+        const allEls = Array.from(document.querySelectorAll('[role="button"], span[role="button"], div[role="button"]'));
+        for (const el of allEls) {
+          const text = (el.textContent || '').trim().toLowerCase();
+          if (text === 'comment' || text === 'write a comment' || text === 'leave a comment') {
+            (el as HTMLElement).click();
+            return true;
+          }
+        }
+        return false;
+      }).catch(() => false);
+    }
+
+    let commentBox = await findCommentBox();
+
+    // Strategy A: click the Comment action button then wait for editor to appear
+    if (!commentBox) {
+      const clicked = await clickCommentButton();
+      if (clicked) {
+        // Wait for editor to appear (up to 5s)
+        await page.waitForSelector('div[contenteditable="true"]', { timeout: 5000 }).catch(() => sleep(3000));
+        commentBox = await findCommentBox();
+      }
+    }
+
+    // Strategy B: click any visible comment-related element that could be a trigger
+    if (!commentBox) {
+      const commentTriggers = await page.$$('[aria-label*="comment" i], [aria-label*="Comment" i]');
+      for (const el of commentTriggers) {
+        if (!await el.isVisible().catch(() => false)) continue;
+        const isEditable = await el.evaluate((e: Element) => e.getAttribute('contenteditable') === 'true').catch(() => false);
+        if (isEditable) { commentBox = el; break; }
+        await el.click({ force: true }).catch(() => {});
+        await page.waitForSelector('div[contenteditable="true"]', { timeout: 4000 }).catch(() => sleep(2500));
+        commentBox = await findCommentBox();
         if (commentBox) break;
       }
     }
 
+    // Strategy C: click the comment count link (e.g. "12 comments") to expand the section
     if (!commentBox) {
+      const clicked = await page.evaluate(() => {
+        const els = Array.from(document.querySelectorAll('span, a'));
+        for (const el of els) {
+          const t = (el.textContent || '').trim().toLowerCase();
+          if (/^\d+\s+comment/.test(t) || /view\s+\d+\s+comment/i.test(t)) {
+            (el as HTMLElement).click();
+            return true;
+          }
+        }
+        return false;
+      }).catch(() => false);
+      if (clicked) {
+        await page.waitForSelector('div[contenteditable="true"]', { timeout: 5000 }).catch(() => sleep(3500));
+        commentBox = await findCommentBox();
+      }
+    }
+
+    // Strategy D: scroll to bottom, try comment button again, wait longer
+    if (!commentBox) {
+      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+      await sleep(3000);
+      const clicked = await clickCommentButton();
+      if (clicked) {
+        await page.waitForSelector('div[contenteditable="true"]', { timeout: 5000 }).catch(() => sleep(3000));
+        commentBox = await findCommentBox();
+      }
+    }
+
+    // Strategy E: Tab-focus into comment input from bottom of page
+    if (!commentBox) {
+      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+      await sleep(2000);
+      await page.keyboard.press('Tab');
+      await sleep(1000);
+      commentBox = await findCommentBox();
+    }
+
+    if (!commentBox) {
+      // Check if comments are disabled / locked on this post
+      const commentsDisabled = await page.evaluate(() => {
+        const body = document.body.innerText.toLowerCase();
+        return /comment(s|ing)? (turned off|disabled|not allowed|are off)|no one can comment/i.test(body);
+      }).catch(() => false);
+
       console.error('Could not find comment input box on post:', postUrl);
-      return { success: false, error: 'Comment box not found — post may be restricted, or login session expired' };
+      await page.screenshot({ path: '/tmp/fb-comment-notfound.png', fullPage: false }).catch(() => {});
+      return {
+        success: false,
+        error: commentsDisabled
+          ? 'Comments are disabled on this post'
+          : 'Comment box not found — post may be restricted, members-only, or comments are turned off',
+      };
     }
 
     // Click to focus (force to bypass any overlay)
     await commentBox.click({ force: true });
     await sleep(1000);
 
-    // Type the comment with human-like delay
-    await page.keyboard.type(comment, { delay: 40 });
-    await sleep(1000);
+    // Human-like typing: variable delay, occasional natural pauses
+    await sleep(700 + Math.random() * 600);
+    for (let i = 0; i < comment.length; i++) {
+      await page.keyboard.type(comment[i]);
+      const isPause = comment[i] === ',' || comment[i] === '.' || comment[i] === '!' || (Math.random() < 0.04);
+      await sleep(isPause ? 320 + Math.random() * 280 : 60 + Math.random() * 110);
+    }
+    await sleep(1800 + Math.random() * 1500);
 
     // Submit with Enter
     await page.keyboard.press('Enter');

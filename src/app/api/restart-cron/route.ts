@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthUserId } from '@/lib/apiAuth';
 import { checkPlanLimit } from '@/lib/featureGate';
 import { checkRateLimit } from '@/lib/rateLimit';
-import { enqueueJob } from '@/lib/queue';
-import { readCronStatus } from '@/lib/cronState';
+import { enqueueJob, stopPipelineJobs } from '@/lib/queue';
+import { forceStopCron } from '@/lib/cronState';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,24 +26,25 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Enforce cron scheduling plan limit
   const blocked = await checkPlanLimit(userId, 'cronScheduling');
   if (blocked) return blocked;
 
-  // Prevent duplicate: reject if cron is already running for this platform
-  const cronStatus = await readCronStatus();
-  const statusKey = `${userId}:${platform}`;
-  if (cronStatus[statusKey]?.running) {
-    return NextResponse.json({ error: `${platform} cron is already running`, alreadyRunning: true }, { status: 409 });
-  }
+  // 1. Stop any running/waiting jobs for this platform
+  const stopped = await stopPipelineJobs(userId, platform);
 
-  // Enqueue to BullMQ
+  // 2. Force-stop cron state in Redis (releases lock + sets abort signal)
+  await forceStopCron(platform, userId);
+
+  // 3. Short pause to let the running process detect the abort signal
+  await new Promise(r => setTimeout(r, 2500));
+
+  // 4. Enqueue a fresh cron-run job
   const jobId = await enqueueJob(
     { type: 'cron-run', userId, platform, mode: 'manual' },
-    { priority: 2 },
+    { priority: 1 }, // Highest priority for restart
   );
 
-  console.log(`[run-cron] Enqueued ${platform} cron for user ${userId} (jobId: ${jobId})`);
+  console.log(`[restart-cron] Restarted ${platform} for user ${userId} (stopped ${stopped} jobs, new jobId: ${jobId})`);
 
-  return NextResponse.json({ started: true, platform, jobId });
+  return NextResponse.json({ restarted: true, platform, jobId, stopped });
 }

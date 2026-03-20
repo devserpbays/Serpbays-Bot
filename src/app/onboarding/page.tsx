@@ -30,8 +30,8 @@ const inputBase: React.CSSProperties = {
 };
 
 function focusIn(e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) {
-  e.target.style.borderColor = 'rgba(129,140,248,0.6)';
-  e.target.style.boxShadow = '0 0 0 3px rgba(129,140,248,0.12)';
+  e.target.style.borderColor = 'rgba(168,85,247,0.6)';
+  e.target.style.boxShadow = '0 0 0 3px rgba(168,85,247,0.12)';
 }
 function focusOut(e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) {
   e.target.style.borderColor = 'rgba(255,255,255,0.09)';
@@ -56,7 +56,7 @@ function FeedCard({ children }: { children: React.ReactNode }) {
       }}>
         <div style={{
           width: 34, height: 34, borderRadius: '50%',
-          background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+          background: 'linear-gradient(135deg, #a855f7, #7c3aed)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontSize: 14, fontWeight: 700, color: 'white', flexShrink: 0,
         }}>G</div>
@@ -106,12 +106,43 @@ export default function OnboardingPage() {
   const [direction, setDirection] = useState<'right' | 'left'>('right');
 
   // Form state
+  const [websiteUrl, setWebsiteUrl] = useState('');
+  const [extracting, setExtracting] = useState(false);
+  const [extractError, setExtractError] = useState('');
+  const [extractedOk, setExtractedOk] = useState(false);
   const [companyName, setCompanyName] = useState('');
   const [companyDescription, setCompanyDescription] = useState('');
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
   const [keywordInput, setKeywordInput] = useState('');
   const [keywords, setKeywords] = useState<string[]>([]);
   const [promptTemplate, setPromptTemplate] = useState('');
+
+  async function extractFromWebsite() {
+    const url = websiteUrl.trim();
+    if (!url) return;
+    setExtracting(true);
+    setExtractError('');
+    setExtractedOk(false);
+    try {
+      const res = await fetch('/api/extract-company-info', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setExtractError(data.error || 'Could not extract info from website');
+      } else {
+        if (data.companyName) setCompanyName(data.companyName);
+        if (data.companyDescription) setCompanyDescription(data.companyDescription);
+        setExtractedOk(true);
+      }
+    } catch {
+      setExtractError('Failed to reach the website. Please fill in manually.');
+    } finally {
+      setExtracting(false);
+    }
+  }
 
   function addKeyword(raw: string) {
     const kw = raw.trim();
@@ -126,10 +157,25 @@ export default function OnboardingPage() {
     }
   }
 
+  const FAKE_NAMES = /^(xyz|test|abc|foo|bar|company|mycompany|acme|demo|example|asdf|qwerty|placeholder|unknown|n\/a|na|tbd|none)$/i;
+
   function canProceed() {
-    if (step === 2) return companyName.trim().length > 0 && companyDescription.trim().length > 0;
+    if (step === 2) {
+      const name = companyName.trim();
+      if (!name || !companyDescription.trim()) return false;
+      if (name.length < 2 || FAKE_NAMES.test(name)) return false;
+      return true;
+    }
     if (step === 3) return selectedPlatforms.length > 0;
     return true;
+  }
+
+  function step2Warning(): string {
+    const name = companyName.trim();
+    if (!name) return '';
+    if (name.length < 2) return 'Company name is too short.';
+    if (FAKE_NAMES.test(name)) return 'Please enter your real company name — generic names produce poor AI replies.';
+    return '';
   }
 
   function togglePlatform(id: string) {
@@ -185,7 +231,7 @@ export default function OnboardingPage() {
     <div style={{
       minHeight: '100vh',
       background: 'var(--bg-primary)',
-      backgroundImage: 'radial-gradient(ellipse 80% 50% at 50% -10%, rgba(129,140,248,0.08) 0%, transparent 60%)',
+      backgroundImage: 'radial-gradient(ellipse 80% 50% at 50% -10%, rgba(168,85,247,0.08) 0%, transparent 60%)',
     }}>
 
       {/* ── Top progress bar ─────────────────────────────── */}
@@ -194,7 +240,7 @@ export default function OnboardingPage() {
         <div style={{ height: 3, background: 'rgba(255,255,255,0.04)' }}>
           <div style={{
             height: '100%', width: `${progress}%`,
-            background: 'linear-gradient(90deg, #7c3aed, #6366f1, #10b981)',
+            background: 'linear-gradient(90deg, #a855f7, #7c3aed, #10b981)',
             transition: 'width 400ms ease',
           }} />
         </div>
@@ -213,8 +259,8 @@ export default function OnboardingPage() {
                   width: 24, height: 24, borderRadius: '50%',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   fontSize: 11, fontWeight: 700,
-                  background: isDone ? 'var(--accent)' : isActive ? 'rgba(129,140,248,0.2)' : 'rgba(255,255,255,0.05)',
-                  border: `2px solid ${isDone ? 'var(--accent)' : isActive ? 'rgba(129,140,248,0.5)' : 'rgba(255,255,255,0.08)'}`,
+                  background: isDone ? 'var(--accent)' : isActive ? 'rgba(168,85,247,0.2)' : 'rgba(255,255,255,0.05)',
+                  border: `2px solid ${isDone ? 'var(--accent)' : isActive ? 'rgba(168,85,247,0.5)' : 'rgba(255,255,255,0.08)'}`,
                   color: isDone || isActive ? 'white' : 'var(--text-muted)',
                   transition: 'all 250ms',
                 }}>
@@ -279,8 +325,8 @@ export default function OnboardingPage() {
                   ].map(pill => (
                     <div key={pill.label} style={{
                       padding: '10px 20px',
-                      background: 'rgba(129,140,248,0.06)',
-                      border: '1px solid rgba(129,140,248,0.15)',
+                      background: 'rgba(168,85,247,0.06)',
+                      border: '1px solid rgba(168,85,247,0.15)',
                       borderRadius: 28,
                       backdropFilter: 'blur(8px)',
                       display: 'flex', alignItems: 'center', gap: 8,
@@ -322,9 +368,9 @@ export default function OnboardingPage() {
                   <div style={{
                     width: 48, height: 48, borderRadius: '50%',
                     background: companyName.trim()
-                      ? 'linear-gradient(135deg, #6366f1, #818cf8)'
+                      ? 'linear-gradient(135deg, #a855f7, #7c3aed)'
                       : 'rgba(255,255,255,0.06)',
-                    border: `2px solid ${companyName.trim() ? 'rgba(129,140,248,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                    border: `2px solid ${companyName.trim() ? 'rgba(168,85,247,0.4)' : 'rgba(255,255,255,0.1)'}`,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     fontSize: 20, fontWeight: 700, color: 'white',
                     transition: 'all 300ms',
@@ -341,21 +387,86 @@ export default function OnboardingPage() {
                   </div>
                 </div>
 
+                {/* ── Website URL auto-fill ── */}
+                <div style={{
+                  background: extractedOk ? 'rgba(52,211,153,0.05)' : 'rgba(168,85,247,0.04)',
+                  border: `1px solid ${extractedOk ? 'rgba(52,211,153,0.2)' : 'rgba(168,85,247,0.15)'}`,
+                  borderRadius: 12, padding: '14px 16px',
+                }}>
+                  <label style={{ display: 'block', color: 'var(--text-secondary)', fontSize: 12, fontWeight: 600, letterSpacing: '0.4px', textTransform: 'uppercase', marginBottom: 7 }}>
+                    {extractedOk ? '✓ Info extracted from website' : 'Auto-fill from your website'}
+                  </label>
+                  <p style={{ color: 'var(--text-muted)', fontSize: 12.5, margin: '0 0 10px', lineHeight: 1.5 }}>
+                    {extractedOk
+                      ? 'Company name and description were filled automatically. Review and edit below.'
+                      : 'Enter your website URL and we\'ll extract your company info automatically.'}
+                  </p>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <input
+                      type="url"
+                      value={websiteUrl}
+                      onChange={e => { setWebsiteUrl(e.target.value); setExtractedOk(false); setExtractError(''); }}
+                      onKeyDown={e => e.key === 'Enter' && extractFromWebsite()}
+                      placeholder="https://yourcompany.com"
+                      style={{ ...inputBase, flex: 1 }}
+                      onFocus={focusIn}
+                      onBlur={focusOut}
+                      disabled={extracting}
+                    />
+                    <button
+                      type="button"
+                      onClick={extractFromWebsite}
+                      disabled={extracting || !websiteUrl.trim()}
+                      style={{
+                        padding: '0 18px',
+                        background: extracting ? 'rgba(168,85,247,0.15)' : 'var(--accent)',
+                        color: 'white', border: 'none', borderRadius: 10,
+                        fontSize: 13, fontWeight: 600, cursor: extracting || !websiteUrl.trim() ? 'not-allowed' : 'pointer',
+                        opacity: !websiteUrl.trim() ? 0.5 : 1,
+                        whiteSpace: 'nowrap', minWidth: 90,
+                        transition: 'all 160ms',
+                      }}
+                    >
+                      {extracting ? (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <svg style={{ animation: 'spin 1s linear infinite' }} viewBox="0 0 24 24" width={14} height={14} fill="none" stroke="currentColor" strokeWidth={2.5}>
+                            <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+                          </svg>
+                          Scanning…
+                        </span>
+                      ) : extractedOk ? '✓ Re-scan' : 'Auto-fill'}
+                    </button>
+                  </div>
+                  {extractError && (
+                    <p style={{ color: '#f87171', fontSize: 12, marginTop: 8, marginBottom: 0 }}>{extractError}</p>
+                  )}
+                </div>
+
                 {/* Company name as display name */}
                 <div>
                   <label style={{ display: 'block', color: 'var(--text-secondary)', fontSize: 12, fontWeight: 600, letterSpacing: '0.4px', textTransform: 'uppercase', marginBottom: 7 }}>
-                    Display name <span style={{ color: '#f87171', fontWeight: 700, textTransform: 'none' }}>*</span>
+                    Company name <span style={{ color: '#f87171', fontWeight: 700, textTransform: 'none' }}>*</span>
                   </label>
                   <input
                     type="text"
                     value={companyName}
                     onChange={e => setCompanyName(e.target.value)}
-                    placeholder="e.g. SerpBays"
+                    placeholder="e.g. SerpBays — use your real company name"
                     style={inputBase}
                     autoFocus
                     onFocus={focusIn}
                     onBlur={focusOut}
                   />
+                  {step2Warning() ? (
+                    <p style={{ color: '#fb923c', fontSize: 12, marginTop: 5, display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="currentColor" strokeWidth={2.5}><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                      {step2Warning()}
+                    </p>
+                  ) : (
+                    <p style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 5 }}>
+                      Use your real company name — generic names like &quot;xyz&quot; or &quot;test&quot; produce poor AI replies.
+                    </p>
+                  )}
                 </div>
 
                 {/* Description as post body */}
@@ -373,38 +484,10 @@ export default function OnboardingPage() {
                     onBlur={focusOut}
                   />
                   <p style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 6 }}>
-                    Be specific — mention your niche, audience, and what sets you apart.
+                    Be specific — mention your niche, audience, and what sets you apart. The AI uses this to write authentic mentions.
                   </p>
                 </div>
 
-                {/* Decorative mini toolbar */}
-                <div style={{
-                  display: 'flex', gap: 12,
-                  padding: '8px 0', borderTop: '1px solid rgba(255,255,255,0.05)',
-                }}>
-                  {['B', 'I', 'U'].map(icon => (
-                    <div key={icon} style={{
-                      width: 28, height: 28, borderRadius: 6,
-                      background: 'rgba(255,255,255,0.03)',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: 12, fontWeight: icon === 'B' ? 700 : icon === 'I' ? 400 : 500,
-                      fontStyle: icon === 'I' ? 'italic' : 'normal',
-                      textDecoration: icon === 'U' ? 'underline' : 'none',
-                      color: 'var(--text-muted)',
-                    }}>
-                      {icon}
-                    </div>
-                  ))}
-                  <svg viewBox="0 0 24 24" width={14} height={14} fill="none" stroke="var(--text-muted)" strokeWidth={1.8} style={{ marginLeft: 4, alignSelf: 'center' }}>
-                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
-                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
-                  </svg>
-                  <svg viewBox="0 0 24 24" width={14} height={14} fill="none" stroke="var(--text-muted)" strokeWidth={1.8} style={{ alignSelf: 'center' }}>
-                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                    <circle cx="8.5" cy="8.5" r="1.5"/>
-                    <polyline points="21 15 16 10 5 21"/>
-                  </svg>
-                </div>
               </div>
             </FeedCard>
           )}
@@ -495,7 +578,7 @@ export default function OnboardingPage() {
                 </div>
 
                 <p style={{ color: 'var(--text-muted)', fontSize: 12, margin: 0, textAlign: 'center' }}>
-                  Select at least one platform. Connect accounts later in Settings.
+                  Select at least one platform. Connect accounts later from the Accounts page.
                 </p>
               </div>
             </FeedCard>
@@ -552,8 +635,8 @@ export default function OnboardingPage() {
                             <span key={kw} style={{
                               display: 'inline-flex', alignItems: 'center', gap: 5,
                               padding: '5px 10px',
-                              background: 'rgba(99,102,241,0.15)',
-                              border: '1px solid rgba(99,102,241,0.3)',
+                              background: 'rgba(168,85,247,0.15)',
+                              border: '1px solid rgba(168,85,247,0.3)',
                               borderRadius: 20, fontSize: 12.5, fontWeight: 500,
                               color: 'var(--accent)',
                             }}>
@@ -563,7 +646,7 @@ export default function OnboardingPage() {
                                 onClick={e => { e.stopPropagation(); setKeywords(prev => prev.filter(k => k !== kw)); }}
                                 style={{
                                   background: 'none', border: 'none', cursor: 'pointer',
-                                  color: 'rgba(129,140,248,0.7)', padding: 0, lineHeight: 1,
+                                  color: 'rgba(168,85,247,0.7)', padding: 0, lineHeight: 1,
                                   fontSize: 15, display: 'flex', alignItems: 'center',
                                 }}
                                 aria-label={`Remove ${kw}`}
@@ -643,11 +726,11 @@ export default function OnboardingPage() {
                       </p>
                     </div>
                     {/* AI reply */}
-                    <div style={{ padding: '14px 18px', background: 'rgba(99,102,241,0.04)' }}>
+                    <div style={{ padding: '14px 18px', background: 'rgba(168,85,247,0.04)' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                         <div style={{
                           width: 24, height: 24, borderRadius: '50%',
-                          background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+                          background: 'linear-gradient(135deg, #a855f7, #7c3aed)',
                           display: 'flex', alignItems: 'center', justifyContent: 'center',
                           fontSize: 10, fontWeight: 700, color: 'white',
                         }}>{companyInitial}</div>
@@ -656,7 +739,7 @@ export default function OnboardingPage() {
                         </span>
                         <span style={{
                           fontSize: 10, padding: '2px 6px',
-                          background: 'rgba(99,102,241,0.15)',
+                          background: 'rgba(168,85,247,0.15)',
                           borderRadius: 10, color: 'var(--accent)',
                         }}>AI</span>
                       </div>
@@ -689,7 +772,7 @@ export default function OnboardingPage() {
 
                 <div>
                   <h2 style={{ color: 'var(--text-primary)', fontSize: 24, fontWeight: 700, margin: '0 0 8px', letterSpacing: '-0.5px' }}>
-                    Post published!
+                    You're all set!
                   </h2>
                   <p style={{ color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.6, maxWidth: 380, margin: '0 auto' }}>
                     Your AI engagement bot is configured and ready to go. Here's what's coming:
@@ -714,7 +797,7 @@ export default function OnboardingPage() {
                           <path d={plat.icon}/>
                         </svg>
                         <span style={{ flex: 1, fontSize: 13, color: 'var(--text-secondary)', textAlign: 'left' }}>
-                          Reply posted on <strong style={{ color: 'var(--text-primary)' }}>{plat.name}</strong>
+                          Will auto-comment on <strong style={{ color: 'var(--text-primary)' }}>{plat.name}</strong>
                         </span>
                         <svg viewBox="0 0 24 24" fill="none" stroke="#34d399" strokeWidth={2.5} width={16} height={16} style={{ flexShrink: 0 }}>
                           <polyline points="20,6 9,17 4,12"/>
@@ -768,12 +851,12 @@ export default function OnboardingPage() {
                 style={{
                   padding: '11px 32px',
                   background: canProceed()
-                    ? 'linear-gradient(135deg, #6366f1, #818cf8)'
-                    : 'rgba(99,102,241,0.3)',
+                    ? 'linear-gradient(135deg, #a855f7, #7c3aed)'
+                    : 'rgba(168,85,247,0.3)',
                   border: 'none', borderRadius: 10,
                   color: 'white', fontSize: 14, fontWeight: 600,
                   cursor: canProceed() ? 'pointer' : 'not-allowed',
-                  boxShadow: canProceed() ? '0 4px 16px rgba(99,102,241,0.35)' : 'none',
+                  boxShadow: canProceed() ? '0 4px 16px rgba(168,85,247,0.35)' : 'none',
                   transition: 'all 160ms',
                 }}
               >
@@ -788,11 +871,11 @@ export default function OnboardingPage() {
                 disabled={loading}
                 style={{
                   padding: '11px 32px',
-                  background: loading ? 'rgba(99,102,241,0.4)' : 'linear-gradient(135deg, #6366f1, #818cf8)',
+                  background: loading ? 'rgba(168,85,247,0.4)' : 'linear-gradient(135deg, #a855f7, #7c3aed)',
                   border: 'none', borderRadius: 10,
                   color: 'white', fontSize: 14, fontWeight: 600,
                   cursor: loading ? 'not-allowed' : 'pointer',
-                  boxShadow: loading ? 'none' : '0 4px 16px rgba(99,102,241,0.35)',
+                  boxShadow: loading ? 'none' : '0 4px 16px rgba(168,85,247,0.35)',
                   display: 'flex', alignItems: 'center', gap: 8,
                   transition: 'all 160ms',
                 }}

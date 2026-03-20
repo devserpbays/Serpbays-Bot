@@ -18,12 +18,12 @@ import { readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { connectDB } from '../src/lib/mongodb';
 import { evaluatePost, askOpenClaw } from '../src/lib/openclaw';
-import { cronStart, cronFinish, acquireCronLock, releaseCronLock } from '../src/lib/cronState';
 import {
   ensureQuoraLoggedIn,
   scrapeProfileIdentity,
   scrapeQuoraQuestions,
   postQuoraAnswer,
+  postQuoraComment,
   closeBrowser,
 } from '../src/lib/quora';
 import { isWithinSchedule } from '../src/lib/schedule';
@@ -31,7 +31,7 @@ import { logActivity, notifyAuthError } from '../src/lib/activityLog';
 import Post from '../src/models/Post';
 import Settings from '../src/models/Settings';
 
-const DEFAULT_DAILY_LIMIT = 3;
+const DEFAULT_DAILY_LIMIT = 2;  // Quora aggressively collapses spam answers
 const DEFAULT_AUTO_POST_THRESHOLD = 70;
 
 if (CRON_USER_ID && !process.env.QUORA_PROFILE_DIR) {
@@ -75,23 +75,24 @@ async function getTodayCommentCount(accountId: string): Promise<number> {
   return Post.countDocuments(query);
 }
 
-// --- Generate a unique, natural Quora answer mentioning the company ---
-async function generateVariedAnswer(
+// --- Generate a genuine, helpful answer to any question (no brand push) ---
+async function generateGenuineAnswer(
   postContent: string,
   companyName: string,
   companyDescription: string
 ): Promise<string> {
   const randomSeed = Math.floor(Math.random() * 1000);
+
   const styles = [
-    `share personal experience using ${companyName}`,
-    `give a detailed helpful answer then naturally mention ${companyName}`,
-    `mention you found ${companyName} helpful in a similar situation`,
-    `provide expert advice then briefly reference ${companyName}`,
-    `answer the question thoroughly and suggest ${companyName} as a resource`,
+    'provide a thorough, expert answer with actionable advice',
+    'share a genuine personal experience and lessons learned',
+    'explain the topic clearly with a concrete real-world example',
+    'give step-by-step practical guidance',
+    'share a nuanced perspective that adds real value to the discussion',
   ];
   const style = styles[randomSeed % styles.length];
 
-  const prompt = `You are an SEO expert answering a question on Quora. Write a genuinely helpful, detailed answer.
+  const prompt = `You are a knowledgeable expert answering a question on Quora.
 
 QUESTION:
 """
@@ -100,74 +101,104 @@ ${postContent.slice(0, 500)}
 
 YOUR TASK: Write a 3-5 sentence answer that ${style}.
 
-RULES:
-- Write ONLY the answer text, nothing else (no quotes, no labels, no explanation)
-- Sound like a real Quora expert sharing genuine knowledge and experience
-- Provide actual value first — the answer should be helpful even without the brand mention
-- Mention "${companyName}" naturally once — tie it specifically to backlinks, guest posting, or link building
-- NEVER include website URLs or domains — just the brand name
-- Vary your opening — do NOT always start with "Great question" or "I"
+STRICT RULES:
+- Write ONLY the answer text — no labels, no preamble
+- Sound like a genuine human expert, NOT a marketer or salesperson
+- The answer must be genuinely helpful on its own merits
+- Do NOT mention any brand, company, product, or service by name
+- Do NOT include website URLs
 - Use professional but conversational Quora language
-- Do NOT write generic praise — connect the mention to the question topic
-- Do NOT include any code, errors, JSON, or technical output
-- Company context: ${companyDescription}
+- Do NOT start with "Great question" or any flattery
+- Do NOT include code, JSON, or error text
 - Seed: ${randomSeed}
 
 Write the answer now:`;
 
   try {
     const raw = await askOpenClaw(prompt);
-
-    let comment = raw;
-
-    // If response is JSON, extract the text field
-    if (comment.trimStart().startsWith('{')) {
-      try {
-        const parsed = JSON.parse(comment);
-        comment = parsed?.payloads?.[0]?.text
-          || parsed?.result?.content
-          || parsed?.content
-          || parsed?.message
-          || '';
-      } catch {
-        const textMatch = comment.match(/"text"\s*:\s*"([^"]+)"/);
-        if (textMatch) {
-          comment = textMatch[1];
-        }
-      }
-    }
-
-    // Clean up the response
-    comment = comment
-      .replace(/^["'`]+|["'`]+$/g, '')
-      .replace(/^(Answer|Reply|Response|Here'?s?\s*(the|my|a)?\s*(answer|reply)?:?\s*)/i, '')
-      .replace(/https?:\/\/\S+/gi, '')
-      .replace(new RegExp(companyName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\.com', 'gi'), companyName)
-      .replace(/\s{2,}/g, ' ')
-      .trim();
-
-    if (comment.length > 1500) {
-      comment = comment.slice(0, 1497) + '...';
-    }
-
-    return comment;
+    return cleanAiText(raw, companyName, 1500);
   } catch (err) {
-    console.error('Failed to generate varied answer:', (err as Error).message);
+    console.error('Failed to generate genuine answer:', (err as Error).message);
     return '';
   }
 }
 
-async function main() {
-  if (!await acquireCronLock('quora', CRON_USER_ID || undefined)) {
-    console.log(`[${new Date().toISOString()}] Quora Cron: already running for user ${CRON_USER_ID || 'default'}, exiting`);
-    process.exit(0);
-  }
-  process.on('exit', () => { releaseCronLock('quora', CRON_USER_ID || undefined).catch(() => {}); });
+// --- Generate a short brand-mentioning comment based on the question topic ---
+async function generateBrandComment(
+  postContent: string,
+  companyName: string,
+  companyDescription: string
+): Promise<string> {
+  const randomSeed = Math.floor(Math.random() * 1000);
 
+  const prompt = `You are a Quora user adding a comment on an answer to this question.
+
+QUESTION:
+"""
+${postContent.slice(0, 400)}
+"""
+
+ABOUT ${companyName.toUpperCase()}: ${companyDescription}
+
+YOUR TASK: Write a 1-2 sentence comment that adds a personal note mentioning ${companyName} naturally.
+The comment should feel like a genuine user sharing their experience — NOT an ad.
+
+STRICT RULES:
+- Write ONLY the comment text, nothing else
+- Mention ${companyName} once, naturally (e.g. "I've found ${companyName} helpful for this", "tried ${companyName} for exactly this reason")
+- Keep it under 200 characters
+- Do NOT include URLs or hashtags
+- Sound like a real person sharing a personal tip, not a brand rep
+- Seed: ${randomSeed}
+
+Write the comment now:`;
+
+  try {
+    const raw = await askOpenClaw(prompt);
+    return cleanAiText(raw, companyName, 200);
+  } catch (err) {
+    console.error('Failed to generate brand comment:', (err as Error).message);
+    return '';
+  }
+}
+
+// --- Shared text cleaner ---
+function cleanAiText(raw: string, companyName: string, maxLen: number): string {
+  let text = raw;
+  if (text.trimStart().startsWith('{')) {
+    try {
+      const parsed = JSON.parse(text);
+      text = parsed?.payloads?.[0]?.text || parsed?.result?.content || parsed?.content || parsed?.message || '';
+    } catch {
+      const m = text.match(/"text"\s*:\s*"([^"]+)"/);
+      if (m) text = m[1];
+    }
+  }
+  text = text
+    .replace(/^["'`]+|["'`]+$/g, '')
+    .replace(/^(Answer|Reply|Comment|Response|Here'?s?\s*(the|my|a)?\s*(answer|reply|comment)?:?\s*)/i, '')
+    .replace(/https?:\/\/\S+/gi, '')
+    .replace(new RegExp(companyName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\.com', 'gi'), companyName)
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  if (text.length > maxLen) text = text.slice(0, maxLen - 3) + '...';
+  return text;
+}
+
+function isTextSafe(text: string | undefined): text is string {
+  if (!text || text.length < 10) return false;
+  if (/^\s*[\[{]/.test(text)) return false; // JSON garbage
+  // eslint-disable-next-line no-control-regex
+  if (/\x1b\[[\d;]*m/.test(text)) return false; // ANSI codes
+  if (/"payloads"\s*:/.test(text)) return false;
+  if (/\[agent\/embedded\]/.test(text)) return false;
+  if (/error|failed|exception|undefined|null/i.test(text) && text.length < 20) return false;
+  return true;
+}
+
+async function main() {
   console.log(`[${new Date().toISOString()}] Quora Cron: starting (user: ${CRON_USER_ID || 'default'})`);
   if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'quora', 'info', 'cron_start', 'Quora cron started');
-  const _cronId = await cronStart('quora', 'auto', CRON_USER_ID || undefined);
-  process.on('exit', (code) => { cronFinish(_cronId, 'quora', code, '', CRON_USER_ID || undefined).catch(() => {}); });
 
   await connectDB();
 
@@ -209,6 +240,8 @@ async function main() {
   const dailyLimit: number = settings.quoraDailyLimit ?? DEFAULT_DAILY_LIMIT;
   const autoPostThreshold: number =
     settings.quoraAutoPostThreshold ?? DEFAULT_AUTO_POST_THRESHOLD;
+  const brandMentionRate: number = (settings as any).quoraBrandMentionRate ?? 25;
+  const cooldownMinutes: number = (settings as any).quoraCooldownMinutes ?? 120;
 
   // Step 2b: Read current account identity
   const accountId = getCurrentAccountId();
@@ -227,7 +260,7 @@ async function main() {
 
   // Step 3b: 15-minute cooldown (skipped for manual runs)
   if (!process.env.CRON_MANUAL) {
-    const MIN_COMMENT_GAP_MS = 15 * 60 * 1000;
+    const MIN_COMMENT_GAP_MS = cooldownMinutes * 60 * 1000;
     const lastPosted = await Post.findOne({ platform: 'quora', status: 'posted', postedAt: { $exists: true }, ...(CRON_USER_ID && { userId: CRON_USER_ID }) })
       .sort({ postedAt: -1 })
       .select('postedAt platform');
@@ -337,7 +370,7 @@ async function main() {
     }
   }
 
-  // Step 8: Auto-post one high-scoring answer
+  // Step 8: Two-phase posting — answer first (any question), then brand comment
   const recheck = await getTodayCommentCount(accountId);
   if (recheck >= dailyLimit) {
     console.log('Daily limit reached after evaluation, skipping auto-post');
@@ -346,69 +379,91 @@ async function main() {
     process.exit(0);
   }
 
-  const autoPostCandidate = await Post.findOne({
+  // Pick any evaluated question (not just high-scoring ones) — answer regardless of relevance
+  const candidate = await Post.findOne({
     platform: 'quora',
     status: 'evaluated',
-    aiRelevanceScore: { $gte: autoPostThreshold },
     aiReply: { $exists: true, $ne: '' },
     postAttempts: { $not: { $gte: 3 } },
     ...(CRON_USER_ID && { userId: CRON_USER_ID }),
-  }).sort({ _id: -1 });
+  }).sort({ aiRelevanceScore: -1, _id: -1 }); // prefer higher-scoring but don't require it
 
-  if (autoPostCandidate) {
-    let replyText = autoPostCandidate.editedReply || '';
+  if (!candidate) {
+    console.log('No evaluated questions to post on, skipping');
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'quora', 'info', 'skip', 'No evaluated questions available to answer');
+    await closeBrowser();
+    process.exit(0);
+  }
 
-    if (!replyText) {
-      replyText = await generateVariedAnswer(
-        autoPostCandidate.content,
-        settings.companyName,
-        settings.companyDescription
-      );
-    }
+  // --- Phase 1: Post a genuine, helpful answer to the question ---
+  let answerText = await generateGenuineAnswer(
+    candidate.content,
+    settings.companyName,
+    settings.companyDescription
+  );
 
-    // Fallback to existing AI reply if fresh generation failed
-    if (!replyText && autoPostCandidate.aiReply) {
-      console.log('Using existing aiReply as fallback');
-      replyText = autoPostCandidate.aiReply;
-    }
+  // Fallback: use the pre-evaluated AI reply if genuine answer generation fails
+  if (!isTextSafe(answerText) && candidate.aiReply && isTextSafe(candidate.aiReply)) {
+    console.log('Generated answer failed safety check, falling back to pre-evaluated aiReply');
+    answerText = candidate.aiReply;
+  }
 
-    // Safety check — block JSON/debug garbage and empty/error text
-    const looksLikeJson = /^\s*[\[{]/.test(replyText || '');
-    // eslint-disable-next-line no-control-regex
-    const hasAnsi = /\x1b\[[\d;]*m/.test(replyText || '');
-    const hasPayloads = /"payloads"\s*:/.test(replyText || '');
-    const hasDebugPrefix = /\[agent\/embedded\]/.test(replyText || '');
+  const safeAnswer = isTextSafe(answerText);
+  if (!safeAnswer) {
+    console.error(`Generated answer failed safety check (len=${answerText?.length ?? 0}, preview="${(answerText ?? '').slice(0, 80)}")`);
+    console.error(`Candidate content: "${candidate.content.slice(0, 100)}"`);
+    await Post.findByIdAndUpdate(candidate._id, { $inc: { postAttempts: 1 } });
+    await closeBrowser();
+    process.exit(0);
+  }
 
-    if (looksLikeJson || hasAnsi || hasPayloads || hasDebugPrefix) {
-      console.error('Generated answer failed format check — JSON/debug garbage, skipping:', replyText?.slice(0, 100));
-    } else if (!replyText || replyText.length < 10 || /error|failed|exception|undefined|null/i.test(replyText)) {
-      console.error('Generated answer failed safety check, skipping:', replyText?.slice(0, 100));
-    } else {
-      console.log(
-        `Auto-posting answer on ${autoPostCandidate.url} (score: ${autoPostCandidate.aiRelevanceScore})`
-      );
-      console.log(`Answer: "${replyText.slice(0, 100)}..."`);
+  console.log(`\n[Phase 1] Answering question: ${candidate.url}`);
+  console.log(`Answer preview: "${answerText.slice(0, 120)}..."`);
 
-      const result = await postQuoraAnswer(autoPostCandidate.url, replyText);
+  const answerResult = await postQuoraAnswer(candidate.url, answerText);
+  if (answerResult.success) {
+    await Post.findByIdAndUpdate(candidate._id, {
+      status: 'posted',
+      postedAt: new Date(),
+      editedReply: answerText,
+      postedByAccount: accountId,
+    });
+    console.log('Answer posted successfully');
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'quora', 'success', 'post', `Answered question: ${candidate.url}`, { score: candidate.aiRelevanceScore });
+  } else {
+    await Post.findByIdAndUpdate(candidate._id, { $inc: { postAttempts: 1 } });
+    console.error('Failed to post answer:', answerResult.error);
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'quora', 'error', 'post_failed', `Failed to post answer: ${answerResult.error}`, { url: candidate.url });
+    await closeBrowser();
+    process.exit(0);
+  }
 
-      if (result.success) {
-        await Post.findByIdAndUpdate(autoPostCandidate._id, {
-          status: 'posted',
-          postedAt: new Date(),
-          editedReply: replyText,
-          postedByAccount: accountId,
-        });
-        console.log(`Answer posted successfully${accountId ? ` (account: ${accountId})` : ''}`);
-        if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'quora', 'success', 'post', `Comment posted on ${autoPostCandidate.url}`, { score: autoPostCandidate.aiRelevanceScore });
+  // --- Phase 2: Post a brand-mentioning comment on the same question (if brandMentionRate allows) ---
+  const shouldComment = Math.random() < (brandMentionRate / 100);
+  if (shouldComment && (recheck + 1) < dailyLimit) {
+    console.log('\n[Phase 2] Posting brand comment on the same question...');
+    await new Promise(r => setTimeout(r, 4000 + Math.random() * 3000)); // natural pause
+
+    const commentText = await generateBrandComment(
+      candidate.content,
+      settings.companyName,
+      settings.companyDescription
+    );
+
+    if (isTextSafe(commentText) && commentText.length >= 10) {
+      console.log(`Comment preview: "${commentText}"`);
+      const commentResult = await postQuoraComment(candidate.url, commentText);
+      if (commentResult.success) {
+        console.log('Brand comment posted successfully');
+        if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'quora', 'success', 'post', `Brand comment posted on ${candidate.url}`);
       } else {
-        await Post.findByIdAndUpdate(autoPostCandidate._id, { $inc: { postAttempts: 1 } });
-        console.error('Failed to post Quora answer:', result.error);
-        if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'quora', 'error', 'post_failed', `Failed to post Quora answer: ${result.error || 'Unknown error'}`, { url: autoPostCandidate.url });
+        console.warn('Brand comment failed (non-fatal):', commentResult.error);
       }
+    } else {
+      console.log('Comment text failed safety check — skipping comment phase');
     }
   } else {
-    console.log('No questions above auto-post threshold, skipping');
-    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'quora', 'info', 'skip', 'No posts above auto-post threshold');
+    console.log(`[Phase 2] Skipping brand comment (rate: ${brandMentionRate}%, daily remaining: ${dailyLimit - recheck - 1})`);
   }
 
   console.log(`[${new Date().toISOString()}] Quora Cron: complete`);

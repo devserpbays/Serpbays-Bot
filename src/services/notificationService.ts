@@ -8,7 +8,7 @@ import Notification from '@/models/Notification';
 export interface NotificationDoc {
   _id: string;
   userId: string;
-  type: 'cookie_expired' | 'cookie_expiring_soon' | 'account_removed' | 'info';
+  type: 'cookie_expired' | 'cookie_expiring_soon' | 'account_removed' | 'not_connected' | 'info';
   platform: string;
   accountId?: string;
   title: string;

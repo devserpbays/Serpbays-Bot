@@ -66,7 +66,7 @@ export async function updateSubscription(
   return Subscription.findOneAndUpdate(
     { userId },
     { $set: update },
-    { new: true },
+    { returnDocument: 'after' },
   ).lean() as Promise<SubscriptionDoc | null>;
 }
 
@@ -78,6 +78,6 @@ export async function upsertSubscription(
   return Subscription.findOneAndUpdate(
     { userId },
     { $set: update, $setOnInsert: { userId } },
-    { upsert: true, new: true },
+    { upsert: true, returnDocument: 'after' },
   ).lean() as Promise<SubscriptionDoc>;
 }

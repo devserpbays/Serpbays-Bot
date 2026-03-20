@@ -38,9 +38,10 @@ async function getPage(profileDir: string): Promise<Page> {
       '--disable-blink-features=AutomationControlled',
     ],
     userAgent:
-      'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
-    viewport: { width: 1280, height: 900 },
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    viewport: { width: 1366, height: 768 },
     locale: 'en-US',
+    timezoneId: 'America/New_York',
   });
 
   // Inject cookies from cookies.json if available
@@ -177,7 +178,7 @@ export async function scrapePinterestPins(keywords: string[], profileDir: string
 
       // Scroll to load more pins
       for (let i = 0; i < 3; i++) {
-        await page.mouse.wheel(0, 1000);
+        await page.evaluate(() => window.scrollBy({ top: 1000, behavior: 'smooth' }));
         await sleep(2000);
       }
 
@@ -246,32 +247,146 @@ export async function postPinterestComment(pinUrl: string, comment: string, prof
 
   try {
     const page = await getPage(profileDir);
-    await page.goto(pinUrl, { waitUntil: 'domcontentloaded' });
-    await sleep(SLOW_WAIT);
 
-    // Scroll to comment section
-    await page.mouse.wheel(0, 400);
-    await sleep(1500);
+    // Normalize ALL regional Pinterest subdomains (in., uk., au., de., fr., etc.) to www
+    const normalizedUrl = pinUrl.replace(/^https?:\/\/(?:[a-z]{2,5}\.)?pinterest\.[a-z.]+\//, 'https://www.pinterest.com/');
 
-    // Pinterest uses a DraftJS editor for comments
+    // Use 'load' so the SPA fully renders the pin detail before we interact
+    await page.goto(normalizedUrl, { waitUntil: 'load', timeout: 35000 }).catch(() =>
+      page.goto(normalizedUrl, { waitUntil: 'domcontentloaded', timeout: 20000 })
+    );
+    await sleep(5000); // Let Pinterest SPA render the pin detail modal
+
+    // Check if redirected to login
+    const curUrl = page.url();
+    if (curUrl.includes('/login') || curUrl.includes('/auth/')) {
+      return { success: false, error: 'Pinterest session expired — re-upload cookies from the Accounts page' };
+    }
+
+    // Pinterest renders pin detail as a modal overlay on the feed.
+    // DO NOT use mouse.wheel — it scrolls the background feed and collapses the modal.
+    // Instead, scroll INSIDE the right-side detail panel using JavaScript.
+    await page.evaluate(() => {
+      // The right panel of the pin detail contains description + comments
+      // Pinterest uses various container structures — try multiple selectors
+      const panelSelectors = [
+        '[data-test-id="pin-closeup-container"]',
+        '[data-test-id="closeup-description"]',
+        'div[class*="closeup"]',
+        // Generic: find the tallest scrollable div that isn't the body
+        ...Array.from(document.querySelectorAll('div')).filter(d => {
+          const s = window.getComputedStyle(d);
+          return (s.overflowY === 'auto' || s.overflowY === 'scroll') && d.scrollHeight > d.clientHeight + 100;
+        }).map(() => ''),
+      ].filter(Boolean);
+
+      for (const sel of panelSelectors) {
+        const el = document.querySelector(sel);
+        if (el) {
+          el.scrollTop = el.scrollHeight;
+          return;
+        }
+      }
+
+      // Fallback: find the tallest scrollable div and scroll it
+      let tallest: Element | null = null;
+      let maxScroll = 0;
+      document.querySelectorAll('div').forEach(d => {
+        const scrollable = d.scrollHeight - d.clientHeight;
+        if (scrollable > maxScroll) {
+          const style = window.getComputedStyle(d);
+          if (style.overflowY === 'auto' || style.overflowY === 'scroll') {
+            maxScroll = scrollable;
+            tallest = d;
+          }
+        }
+      });
+      if (tallest) (tallest as HTMLElement).scrollTop = (tallest as HTMLElement).scrollHeight;
+    }).catch(() => {});
+    await sleep(2500);
+
+    // Comment box selectors — ordered from most to least specific
     const commentBoxSelectors = [
-      'div.public-DraftEditor-content[contenteditable="true"]',
-      '[aria-label*="Add a comment"][contenteditable="true"]',
+      '[data-test-id="comment-input"]',
+      'input[placeholder*="Add a comment" i]',
+      'input[placeholder*="comment" i]',
+      'textarea[placeholder*="comment" i]',
+      '[data-test-id="inline-comment-composer-container"] input',
+      '[data-test-id="comment-editor-container"] input',
+      '[aria-label*="Add a comment" i]',
+      '[aria-label*="comment" i][contenteditable="true"]',
       '[data-test-id="inline-comment-composer-container"] div[contenteditable="true"]',
       '[data-test-id="comment-editor-container"] div[contenteditable="true"]',
+      'div.public-DraftEditor-content[contenteditable="true"]',
     ];
 
     let commentBox = null;
+
+    // First pass: look for comment box directly after scrolling
     for (const sel of commentBoxSelectors) {
       const el = page.locator(sel).first();
-      if (await el.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await el.isVisible({ timeout: 2000 }).catch(() => false)) {
         commentBox = el;
+        console.log(`Pinterest comment box found (pass 1) via: ${sel}`);
         break;
       }
     }
 
+    // Second pass: click the "Add a comment" text/placeholder to activate the input
     if (!commentBox) {
-      console.error('Could not find Pinterest comment box on:', pinUrl);
+      await page.evaluate(() => {
+        const allEls = Array.from(document.querySelectorAll('span, div, p, button'));
+        for (const el of allEls) {
+          const text = (el.textContent || '').trim();
+          if (text === 'Add a comment' || text === 'Write a comment') {
+            (el as HTMLElement).click();
+            break;
+          }
+        }
+      }).catch(() => {});
+      await sleep(1500);
+
+      for (const sel of commentBoxSelectors) {
+        const el = page.locator(sel).first();
+        if (await el.isVisible({ timeout: 2000 }).catch(() => false)) {
+          commentBox = el;
+          console.log(`Pinterest comment box found (pass 2) via: ${sel}`);
+          break;
+        }
+      }
+    }
+
+    // Third pass: use evaluate to find and focus any visible input inside the page
+    if (!commentBox) {
+      const found = await page.evaluate(() => {
+        const inputs = Array.from(document.querySelectorAll('input, textarea'));
+        for (const inp of inputs) {
+          const rect = (inp as HTMLElement).getBoundingClientRect();
+          const style = window.getComputedStyle(inp);
+          if (rect.width > 80 && rect.height > 10 && style.display !== 'none' && style.visibility !== 'hidden') {
+            (inp as HTMLElement).click();
+            (inp as HTMLElement).focus();
+            return true;
+          }
+        }
+        return false;
+      }).catch(() => false);
+
+      if (found) {
+        await sleep(1000);
+        for (const sel of commentBoxSelectors) {
+          const el = page.locator(sel).first();
+          if (await el.isVisible({ timeout: 1500 }).catch(() => false)) {
+            commentBox = el;
+            console.log(`Pinterest comment box found (pass 3) via: ${sel}`);
+            break;
+          }
+        }
+      }
+    }
+
+    if (!commentBox) {
+      console.error('Could not find Pinterest comment box on:', normalizedUrl);
       await page.screenshot({ path: '/tmp/pinterest-comment-failed.png', fullPage: false }).catch(() => {});
       return { success: false, error: 'Comment box not found — pin may not allow comments, or login session expired' };
     }
@@ -280,9 +395,14 @@ export async function postPinterestComment(pinUrl: string, comment: string, prof
     await commentBox.click({ force: true });
     await sleep(1000);
 
-    // Type the comment
-    await page.keyboard.type(comment, { delay: 30 });
-    await sleep(1500);
+    // Human-like typing: variable delay, occasional natural pauses
+    await sleep(700 + Math.random() * 600);
+    for (let i = 0; i < comment.length; i++) {
+      await page.keyboard.type(comment[i]);
+      const isPause = comment[i] === ',' || comment[i] === '.' || comment[i] === '!' || (Math.random() < 0.04);
+      await sleep(isPause ? 320 + Math.random() * 280 : 60 + Math.random() * 110);
+    }
+    await sleep(1800 + Math.random() * 1500);
 
     // Pinterest shows a "Post" button (aria-label="Post") after typing
     const submitSelectors = [

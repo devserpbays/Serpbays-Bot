@@ -19,7 +19,6 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { connectDB } from '../src/lib/mongodb';
 import { evaluatePost, askOpenClaw } from '../src/lib/openclaw';
-import { cronStart, cronFinish, acquireCronLock, releaseCronLock } from '../src/lib/cronState';
 import { logActivity, notifyAuthError } from '../src/lib/activityLog';
 import { isWithinSchedule } from '../src/lib/schedule';
 import Post from '../src/models/Post';
@@ -35,9 +34,9 @@ import {
 } from '../src/lib/twitterHttp';
 
 // Browser-based scraping + fallback posting (needs Chromium)
-import { searchTweets, closeBrowser, replyToTweet, likeTweet } from '../src/lib/twitter';
+import { searchTweets, searchCommunityTweets, closeBrowser, replyToTweet, likeTweet } from '../src/lib/twitter';
 
-const DEFAULT_DAILY_LIMIT = 10;
+const DEFAULT_DAILY_LIMIT = 4;
 const DEFAULT_AUTO_POST_THRESHOLD = 70;
 const MIN_ENGAGEMENT_SCORE = 1;
 
@@ -96,9 +95,16 @@ async function getTodayReplyCount(accountId: string): Promise<number> {
 async function generateTweetReply(
   postContent: string,
   companyName: string,
-  companyDescription: string
+  companyDescription: string,
+  brandMentionRate = 25
 ): Promise<string> {
   const randomSeed = Math.floor(Math.random() * 1000);
+  const mentionBrand = Math.random() < (brandMentionRate / 100);
+
+  const brandRule = mentionBrand
+    ? `- Mention "${companyName}" once, naturally woven into the reply (e.g. "been using ${companyName} for this", "${companyName} has decent options for this")`
+    : `- Do NOT mention any brand, company, or service by name\n- Reply as a knowledgeable SEO person sharing a genuine tip or insight`;
+
   const prompt = `You are an SEO practitioner who regularly builds backlinks and guest posts. Reply to this tweet naturally, like a real person sharing experience.
 
 TWEET:
@@ -112,11 +118,11 @@ RULES:
 - Write ONLY the reply text — no quotes, no labels, no explanation
 - Under 240 characters
 - Sound like a real SEO person casually sharing what worked for them — NOT a brand rep or sales pitch
-- Mention "${companyName}" once, naturally woven into the reply (e.g. "been using ${companyName} for this", "${companyName} has decent options for this")
+${brandRule}
 - No URLs, no hashtags, no emojis unless it fits naturally
 - Vary tone: sometimes enthusiastic, sometimes matter-of-fact, sometimes giving a tip
 - Never start with "Hey", "Hi", "Great tweet", or "Absolutely"
-- Never use marketing phrases like "game-changer", "seamless", "leverage", "robust"
+- Never use marketing phrases like "game-changer", "seamless", "leverage", "robust", "check out", "highly recommend"
 - Random variety seed: ${randomSeed}
 
 Write the reply now:`;
@@ -202,6 +208,47 @@ async function scrapePhase(settings: any, keywords: string[]): Promise<{ totalFo
     }
   }
 
+  // Scrape Twitter Communities
+  const communityIds: string[] = settings.twitterCommunityIds?.length ? settings.twitterCommunityIds : [];
+  for (const communityId of communityIds) {
+    try {
+      console.log(`Scraping Twitter Community: ${communityId}`);
+      const tweets = await searchCommunityTweets(communityId, 25);
+      totalFound += tweets.length;
+
+      for (const tweet of tweets) {
+        if (!tweet.text || tweet.text.length < 15) continue;
+
+        const engagementScore = tweet.likeCount + tweet.retweetCount + tweet.replyCount;
+        if (engagementScore < MIN_ENGAGEMENT_SCORE) continue;
+
+        const exists = await Post.findOne({ url: tweet.url, ...(CRON_USER_ID && { userId: CRON_USER_ID }) });
+        if (!exists) {
+          await Post.create({
+            url: tweet.url,
+            platform: 'twitter',
+            ...(CRON_USER_ID && { userId: CRON_USER_ID }),
+            author: tweet.authorHandle || tweet.author,
+            content: tweet.text.slice(0, 2000),
+            keywordsMatched: [`community:${communityId}`],
+            likeCount: tweet.likeCount,
+            retweetCount: tweet.retweetCount,
+            replyCount: tweet.replyCount,
+            bookmarkCount: tweet.bookmarkCount,
+            viewCount: tweet.viewCount,
+            status: 'new',
+          });
+          newPostCount++;
+          console.log(`  Saved community tweet ${tweet.id} (engagement: ${engagementScore})`);
+        }
+      }
+
+      await new Promise((r) => setTimeout(r, 3000));
+    } catch (err) {
+      console.error(`Error scraping community ${communityId}:`, (err as Error).message);
+    }
+  }
+
   // Close browser immediately after scraping to free RAM
   await closeBrowser();
 
@@ -250,57 +297,27 @@ async function scrapePhase(settings: any, keywords: string[]): Promise<{ totalFo
 }
 
 // === POST PHASE: reply to evaluated tweets via HTTP (no browser) ===
-async function postPhase(settings: any, accountId: string, dailyLimit: number, autoPostThreshold: number): Promise<void> {
-  const recheck = await getTodayReplyCount(accountId);
-  if (recheck >= dailyLimit) {
-    console.log('Daily limit reached, skipping auto-reply');
-    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'limit', `Daily limit reached (${recheck}/${dailyLimit}). Will resume tomorrow.`);
-    return;
-  }
+// Posts a batch of up to MAX_BATCH replies per cron run to get closer to daily limit.
+const MAX_BATCH_PER_RUN = 3; // max replies in one cron run (with delays between each)
+const INTER_REPLY_DELAY_MS = 45_000; // 45s between replies within a batch
 
-  // 15-minute cooldown (skipped for manual runs)
-  if (!process.env.CRON_MANUAL) {
-    const MIN_COMMENT_GAP_MS = 15 * 60 * 1000;
-    const lastPosted = await Post.findOne({ platform: 'twitter', status: 'posted', postedAt: { $exists: true }, ...(CRON_USER_ID && { userId: CRON_USER_ID }) })
-      .sort({ postedAt: -1 })
-      .select('postedAt platform');
-    if (lastPosted?.postedAt) {
-      const elapsed = Date.now() - new Date(lastPosted.postedAt).getTime();
-      if (elapsed < MIN_COMMENT_GAP_MS) {
-        const remainMin = Math.ceil((MIN_COMMENT_GAP_MS - elapsed) / 60000);
-        console.log(`Cooldown: last comment was ${Math.floor(elapsed / 60000)}m ago, need ${remainMin}m more. Skipping.`);
-        return;
-      }
-    }
-  }
-
-  const candidate = await Post.findOne({
-    platform: 'twitter',
-    status: 'evaluated',
-    aiRelevanceScore: { $gte: autoPostThreshold },
-    aiReply: { $exists: true, $ne: '' },
-    postAttempts: { $not: { $gte: 3 } },
-    ...(CRON_USER_ID && { userId: CRON_USER_ID }),
-  }).sort({ _id: -1 });
-
-  if (!candidate) {
-    console.log('No tweets above auto-post threshold, skipping');
-    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'skip', 'No tweets above auto-post threshold');
-    return;
-  }
-
+async function postOneTweet(
+  candidate: any,
+  settings: any,
+  accountId: string,
+): Promise<'posted' | 'daily_limit' | 'auth_error' | 'skip' | 'error'> {
   let replyText = candidate.editedReply || '';
 
   if (!replyText) {
     replyText = await generateTweetReply(
       candidate.content,
       settings.companyName,
-      settings.companyDescription
+      settings.companyDescription,
+      settings.twitterBrandMentionRate ?? 25
     );
   }
 
   if (!replyText && candidate.aiReply) {
-    console.log('Using existing aiReply as fallback');
     replyText = candidate.aiReply;
   }
 
@@ -313,11 +330,11 @@ async function postPhase(settings: any, accountId: string, dailyLimit: number, a
 
   if (looksLikeJson || hasAnsi || hasPayloads || hasDebugPrefix) {
     console.error('Generated reply failed format check, skipping:', replyText?.slice(0, 100));
-    return;
+    return 'skip';
   }
   if (!replyText || replyText.length < 5 || /error|failed|exception|undefined|null/i.test(replyText)) {
     console.error('Generated reply failed safety check, skipping:', replyText?.slice(0, 100));
-    return;
+    return 'skip';
   }
 
   const tweetText = replyText.length > 280 ? replyText.slice(0, 277) + '...' : replyText;
@@ -325,7 +342,7 @@ async function postPhase(settings: any, accountId: string, dailyLimit: number, a
 
   if (!tweetId) {
     console.error('No tweet ID found in URL, cannot reply — skipping');
-    return;
+    return 'skip';
   }
 
   const engagement = (candidate.likeCount || 0) + (candidate.retweetCount || 0) + (candidate.replyCount || 0);
@@ -340,8 +357,7 @@ async function postPhase(settings: any, accountId: string, dailyLimit: number, a
         await Post.findByIdAndUpdate(candidate._id, { likedByBot: true });
         console.log(`  Liked tweet ${tweetId}`);
         await new Promise((r) => setTimeout(r, 2000 + Math.random() * 2000));
-      } catch (likeErr) {
-        // Fallback: like via browser
+      } catch {
         try {
           await likeTweet(tweetId);
           await Post.findByIdAndUpdate(candidate._id, { likedByBot: true });
@@ -363,6 +379,10 @@ async function postPhase(settings: any, accountId: string, dailyLimit: number, a
         const result = await replyToTweet(tweetText, tweetId);
         replyId = result.data.id;
         console.log('  Reply posted via browser fallback');
+      } else if (msg.includes('344') || msg.toLowerCase().includes('daily limit') || msg.includes('429') || msg.toLowerCase().includes('rate limit')) {
+        console.log('  Twitter daily limit reached — stopping batch, will retry on next run');
+        if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'rate_limit', 'Twitter daily tweet limit reached — will retry on next run');
+        return 'daily_limit';
       } else {
         throw httpErr;
       }
@@ -379,21 +399,129 @@ async function postPhase(settings: any, accountId: string, dailyLimit: number, a
 
     console.log(`Reply posted successfully: ${replyUrl}`);
     if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'success', 'post', `Reply posted to ${candidate.url}`, { replyUrl, score: candidate.aiRelevanceScore });
+    return 'posted';
   } catch (err) {
     const msg = (err as Error).message;
-    const isAuthError = msg.includes('ct0') || msg.includes('auth_token') || msg.includes('cookies') || msg.includes('No cookies');
+    const isAuthError = msg.includes('ct0') || msg.includes('auth_token') || msg.includes('cookies') || msg.includes('No cookies') || msg.includes('session expired');
+    const isAutomationBlock = msg.includes('automated activity') || msg.includes('226') || msg.toLowerCase().includes('automation');
+    const isSuspended = msg.includes('suspended') || msg.includes('locked') || msg.includes('64') || msg.includes('326');
+    const isDuplicate = msg.includes('Duplicate tweet') || msg.includes('187');
+
     if (isAuthError) {
-      console.error(`Auth error — re-set Twitter cookies from dashboard: ${msg}`);
+      console.error(`[Twitter] Auth error: ${msg}`);
       if (CRON_USER_ID) {
-        await logActivity(CRON_USER_ID, 'twitter', 'error', 'auth_error', 'Twitter cookies expired — re-set from dashboard');
-        await notifyAuthError(CRON_USER_ID, 'twitter', 'Twitter cookies expired — re-set from dashboard');
+        await logActivity(CRON_USER_ID, 'twitter', 'error', 'auth_error', 'Twitter cookies expired — re-upload from dashboard');
+        await notifyAuthError(CRON_USER_ID, 'twitter', 'Twitter cookies expired — re-upload from dashboard');
       }
+      return 'auth_error';
+    } else if (isAutomationBlock) {
+      const attempts = (candidate.postAttempts || 0) + 1;
+      await Post.findByIdAndUpdate(candidate._id, { $inc: { postAttempts: 1 } });
+      console.warn(`[Twitter] Automation block (attempt ${attempts}/3): ${msg}`);
+      if (CRON_USER_ID) {
+        await logActivity(CRON_USER_ID, 'twitter', 'warn', 'automation_block', `Twitter flagged posting as automated activity (attempt ${attempts}/3). Posting paused — will retry automatically.`);
+        if (attempts >= 3) {
+          await notifyAuthError(CRON_USER_ID, 'twitter', 'Twitter is blocking posts as automated activity. Try posting less frequently or re-upload fresher cookies.');
+        }
+      }
+      return 'error';
+    } else if (isSuspended) {
+      console.error(`[Twitter] Account locked/suspended: ${msg}`);
+      if (CRON_USER_ID) {
+        await logActivity(CRON_USER_ID, 'twitter', 'error', 'account_suspended', msg);
+        await notifyAuthError(CRON_USER_ID, 'twitter', msg);
+      }
+      return 'auth_error';
+    } else if (isDuplicate) {
+      console.warn(`[Twitter] Duplicate tweet — marking post as posted to skip retry`);
+      await Post.findByIdAndUpdate(candidate._id, { status: 'posted', postedAt: new Date(), postedByAccount: accountId });
+      if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'warn', 'duplicate', 'Duplicate tweet skipped — reply already exists');
+      return 'posted';
     } else {
       const attempts = (candidate.postAttempts || 0) + 1;
       await Post.findByIdAndUpdate(candidate._id, { $inc: { postAttempts: 1 } });
-      console.error(`Failed to post reply (attempt ${attempts}/3): ${msg}`);
+      console.error(`[Twitter] Reply failed (attempt ${attempts}/3): ${msg}`);
       if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'error', 'post_failed', `Reply failed (attempt ${attempts}/3): ${msg}`);
+      return 'error';
     }
+  }
+}
+
+async function postPhase(settings: any, accountId: string, dailyLimit: number, autoPostThreshold: number): Promise<void> {
+  const todayCount = await getTodayReplyCount(accountId);
+  if (todayCount >= dailyLimit) {
+    console.log(`Daily limit reached (${todayCount}/${dailyLimit}), skipping auto-reply`);
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'limit', `Daily limit reached (${todayCount}/${dailyLimit}). Will resume tomorrow.`);
+    return;
+  }
+
+  // Cooldown between runs (user-configured, default 60min)
+  if (!process.env.CRON_MANUAL) {
+    const MIN_COMMENT_GAP_MS = (settings.twitterCooldownMinutes ?? 60) * 60 * 1000;
+    const lastPosted = await Post.findOne({
+      platform: 'twitter', status: 'posted', postedAt: { $exists: true },
+      ...(CRON_USER_ID && { userId: CRON_USER_ID }),
+    }).sort({ postedAt: -1 }).select('postedAt');
+    if (lastPosted?.postedAt) {
+      const elapsed = Date.now() - new Date(lastPosted.postedAt).getTime();
+      if (elapsed < MIN_COMMENT_GAP_MS) {
+        const remainMin = Math.ceil((MIN_COMMENT_GAP_MS - elapsed) / 60000);
+        console.log(`Cooldown: last reply was ${Math.floor(elapsed / 60000)}m ago, need ${remainMin}m more. Skipping.`);
+        return;
+      }
+    }
+  }
+
+  // How many can we post this run?
+  const remaining = dailyLimit - todayCount;
+  const batchSize = Math.min(MAX_BATCH_PER_RUN, remaining);
+  console.log(`Post phase: will attempt up to ${batchSize} replies (${todayCount}/${dailyLimit} used today)`);
+
+  // Track IDs already posted this batch to avoid re-querying the same candidate
+  const postedIds: string[] = [];
+  let postedThisRun = 0;
+
+  for (let i = 0; i < batchSize; i++) {
+    const candidate = await Post.findOne({
+      platform: 'twitter',
+      status: 'evaluated',
+      aiRelevanceScore: { $gte: autoPostThreshold },
+      aiReply: { $exists: true, $ne: '' },
+      postAttempts: { $not: { $gte: 3 } },
+      ...(postedIds.length > 0 ? { _id: { $nin: postedIds } } : {}),
+      ...(CRON_USER_ID && { userId: CRON_USER_ID }),
+    }).sort({ aiRelevanceScore: -1, _id: -1 });
+
+    if (!candidate) {
+      if (i === 0) {
+        console.log('No tweets above auto-post threshold, skipping');
+        if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'skip', 'No tweets above auto-post threshold');
+      } else {
+        console.log('No more candidates for this run');
+      }
+      break;
+    }
+
+    postedIds.push(candidate._id.toString());
+
+    const result = await postOneTweet(candidate, settings, accountId);
+
+    if (result === 'posted') {
+      postedThisRun++;
+      // Delay between replies within the batch (except after the last one)
+      if (i < batchSize - 1) {
+        const delay = INTER_REPLY_DELAY_MS + Math.random() * 15_000;
+        console.log(`  Waiting ${Math.round(delay / 1000)}s before next reply...`);
+        await new Promise((r) => setTimeout(r, delay));
+      }
+    } else if (result === 'daily_limit' || result === 'auth_error') {
+      break; // stop the batch on hard limits
+    }
+    // 'skip' or 'error' → continue to next candidate
+  }
+
+  if (postedThisRun > 0) {
+    console.log(`Batch complete: posted ${postedThisRun} repl${postedThisRun === 1 ? 'y' : 'ies'} this run`);
   }
 
   // Close browser if it was opened for fallback
@@ -401,16 +529,8 @@ async function postPhase(settings: any, accountId: string, dailyLimit: number, a
 }
 
 async function main() {
-  if (!await acquireCronLock('twitter', CRON_USER_ID || undefined)) {
-    console.log(`Twitter Cron: already running for user ${CRON_USER_ID || 'default'}, exiting`);
-    process.exit(0);
-  }
-  process.on('exit', () => { releaseCronLock('twitter', CRON_USER_ID || undefined).catch(() => {}); });
-
   console.log(`[${new Date().toISOString()}] Twitter Cron: starting (user: ${CRON_USER_ID || 'default'}, mode: ${MODE})`);
   if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'cron_start', 'Twitter cron started');
-  const _cronId = await cronStart('twitter', 'auto', CRON_USER_ID || undefined);
-  process.on('exit', (code) => { cronFinish(_cronId, 'twitter', code, '', CRON_USER_ID || undefined).catch(() => {}); });
 
   // Check credentials — cookies.json is required for all modes (posting uses HTTP, scraping uses browser)
   if (!isTwitterConfiguredHttp(PROFILE_DIR)) {

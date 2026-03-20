@@ -12,7 +12,7 @@ const PLATFORM_META: Record<string, { label: string; color: string; icon: React.
         icon: <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.73-8.835L1.254 2.25H8.08l4.258 5.63 5.906-5.63zm-1.161 17.52h1.833L7.084 4.126H5.117z" /></svg>,
     },
     reddit: {
-        label: 'Reddit', color: '#ff4500',
+        label: 'Reddit', color: '#3b82f6',
         icon: <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm5.01 4.744c.688 0 1.25.561 1.25 1.249a1.25 1.25 0 0 1-2.498.056l-2.597-.547-.8 3.747c1.824.07 3.48.632 4.674 1.488.308-.309.73-.491 1.207-.491.968 0 1.754.786 1.754 1.754 0 .716-.435 1.333-1.01 1.614a3.111 3.111 0 0 1 .042.52c0 2.694-3.13 4.87-7.004 4.87-3.874 0-7.004-2.176-7.004-4.87 0-.183.015-.366.043-.534A1.748 1.748 0 0 1 4.028 12c0-.968.786-1.754 1.754-1.754.463 0 .898.196 1.207.49 1.207-.883 2.878-1.43 4.744-1.487l.885-4.182a.342.342 0 0 1 .14-.197.35.35 0 0 1 .238-.042l2.906.617a1.214 1.214 0 0 1 1.108-.701zM9.25 12C8.561 12 8 12.562 8 13.25c0 .687.561 1.248 1.25 1.248.687 0 1.248-.561 1.248-1.249 0-.688-.561-1.249-1.249-1.249zm5.5 0c-.687 0-1.248.561-1.248 1.25 0 .687.561 1.248 1.249 1.248.688 0 1.249-.561 1.249-1.249 0-.687-.562-1.249-1.25-1.249z" /></svg>,
     },
     facebook: {
@@ -20,15 +20,15 @@ const PLATFORM_META: Record<string, { label: string; color: string; icon: React.
         icon: <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" /></svg>,
     },
     quora: {
-        label: 'Quora', color: '#b92b27',
+        label: 'Quora', color: '#2563eb',
         icon: <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M12.071 0C5.4 0 .001 5.4.001 12.071c0 6.248 4.759 11.41 10.85 12.003-.044-.562-.094-1.407-.094-2.001 0-.666.023-1.406.068-2.028-.447.045-.896.068-1.349.068-3.734 0-5.941-2.162-5.941-5.95 0-3.78 2.207-5.941 5.941-5.941 3.733 0 5.94 2.161 5.94 5.941 0 1.873-.509 3.374-1.407 4.38l1.047 1.986c.423.806.847 1.166 1.336 1.166.888 0 1.406-.949 1.406-2.688V12.07C17.8 6.37 15.292 0 12.071 0z" /></svg>,
     },
     youtube: {
-        label: 'YouTube', color: '#ff0000',
+        label: 'YouTube', color: '#0ea5e9',
         icon: <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.546 12 3.546 12 3.546s-7.505 0-9.377.504A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.504 9.376.504 9.376.504s7.505 0 9.377-.504a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z" /></svg>,
     },
     pinterest: {
-        label: 'Pinterest', color: '#e60023',
+        label: 'Pinterest', color: '#60a5fa',
         icon: <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M12.017 0C5.396 0 .029 5.367.029 11.987c0 5.079 3.158 9.417 7.618 11.162-.105-.949-.199-2.403.041-3.439.219-.937 1.406-5.957 1.406-5.957s-.359-.72-.359-1.781c0-1.668.967-2.914 2.171-2.914 1.023 0 1.518.769 1.518 1.69 0 1.029-.655 2.568-.994 3.995-.283 1.194.599 2.169 1.777 2.169 2.133 0 3.772-2.249 3.772-5.495 0-2.873-2.064-4.882-5.012-4.882-3.414 0-5.418 2.561-5.418 5.207 0 1.031.397 2.138.893 2.738a.36.36 0 0 1 .083.345l-.333 1.36c-.053.22-.174.267-.402.161-1.499-.698-2.436-2.889-2.436-4.649 0-3.785 2.75-7.262 7.929-7.262 4.163 0 7.398 2.967 7.398 6.931 0 4.136-2.607 7.464-6.227 7.464-1.216 0-2.359-.631-2.75-1.378l-.748 2.853c-.271 1.043-1.002 2.35-1.492 3.146C9.57 23.812 10.763 24 12.017 24c6.624 0 11.99-5.367 11.99-11.988C24.007 5.367 18.641.001 12.017.001z" /></svg>,
     },
 };
@@ -92,19 +92,32 @@ export default function PlatformPage() {
     const [posts, setPosts] = useState<IPost[]>([]);
     const [total, setTotal] = useState(0);
     const [page, setPage] = useState(1);
+    const [communityPosts, setCommunityPosts] = useState<IPost[]>([]);
+    const [communityTotal, setCommunityTotal] = useState(0);
+    const [communityPage, setCommunityPage] = useState(1);
+    const [viewMode, setViewMode] = useState<'keyword' | 'community'>('keyword');
     const [timeFilter, setTimeFilter] = useState('today');
     const [expandedId, setExpandedId] = useState<string | null>(null);
     const [accounts, setAccounts] = useState<SocialAccount[]>([]);
     const [loading, setLoading] = useState(true);
+    const [communityLoading, setCommunityLoading] = useState(true);
+    const [platformSettings, setPlatformSettings] = useState<Record<string, any>>({});
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     useEffect(() => { if (!meta) router.replace('/dashboard'); }, [meta, router]);
 
     const fetchAccounts = useCallback(async () => {
         try {
-            const res = await fetch(`${API_BASE}/api/social-accounts`);
-            const data = await res.json();
-            setAccounts((data.accounts ?? []).filter((a: SocialAccount) => a.platform === platformId));
+            const [accRes, setRes] = await Promise.all([
+                fetch(`${API_BASE}/api/social-accounts`),
+                fetch(`${API_BASE}/api/settings`),
+            ]);
+            const accData = await accRes.json();
+            setAccounts((accData.accounts ?? []).filter((a: SocialAccount) => a.platform === platformId));
+            if (setRes.ok) {
+                const setData = await setRes.json();
+                setPlatformSettings(setData.settings ?? {});
+            }
         } catch { /* silent */ }
     }, [platformId]);
 
@@ -113,6 +126,8 @@ export default function PlatformPage() {
         const { from, to } = getDateRange(timeFilter);
         if (from) p.set('from', from.toISOString());
         if (to) p.set('to', to.toISOString());
+        // For Twitter: only fetch keyword posts in main section
+        if (platformId === 'twitter') p.set('source', 'keyword');
         try {
             const res = await fetch(`${API_BASE}/api/posts?${p}`);
             const data: PostsResponse = await res.json();
@@ -122,25 +137,47 @@ export default function PlatformPage() {
         setLoading(false);
     }, [platformId, timeFilter, page]);
 
+    const fetchCommunityPosts = useCallback(async () => {
+        if (platformId !== 'twitter') { setCommunityLoading(false); return; }
+        const p = new URLSearchParams({ status: 'posted', platform: 'twitter', source: 'community', limit: String(LIMIT), page: String(communityPage) });
+        const { from, to } = getDateRange(timeFilter);
+        if (from) p.set('from', from.toISOString());
+        if (to) p.set('to', to.toISOString());
+        try {
+            const res = await fetch(`${API_BASE}/api/posts?${p}`);
+            const data: PostsResponse = await res.json();
+            setCommunityPosts(data.posts ?? []);
+            setCommunityTotal(data.total ?? 0);
+        } catch { /* silent */ }
+        setCommunityLoading(false);
+    }, [platformId, timeFilter, communityPage]);
+
     useEffect(() => { fetchAccounts(); }, [fetchAccounts]);
     useEffect(() => { setLoading(true); fetchPosts(); }, [fetchPosts]);
+    useEffect(() => { setCommunityLoading(true); fetchCommunityPosts(); }, [fetchCommunityPosts]);
     useEffect(() => {
-        pollRef.current = setInterval(fetchPosts, POLL_MS);
+        pollRef.current = setInterval(() => { fetchPosts(); fetchCommunityPosts(); }, POLL_MS);
         return () => { if (pollRef.current) clearInterval(pollRef.current); };
-    }, [fetchPosts]);
+    }, [fetchPosts, fetchCommunityPosts]);
 
     if (!meta) return null;
 
     const { label, color, icon } = meta;
-    const totalPages = Math.ceil(total / LIMIT);
     const replyLabel = REPLY_LABEL[platformId] || 'Comment';
-    const startItem = (page - 1) * LIMIT + 1;
-    const endItem = Math.min(page * LIMIT, total);
+    const isCommunityView = platformId === 'twitter' && viewMode === 'community';
+    const activePosts = isCommunityView ? communityPosts : posts;
+    const activeTotal = isCommunityView ? communityTotal : total;
+    const activePage = isCommunityView ? communityPage : page;
+    const setActivePage = isCommunityView ? setCommunityPage : setPage;
+    const activeLoading = isCommunityView ? communityLoading : loading;
+    const totalPages = Math.ceil(activeTotal / LIMIT);
+    const startItem = (activePage - 1) * LIMIT + 1;
+    const endItem = Math.min(activePage * LIMIT, activeTotal);
 
     /* page numbers to show */
     const pageNumbers: number[] = [];
     const delta = 2;
-    for (let i = Math.max(1, page - delta); i <= Math.min(totalPages, page + delta); i++) pageNumbers.push(i);
+    for (let i = Math.max(1, activePage - delta); i <= Math.min(totalPages, activePage + delta); i++) pageNumbers.push(i);
 
     return (
         <div className="animate-fade-in" style={{ minHeight: '100vh' }}>
@@ -185,7 +222,7 @@ export default function PlatformPage() {
                             <h2 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>{label}</h2>
                             <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '3px 0 0' }}>
                                 {accounts.length > 0
-                                    ? `${accounts.length} connected account${accounts.length > 1 ? 's' : ''} · ${total} total posts`
+                                    ? `${accounts.length} connected account${accounts.length > 1 ? 's' : ''} · ${total} comment${total !== 1 ? 's' : ''} published`
                                     : 'No accounts connected'}
                             </p>
                         </div>
@@ -198,110 +235,232 @@ export default function PlatformPage() {
                     </div>
                 </div>
 
-                {/* ── Account pills ── */}
+                {/* ── Account cards ── */}
                 {accounts.length > 0 && (
-                    <div style={{ display: 'flex', gap: 10, marginTop: 18, flexWrap: 'wrap' }}>
-                        {accounts.map((acc) => (
-                            <div key={acc.id} style={{
-                                display: 'flex', alignItems: 'center', gap: 8,
-                                background: 'var(--bg-card)',
-                                border: `1px solid ${color}30`,
-                                borderRadius: 10, padding: '7px 14px',
-                            }}>
-                                <div style={{
-                                    width: 28, height: 28, borderRadius: '50%',
-                                    background: `${color}22`, color,
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    fontWeight: 700, fontSize: 12, flexShrink: 0,
+                    <div style={{ display: 'flex', gap: 12, marginTop: 18, flexWrap: 'wrap' }}>
+                        {accounts.map((acc) => {
+                            const displayLabel = acc.displayName || acc.username || label + ' Account';
+                            const handle = acc.username ? `@${acc.username}` : acc.id;
+                            const cookieOk = acc.cookieVerified !== false;
+                            const verifiedAgo = acc.verifiedAt
+                                ? timeAgo(new Date(acc.verifiedAt))
+                                : (acc.addedAt ? timeAgo(new Date(acc.addedAt)) : null);
+                            return (
+                                <div key={acc.id} style={{
+                                    display: 'flex', alignItems: 'center', gap: 12,
+                                    background: 'var(--bg-card)',
+                                    border: `1px solid ${cookieOk ? color + '35' : 'rgba(239,68,68,0.3)'}`,
+                                    borderRadius: 12, padding: '10px 16px',
+                                    minWidth: 220,
                                 }}>
-                                    {(acc.displayName || acc.username || '?')[0].toUpperCase()}
-                                </div>
-                                <div>
-                                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1.2 }}>
-                                        {acc.displayName || acc.username}
+                                    {/* Avatar */}
+                                    <div style={{
+                                        width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
+                                        background: `${color}22`, color,
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        fontWeight: 700, fontSize: 14,
+                                    }}>
+                                        {displayLabel[0].toUpperCase()}
                                     </div>
-                                    {acc.username && (
-                                        <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.2 }}>@{acc.username}</div>
-                                    )}
+
+                                    {/* Info */}
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            {displayLabel}
+                                        </div>
+                                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            {handle}
+                                        </div>
+                                        {verifiedAgo && (
+                                            <div style={{ fontSize: 10, color: cookieOk ? '#34d399' : '#f87171', marginTop: 2 }}>
+                                                {cookieOk ? '✓' : '✗'} Cookies verified {verifiedAgo}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Status badge */}
+                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
+                                        <span style={{
+                                            fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 6,
+                                            background: cookieOk ? 'rgba(52,211,153,0.12)' : 'rgba(239,68,68,0.12)',
+                                            color: cookieOk ? '#34d399' : '#f87171',
+                                        }}>
+                                            {cookieOk ? 'Active' : 'Expired'}
+                                        </span>
+                                        <span style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 500 }}>
+                                            #{acc.accountIndex + 1}
+                                        </span>
+                                    </div>
                                 </div>
-                                <span style={{
-                                    marginLeft: 4, fontSize: 10, fontWeight: 600,
-                                    padding: '2px 7px', borderRadius: 6,
-                                    background: 'rgba(52,211,153,0.12)', color: '#34d399',
-                                }}>
-                                    Active
-                                </span>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 )}
+                {accounts.length === 0 && (
+                    <div style={{
+                        marginTop: 16, padding: '10px 16px',
+                        background: 'rgba(239,68,68,0.06)',
+                        border: '1px solid rgba(239,68,68,0.2)',
+                        borderRadius: 10, fontSize: 12, color: '#f87171',
+                        display: 'flex', alignItems: 'center', gap: 8,
+                    }}>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={14} height={14}>
+                            <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+                        </svg>
+                        No account connected — go to <strong style={{ marginLeft: 4 }}>Social Accounts</strong> to add cookies.
+                    </div>
+                )}
+
+                {/* ── Bot config summary bar ── */}
+                {(() => {
+                    const brandRate = platformSettings[`${platformId}BrandMentionRate`] ?? 25;
+                    const cooldown = platformSettings[`${platformId}CooldownMinutes`];
+                    const communities: string[] = platformSettings['twitterCommunityIds'] ?? [];
+                    const dailyLimit = platformSettings[`${platformId}DailyLimit`];
+                    const threshold = platformSettings[`${platformId}AutoPostThreshold`];
+
+                    const riskColor = brandRate <= 25 ? '#22c55e' : brandRate <= 50 ? '#f59e0b' : brandRate <= 75 ? '#f97316' : '#ef4444';
+                    const riskLabel = brandRate <= 25 ? 'Safe' : brandRate <= 50 ? 'Moderate' : brandRate <= 75 ? 'High Risk' : 'Ban Risk';
+
+                    const chips: { label: string; value: string; accent: string }[] = [
+                        { label: 'Daily limit', value: dailyLimit != null ? `${dailyLimit}/day` : '—', accent: color },
+                        { label: 'Auto-post', value: threshold != null ? `≥${threshold}%` : '—', accent: color },
+                        { label: 'Brand rate', value: `${brandRate}% · ${riskLabel}`, accent: riskColor },
+                        ...(cooldown != null ? [{ label: 'Cooldown', value: cooldown >= 60 ? `${Math.floor(cooldown / 60)}h${cooldown % 60 ? ` ${cooldown % 60}m` : ''}` : `${cooldown}m`, accent: color }] : []),
+                        ...(platformId === 'twitter' && communities.length > 0 ? [{ label: 'Communities', value: `${communities.length} monitored`, accent: '#1d9bf0' }] : []),
+                        ...(platformId === 'quora' ? [{ label: 'Mode', value: 'Answer → Brand Comment', accent: '#818cf8' }] : []),
+                    ];
+
+                    return (
+                        <div style={{ display: 'flex', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
+                            {chips.map(chip => (
+                                <div key={chip.label} style={{
+                                    display: 'flex', alignItems: 'center', gap: 6,
+                                    padding: '5px 12px', borderRadius: 8,
+                                    background: `${chip.accent}10`, border: `1px solid ${chip.accent}28`,
+                                    fontSize: 11,
+                                }}>
+                                    <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>{chip.label}:</span>
+                                    <span style={{ color: chip.accent, fontWeight: 700 }}>{chip.value}</span>
+                                </div>
+                            ))}
+                        </div>
+                    );
+                })()}
             </div>
 
             {/* ══ Body ════════════════════════════════════════════════ */}
             <div style={{ padding: '20px 28px', display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-                {/* ── Toolbar: time filters + result count ── */}
+                {/* ── Toolbar: source toggle (Twitter) + time filters + result count ── */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                    {/* Tab-style time filters */}
-                    <div style={{
-                        display: 'flex', gap: 2,
-                        background: 'var(--bg-card)',
-                        border: '1px solid var(--border-subtle)',
-                        borderRadius: 10, padding: 3,
-                    }}>
-                        {TIME_FILTERS.map(({ value, label: lbl }) => (
-                            <button key={value} onClick={() => { setTimeFilter(value); setPage(1); }} style={{
-                                padding: '6px 14px', borderRadius: 8, border: 'none',
-                                fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                                background: timeFilter === value ? color : 'transparent',
-                                color: timeFilter === value ? '#fff' : 'var(--text-muted)',
-                                transition: 'all 150ms',
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                        {/* Source toggle — Twitter only */}
+                        {platformId === 'twitter' && (
+                            <div style={{
+                                display: 'flex', gap: 2,
+                                background: 'var(--bg-card)',
+                                border: '1px solid var(--border-subtle)',
+                                borderRadius: 10, padding: 3,
                             }}>
-                                {lbl}
-                            </button>
-                        ))}
+                                {([
+                                    { value: 'keyword', label: 'Keyword Replies' },
+                                    { value: 'community', label: 'Communities' },
+                                ] as const).map(({ value, label: lbl }) => (
+                                    <button key={value} onClick={() => { setViewMode(value); setExpandedId(null); }} style={{
+                                        padding: '6px 14px', borderRadius: 8, border: 'none',
+                                        fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                                        background: viewMode === value ? (value === 'community' ? '#1d9bf0' : color) : 'transparent',
+                                        color: viewMode === value ? '#fff' : 'var(--text-muted)',
+                                        transition: 'all 150ms',
+                                        display: 'flex', alignItems: 'center', gap: 6,
+                                    }}>
+                                        {value === 'community' && (
+                                            <svg viewBox="0 0 24 24" fill="currentColor" width="11" height="11">
+                                                <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm0 3a3 3 0 110 6 3 3 0 010-6zm0 14.2a7.2 7.2 0 01-6-3.22c.03-1.99 4-3.08 6-3.08s5.97 1.09 6 3.08a7.2 7.2 0 01-6 3.22z" />
+                                            </svg>
+                                        )}
+                                        {lbl}
+                                        {value === 'community' && communityTotal > 0 && (
+                                            <span style={{
+                                                fontSize: 10, fontWeight: 700, lineHeight: 1,
+                                                padding: '2px 6px', borderRadius: 10,
+                                                background: viewMode === 'community' ? 'rgba(255,255,255,0.25)' : 'rgba(29,155,240,0.15)',
+                                                color: viewMode === 'community' ? '#fff' : '#1d9bf0',
+                                            }}>{communityTotal}</span>
+                                        )}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+
+                        {/* Tab-style time filters */}
+                        <div style={{
+                            display: 'flex', gap: 2,
+                            background: 'var(--bg-card)',
+                            border: '1px solid var(--border-subtle)',
+                            borderRadius: 10, padding: 3,
+                        }}>
+                            {TIME_FILTERS.map(({ value, label: lbl }) => (
+                                <button key={value} onClick={() => { setTimeFilter(value); setPage(1); setCommunityPage(1); }} style={{
+                                    padding: '6px 14px', borderRadius: 8, border: 'none',
+                                    fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                                    background: timeFilter === value ? color : 'transparent',
+                                    color: timeFilter === value ? '#fff' : 'var(--text-muted)',
+                                    transition: 'all 150ms',
+                                }}>
+                                    {lbl}
+                                </button>
+                            ))}
+                        </div>
                     </div>
 
                     {/* Result count */}
-                    {total > 0 && (
+                    {activeTotal > 0 && (
                         <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                            Showing <strong style={{ color: 'var(--text-secondary)' }}>{startItem}–{endItem}</strong> of <strong style={{ color: 'var(--text-secondary)' }}>{total}</strong> comments
+                            Showing <strong style={{ color: 'var(--text-secondary)' }}>{startItem}–{endItem}</strong> of <strong style={{ color: 'var(--text-secondary)' }}>{activeTotal}</strong> {isCommunityView ? 'replies' : 'comments'}
                         </span>
                     )}
                 </div>
 
                 {/* ── Post list ── */}
-                {loading ? (
+                {activeLoading ? (
                     <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--text-muted)', fontSize: 13 }}>
                         Loading…
                     </div>
-                ) : posts.length === 0 ? (
+                ) : activePosts.length === 0 ? (
                     <div style={{
                         textAlign: 'center', padding: '64px 20px',
-                        background: 'var(--bg-card)', border: '1px solid var(--border-subtle)',
+                        background: 'var(--bg-card)', border: `1px solid ${isCommunityView ? 'rgba(29,155,240,0.15)' : 'var(--border-subtle)'}`,
                         borderRadius: 14,
                     }}>
                         <div style={{
                             width: 52, height: 52, borderRadius: '50%',
-                            background: `${color}12`, border: `1px solid ${color}25`,
+                            background: `${isCommunityView ? '#1d9bf0' : color}12`, border: `1px solid ${isCommunityView ? '#1d9bf0' : color}25`,
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            margin: '0 auto 16px', color,
+                            margin: '0 auto 16px', color: isCommunityView ? '#1d9bf0' : color,
                         }}>
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} width="24" height="24">
                                 <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
                             </svg>
                         </div>
-                        <p style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-secondary)', margin: '0 0 6px' }}>No comments yet</p>
-                        <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>No posted comments found for this time period.</p>
+                        <p style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-secondary)', margin: '0 0 6px' }}>
+                            {isCommunityView ? 'No community replies yet' : 'No comments yet'}
+                        </p>
+                        <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>
+                            {isCommunityView
+                                ? 'Add community IDs in Settings → Twitter → Communities, or click Sync to auto-detect.'
+                                : 'No posted comments found for this time period.'}
+                        </p>
                     </div>
                 ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 1, background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 14, overflow: 'hidden' }}>
-                        {posts.map((post, idx) => {
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 1, background: 'var(--bg-card)', border: `1px solid ${isCommunityView ? 'rgba(29,155,240,0.2)' : 'var(--border-subtle)'}`, borderRadius: 14, overflow: 'hidden' }}>
+                        {activePosts.map((post, idx) => {
                             const expanded = expandedId === post._id;
                             const reply = post.editedReply || post.aiReply || '';
                             const postedAt = post.postedAt ? new Date(post.postedAt) : null;
                             const score = post.aiRelevanceScore;
-                            const isLast = idx === posts.length - 1;
+                            const isLast = idx === activePosts.length - 1;
 
                             return (
                                 <div key={post._id} style={{ borderBottom: isLast ? 'none' : '1px solid var(--border-subtle)' }}>
@@ -340,16 +499,22 @@ export default function PlatformPage() {
                                                     <span style={{ fontSize: 12, fontWeight: 700, color }}>{post.postedByAccount}</span>
                                                 )}
                                                 {post.author && (
-                                                    <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>on post by {post.author}</span>
+                                                    <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>on thread by {post.author}</span>
                                                 )}
-                                                {post.keywordsMatched?.length ? (
-                                                    <span style={{
-                                                        fontSize: 10, padding: '1px 7px', borderRadius: 6,
-                                                        background: 'var(--accent-bg)', color: 'var(--accent)', fontWeight: 600,
-                                                    }}>
-                                                        {post.keywordsMatched[0]}{post.keywordsMatched.length > 1 ? ` +${post.keywordsMatched.length - 1}` : ''}
-                                                    </span>
-                                                ) : null}
+                                                {post.keywordsMatched?.length ? (() => {
+                                                    const kw = post.keywordsMatched[0];
+                                                    const isCommunity = kw.startsWith('community:');
+                                                    return (
+                                                        <span style={{
+                                                            fontSize: 10, padding: '1px 7px', borderRadius: 6, fontWeight: 600,
+                                                            background: isCommunity ? 'rgba(29,155,240,0.12)' : 'var(--accent-bg)',
+                                                            color: isCommunity ? '#1d9bf0' : 'var(--accent)',
+                                                            border: isCommunity ? '1px solid rgba(29,155,240,0.25)' : undefined,
+                                                        }}>
+                                                            {isCommunity ? `Community ${kw.replace('community:', '')}` : kw}{post.keywordsMatched.length > 1 ? ` +${post.keywordsMatched.length - 1}` : ''}
+                                                        </span>
+                                                    );
+                                                })() : null}
                                             </div>
 
                                             {/* Post content preview */}
@@ -418,7 +583,7 @@ export default function PlatformPage() {
                                                             <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" />
                                                             <polyline points="15,3 21,3 21,9" /><line x1="10" y1="14" x2="21" y2="3" />
                                                         </svg>
-                                                        View original post
+                                                        View original thread
                                                     </a>
                                                 )}
                                             </div>
@@ -427,7 +592,7 @@ export default function PlatformPage() {
                                             {reply && (
                                                 <div>
                                                     <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color, marginBottom: 8 }}>
-                                                        {replyLabel} Posted
+                                                        {replyLabel} Published
                                                         {post.postedByAccount && <span style={{ color: 'var(--text-muted)', fontWeight: 400, marginLeft: 6 }}>· @{post.postedByAccount}</span>}
                                                     </div>
                                                     <div style={{
@@ -501,66 +666,26 @@ export default function PlatformPage() {
                 {totalPages > 1 && (
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 20 }}>
                         <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                            Page {page} of {totalPages}
+                            Page {activePage} of {totalPages}
                         </span>
-
                         <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                            {/* Prev */}
-                            <button
-                                disabled={page === 1}
-                                onClick={() => setPage(p => Math.max(1, p - 1))}
-                                style={{
-                                    padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border-subtle)',
-                                    background: 'var(--bg-card)', color: 'var(--text-secondary)',
-                                    fontSize: 13, cursor: page === 1 ? 'not-allowed' : 'pointer',
-                                    opacity: page === 1 ? 0.35 : 1, transition: 'all 150ms',
-                                }}
-                            >
-                                ←
-                            </button>
-
-                            {/* First page if not in range */}
+                            <button disabled={activePage === 1} onClick={() => setActivePage(p => Math.max(1, p - 1))} style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border-subtle)', background: 'var(--bg-card)', color: 'var(--text-secondary)', fontSize: 13, cursor: activePage === 1 ? 'not-allowed' : 'pointer', opacity: activePage === 1 ? 0.35 : 1, transition: 'all 150ms' }}>←</button>
                             {pageNumbers[0] > 1 && (
                                 <>
-                                    <button onClick={() => setPage(1)} style={{ padding: '6px 11px', borderRadius: 8, border: '1px solid var(--border-subtle)', background: 'var(--bg-card)', color: 'var(--text-secondary)', fontSize: 13, cursor: 'pointer' }}>1</button>
+                                    <button onClick={() => setActivePage(1)} style={{ padding: '6px 11px', borderRadius: 8, border: '1px solid var(--border-subtle)', background: 'var(--bg-card)', color: 'var(--text-secondary)', fontSize: 13, cursor: 'pointer' }}>1</button>
                                     {pageNumbers[0] > 2 && <span style={{ color: 'var(--text-muted)', fontSize: 13, padding: '0 2px' }}>…</span>}
                                 </>
                             )}
-
-                            {/* Page number buttons */}
                             {pageNumbers.map(n => (
-                                <button key={n} onClick={() => setPage(n)} style={{
-                                    padding: '6px 11px', borderRadius: 8, fontSize: 13, cursor: 'pointer', transition: 'all 150ms',
-                                    border: n === page ? `1px solid ${color}` : '1px solid var(--border-subtle)',
-                                    background: n === page ? `${color}18` : 'var(--bg-card)',
-                                    color: n === page ? color : 'var(--text-secondary)',
-                                    fontWeight: n === page ? 700 : 400,
-                                }}>
-                                    {n}
-                                </button>
+                                <button key={n} onClick={() => setActivePage(n)} style={{ padding: '6px 11px', borderRadius: 8, fontSize: 13, cursor: 'pointer', transition: 'all 150ms', border: n === activePage ? `1px solid ${isCommunityView ? '#1d9bf0' : color}` : '1px solid var(--border-subtle)', background: n === activePage ? `${isCommunityView ? '#1d9bf0' : color}18` : 'var(--bg-card)', color: n === activePage ? (isCommunityView ? '#1d9bf0' : color) : 'var(--text-secondary)', fontWeight: n === activePage ? 700 : 400 }}>{n}</button>
                             ))}
-
-                            {/* Last page if not in range */}
                             {pageNumbers[pageNumbers.length - 1] < totalPages && (
                                 <>
                                     {pageNumbers[pageNumbers.length - 1] < totalPages - 1 && <span style={{ color: 'var(--text-muted)', fontSize: 13, padding: '0 2px' }}>…</span>}
-                                    <button onClick={() => setPage(totalPages)} style={{ padding: '6px 11px', borderRadius: 8, border: '1px solid var(--border-subtle)', background: 'var(--bg-card)', color: 'var(--text-secondary)', fontSize: 13, cursor: 'pointer' }}>{totalPages}</button>
+                                    <button onClick={() => setActivePage(totalPages)} style={{ padding: '6px 11px', borderRadius: 8, border: '1px solid var(--border-subtle)', background: 'var(--bg-card)', color: 'var(--text-secondary)', fontSize: 13, cursor: 'pointer' }}>{totalPages}</button>
                                 </>
                             )}
-
-                            {/* Next */}
-                            <button
-                                disabled={page === totalPages}
-                                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                                style={{
-                                    padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border-subtle)',
-                                    background: 'var(--bg-card)', color: 'var(--text-secondary)',
-                                    fontSize: 13, cursor: page === totalPages ? 'not-allowed' : 'pointer',
-                                    opacity: page === totalPages ? 0.35 : 1, transition: 'all 150ms',
-                                }}
-                            >
-                                →
-                            </button>
+                            <button disabled={activePage === totalPages} onClick={() => setActivePage(p => Math.min(totalPages, p + 1))} style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border-subtle)', background: 'var(--bg-card)', color: 'var(--text-secondary)', fontSize: 13, cursor: activePage === totalPages ? 'not-allowed' : 'pointer', opacity: activePage === totalPages ? 0.35 : 1, transition: 'all 150ms' }}>→</button>
                         </div>
                     </div>
                 )}

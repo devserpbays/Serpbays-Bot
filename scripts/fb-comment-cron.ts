@@ -18,7 +18,6 @@ import { readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { connectDB } from '../src/lib/mongodb';
 import { evaluatePost, askOpenClaw } from '../src/lib/openclaw';
-import { cronStart, cronFinish, acquireCronLock, releaseCronLock } from '../src/lib/cronState';
 import {
   ensureFacebookLoggedIn,
   scrapeProfileIdentity,
@@ -33,7 +32,7 @@ import { logActivity, notifyAuthError } from '../src/lib/activityLog';
 import Post from '../src/models/Post';
 import Settings from '../src/models/Settings';
 
-const DEFAULT_DAILY_LIMIT = 5;
+const DEFAULT_DAILY_LIMIT = 3;  // Facebook flags accounts posting too many group comments/day
 const DEFAULT_AUTO_POST_THRESHOLD = 10;
 
 if (CRON_USER_ID && !process.env.FACEBOOK_PROFILE_DIR) {
@@ -83,37 +82,44 @@ async function getTodayCommentCount(accountId: string): Promise<number> {
 async function generateVariedComment(
   postContent: string,
   companyName: string,
-  companyDescription: string
+  companyDescription: string,
+  brandMentionRate = 25
 ): Promise<string> {
   const randomSeed = Math.floor(Math.random() * 1000);
-  const styles = [
-    `share personal experience using ${companyName}`,
-    `casually recommend ${companyName} to solve the poster's problem`,
-    `mention you found ${companyName} helpful in a similar situation`,
-    `ask a follow-up question then briefly mention ${companyName}`,
-    `give a tip and suggest ${companyName} as a resource`,
-  ];
-  const style = styles[randomSeed % styles.length];
+  const mentionBrand = Math.random() < (brandMentionRate / 100);
 
-  const prompt = `You are a real person in a Facebook SEO/marketing group leaving a helpful comment.
+  const genericStyles = [
+    'share a genuine helpful tip related to the post topic',
+    'ask a thoughtful follow-up question about something in the post',
+    'share a personal experience or lesson relevant to the discussion',
+    'give practical advice that adds real value to the conversation',
+    'share an observation or insight that builds on the post',
+  ];
+  const brandStyles = [
+    `give a helpful tip; only if it fits completely naturally, mention ${companyName} briefly — do NOT force it`,
+    `share a genuine insight; if organic, mention you've found ${companyName} useful — otherwise leave it out`,
+  ];
+  const stylePool = mentionBrand ? brandStyles : genericStyles;
+  const style = stylePool[randomSeed % stylePool.length];
+
+  const prompt = `You are a real member of a Facebook group leaving a genuine comment.
 
 POST:
 """
 ${postContent.slice(0, 500)}
 """
 
-YOUR TASK: Write 1-3 sentence comment that ${style}.
+YOUR TASK: Write a 1-2 sentence comment that ${style}.
 
-RULES:
-- Write ONLY the comment text, nothing else (no quotes, no labels, no explanation)
-- Sound like a genuine group member sharing a real recommendation from experience
-- Mention "${companyName}" naturally — tie it specifically to backlinks, guest posting, or link building (whichever fits)
-- NEVER include website URLs or domains — just the brand name
-- Vary your opening — do NOT always start with "Hey" or "I"
-- Use natural, conversational language — no buzzwords, no excessive emojis, no hashtags
-- Do NOT write generic praise — connect the mention to the post topic
+STRICT RULES:
+- Write ONLY the comment text, nothing else
+- Sound like a genuine group member, NOT a marketer or advertiser
+- NEVER use phrases like "check out X", "X is amazing for", "I recommend X", "highly suggest X"
+- NEVER include website URLs, domains, or hashtags
+- The comment must genuinely add value to the discussion
+- Use natural, conversational language
 - Do NOT include any code, errors, JSON, or technical output
-- Company context: ${companyDescription}
+${mentionBrand ? `- Company context if it fits naturally: ${companyDescription}` : ''}
 - Seed: ${randomSeed}
 
 Write the comment now:`;
@@ -167,16 +173,8 @@ Write the comment now:`;
 }
 
 async function main() {
-  if (!await acquireCronLock('facebook', CRON_USER_ID || undefined)) {
-    console.log(`[${new Date().toISOString()}] FB Comment Cron: already running for user ${CRON_USER_ID || 'default'}, exiting`);
-    process.exit(0);
-  }
-  process.on('exit', () => { releaseCronLock('facebook', CRON_USER_ID || undefined).catch(() => {}); });
-
   console.log(`[${new Date().toISOString()}] FB Comment Cron: starting (user: ${CRON_USER_ID || 'default'})`);
   if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'facebook', 'info', 'cron_start', 'Facebook cron started');
-  const _cronId = await cronStart('facebook', 'auto', CRON_USER_ID || undefined);
-  process.on('exit', (code) => { cronFinish(_cronId, 'facebook', code, '', CRON_USER_ID || undefined).catch(() => {}); });
 
   await connectDB();
 
@@ -217,6 +215,8 @@ async function main() {
   const dailyLimit: number = settings.facebookDailyLimit ?? DEFAULT_DAILY_LIMIT;
   const autoPostThreshold: number =
     settings.facebookAutoPostThreshold ?? DEFAULT_AUTO_POST_THRESHOLD;
+  const brandMentionRate: number = (settings as any).facebookBrandMentionRate ?? 25;
+  const cooldownMinutes: number = (settings as any).facebookCooldownMinutes ?? 90;
 
   // Step 2b: Read current account identity
   const accountId = getCurrentAccountId();
@@ -236,7 +236,7 @@ async function main() {
   // Step 3b: 15-minute cooldown — skip if last Facebook post was < 15 min ago
   // 15-minute cooldown (skipped for manual runs)
   if (!process.env.CRON_MANUAL) {
-    const MIN_COMMENT_GAP_MS = 15 * 60 * 1000;
+    const MIN_COMMENT_GAP_MS = cooldownMinutes * 60 * 1000;
     const lastPosted = await Post.findOne({ platform: 'facebook', status: 'posted', postedAt: { $exists: true }, ...(CRON_USER_ID && { userId: CRON_USER_ID }) })
       .sort({ postedAt: -1 })
       .select('postedAt platform');
@@ -401,7 +401,8 @@ async function main() {
       replyText = await generateVariedComment(
         autoPostCandidate.content,
         settings.companyName,
-        settings.companyDescription
+        settings.companyDescription,
+        brandMentionRate
       );
     }
 
@@ -450,7 +451,18 @@ async function main() {
         console.log(`Comment posted successfully${accountId ? ` (account: ${accountId})` : ''}`);
         if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'facebook', 'success', 'post', `Comment posted on ${autoPostCandidate.url}`, { score: autoPostCandidate.aiRelevanceScore });
       } else {
-        await Post.findByIdAndUpdate(autoPostCandidate._id, { $inc: { postAttempts: 1 } });
+        const isStructuralError = result.error?.includes('Comment box not found') ||
+          result.error?.includes('Comments are disabled') ||
+          result.error?.includes('members-only') ||
+          result.error?.includes('private group');
+
+        if (isStructuralError) {
+          // Post's comment section is restricted — no point retrying it
+          await Post.findByIdAndUpdate(autoPostCandidate._id, { status: 'failed', postAttempts: 3 });
+          console.error('Post permanently skipped (restricted comment section):', result.error);
+        } else {
+          await Post.findByIdAndUpdate(autoPostCandidate._id, { $inc: { postAttempts: 1 } });
+        }
         console.error('Failed to post Facebook comment:', result.error);
         if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'facebook', 'error', 'post_failed', `Failed to post Facebook comment: ${result.error || 'Unknown error'}`, { url: autoPostCandidate.url });
       }

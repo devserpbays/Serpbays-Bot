@@ -257,6 +257,116 @@ export async function searchTweets(
   return tweets;
 }
 
+// --- Get communities the logged-in user has joined ---
+export async function getJoinedCommunities(): Promise<Array<{ id: string; name: string }>> {
+  const page = await getPage();
+  const communities: Array<{ id: string; name: string }> = [];
+
+  try {
+    await page.goto('https://x.com/i/communities', { waitUntil: 'domcontentloaded' });
+    await page.waitForTimeout(4000);
+
+    // Scroll to load more communities
+    for (let i = 0; i < 3; i++) {
+      await page.evaluate(() => window.scrollBy(0, 600));
+      await page.waitForTimeout(1000);
+    }
+
+    // Extract all community links from the page
+    const links = await page.$$eval('a[href*="/i/communities/"]', (anchors) =>
+      anchors.map((a) => ({
+        href: (a as HTMLAnchorElement).href,
+        text: ((a as HTMLAnchorElement).textContent || '').trim(),
+      }))
+    ).catch(() => [] as { href: string; text: string }[]);
+
+    const seen = new Set<string>();
+    for (const link of links) {
+      const match = link.href.match(/communities\/(\d{10,})/);
+      if (match && !seen.has(match[1])) {
+        seen.add(match[1]);
+        communities.push({ id: match[1], name: link.text || match[1] });
+      }
+    }
+  } catch (err) {
+    console.error('Failed to get joined communities:', (err as Error).message);
+  }
+
+  return communities;
+}
+
+// --- Search tweets within a specific Twitter Community ---
+export async function searchCommunityTweets(
+  communityId: string,
+  count: number = 20
+): Promise<SearchTweet[]> {
+  const page = await getPage();
+  const communityUrl = `https://x.com/i/communities/${communityId}`;
+
+  const [apiResponse] = await Promise.all([
+    page.waitForResponse(
+      (r) =>
+        (r.url().includes('CommunityTweetTimeline') || r.url().includes('communityResults')) &&
+        r.status() === 200,
+      { timeout: NAVIGATION_TIMEOUT }
+    ),
+    page.goto(communityUrl, { waitUntil: 'domcontentloaded' }),
+  ]);
+
+  const data = await apiResponse.json();
+
+  const tweets: SearchTweet[] = [];
+
+  // Try multiple known response shapes Twitter has used
+  const communityResult =
+    data?.data?.communityResults?.result ||
+    data?.data?.community_results?.result ||
+    {};
+
+  const instructions: any[] =
+    communityResult?.ranked_community_timeline?.timeline?.instructions ||
+    communityResult?.community_tweet_timeline?.timeline?.instructions ||
+    communityResult?.timeline_by_id?.timeline?.instructions ||
+    [];
+
+  function extractTweetsFromInstructions(instrs: any[]) {
+    for (const instruction of instrs) {
+      const entries: any[] = instruction?.entries || [];
+      for (const entry of entries) {
+        if (!entry.entryId?.startsWith('tweet-')) continue;
+        const result = entry?.content?.itemContent?.tweet_results?.result;
+        if (!result) continue;
+
+        const tweetId = result.rest_id || '';
+        const legacy = result.legacy || {};
+        const userLegacy = result.core?.user_results?.result?.legacy || {};
+        const views = result.views || {};
+
+        tweets.push({
+          id: tweetId,
+          text: legacy.full_text || '',
+          author: userLegacy.name || 'Unknown',
+          authorHandle: userLegacy.screen_name ? `@${userLegacy.screen_name}` : 'Unknown',
+          url: userLegacy.screen_name
+            ? `https://x.com/${userLegacy.screen_name}/status/${tweetId}`
+            : `https://x.com/i/status/${tweetId}`,
+          createdAt: legacy.created_at || '',
+          likeCount: legacy.favorite_count || 0,
+          retweetCount: legacy.retweet_count || 0,
+          replyCount: legacy.reply_count || 0,
+          bookmarkCount: legacy.bookmark_count || 0,
+          viewCount: parseInt(views.count || '0', 10) || 0,
+        });
+
+        if (tweets.length >= count) return;
+      }
+    }
+  }
+
+  extractTweetsFromInstructions(instructions);
+  return tweets;
+}
+
 // --- Shared features flags for CreateTweet ---
 const CREATE_TWEET_FEATURES = {
   communities_web_enable_tweet_community_results_fetch: true,

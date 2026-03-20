@@ -20,14 +20,14 @@ const PLATFORMS: PlatformConfig[] = [
         id: 'twitter', label: 'Twitter / X',
         cookieEndpoint: '/api/set-twitter-cookies',
         cookiePlaceholder: 'Paste Twitter cookies JSON…',
-        color: '#a0a0a0',
+        color: '#1d9bf0',
         icon: <svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.73-8.835L1.254 2.25H8.08l4.258 5.63 5.906-5.63zm-1.161 17.52h1.833L7.084 4.126H5.117z" /></svg>,
     },
     {
         id: 'reddit', label: 'Reddit',
         cookieEndpoint: '/api/set-reddit-cookies',
         cookiePlaceholder: 'Paste Reddit cookies JSON…',
-        color: '#ff4500',
+        color: '#3b82f6',
         icon: <svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22"><path d="M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm5.01 4.744c.688 0 1.25.561 1.25 1.249a1.25 1.25 0 0 1-2.498.056l-2.597-.547-.8 3.747c1.824.07 3.48.632 4.674 1.488.308-.309.73-.491 1.207-.491.968 0 1.754.786 1.754 1.754 0 .716-.435 1.333-1.01 1.614a3.111 3.111 0 0 1 .042.52c0 2.694-3.13 4.87-7.004 4.87-3.874 0-7.004-2.176-7.004-4.87 0-.183.015-.366.043-.534A1.748 1.748 0 0 1 4.028 12c0-.968.786-1.754 1.754-1.754.463 0 .898.196 1.207.49 1.207-.883 2.878-1.43 4.744-1.487l.885-4.182a.342.342 0 0 1 .14-.197.35.35 0 0 1 .238-.042l2.906.617a1.214 1.214 0 0 1 1.108-.701zM9.25 12C8.561 12 8 12.562 8 13.25c0 .687.561 1.248 1.25 1.248.687 0 1.248-.561 1.248-1.249 0-.688-.561-1.249-1.249-1.249zm5.5 0c-.687 0-1.248.561-1.248 1.25 0 .687.561 1.248 1.249 1.248.688 0 1.249-.561 1.249-1.249 0-.687-.562-1.249-1.25-1.249z" /></svg>,
     },
     {
@@ -41,21 +41,21 @@ const PLATFORMS: PlatformConfig[] = [
         id: 'quora', label: 'Quora',
         cookieEndpoint: '/api/set-quora-cookies',
         cookiePlaceholder: 'Paste Quora cookies JSON…',
-        color: '#b92b27',
+        color: '#2563eb',
         icon: <svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22"><path d="M12.071 0C5.4 0 .001 5.4.001 12.071c0 6.248 4.759 11.41 10.85 12.003-.044-.562-.094-1.407-.094-2.001 0-.666.023-1.406.068-2.028-.447.045-.896.068-1.349.068-3.734 0-5.941-2.162-5.941-5.95 0-3.78 2.207-5.941 5.941-5.941 3.733 0 5.94 2.161 5.94 5.941 0 1.873-.509 3.374-1.407 4.38l1.047 1.986c.423.806.847 1.166 1.336 1.166.888 0 1.406-.949 1.406-2.688V12.07C17.8 6.37 15.292 0 12.071 0z" /></svg>,
     },
     {
         id: 'youtube', label: 'YouTube',
         cookieEndpoint: '/api/set-youtube-cookies',
         cookiePlaceholder: 'Paste YouTube cookies JSON…',
-        color: '#ff0000',
+        color: '#0ea5e9',
         icon: <svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.546 12 3.546 12 3.546s-7.505 0-9.377.504A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.504 9.376.504 9.376.504s7.505 0 9.377-.504a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z" /></svg>,
     },
     {
         id: 'pinterest', label: 'Pinterest',
         cookieEndpoint: '/api/set-pinterest-cookies',
         cookiePlaceholder: 'Paste Pinterest cookies JSON…',
-        color: '#e60023',
+        color: '#60a5fa',
         icon: <svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22"><path d="M12.017 0C5.396 0 .029 5.367.029 11.987c0 5.079 3.158 9.417 7.618 11.162-.105-.949-.199-2.403.041-3.439.219-.937 1.406-5.957 1.406-5.957s-.359-.72-.359-1.781c0-1.668.967-2.914 2.171-2.914 1.023 0 1.518.769 1.518 1.69 0 1.029-.655 2.568-.994 3.995-.283 1.194.599 2.169 1.777 2.169 2.133 0 3.772-2.249 3.772-5.495 0-2.873-2.064-4.882-5.012-4.882-3.414 0-5.418 2.561-5.418 5.207 0 1.031.397 2.138.893 2.738a.36.36 0 0 1 .083.345l-.333 1.36c-.053.22-.174.267-.402.161-1.499-.698-2.436-2.889-2.436-4.649 0-3.785 2.75-7.262 7.929-7.262 4.163 0 7.398 2.967 7.398 6.931 0 4.136-2.607 7.464-6.227 7.464-1.216 0-2.359-.631-2.75-1.378l-.748 2.853c-.271 1.043-1.002 2.35-1.492 3.146C9.57 23.812 10.763 24 12.017 24c6.624 0 11.99-5.367 11.99-11.988C24.007 5.367 18.641.001 12.017.001z" /></svg>,
     },
 ];
@@ -284,11 +284,11 @@ function PlatformCard({
     return (
         <div style={{
             background: 'var(--bg-card)',
-            border: `1px solid ${isConnected ? `${platform.color}30` : 'var(--border-subtle)'}`,
+            border: `1px solid ${isConnected ? `${platform.color}30` : 'rgba(239,68,68,0.35)'}`,
             borderRadius: 'var(--radius-lg)',
             overflow: 'hidden',
             transition: 'border-color var(--transition-default), box-shadow var(--transition-default)',
-            boxShadow: isConnected ? `0 0 0 1px ${platform.color}15, 0 4px 24px rgba(0,0,0,0.2)` : '0 1px 4px rgba(0,0,0,0.2)',
+            boxShadow: isConnected ? `0 0 0 1px ${platform.color}15, 0 4px 24px rgba(0,0,0,0.2)` : '0 0 0 1px rgba(239,68,68,0.15), 0 4px 24px rgba(0,0,0,0.2)',
         }}>
             {/* Card header */}
             <div style={{
@@ -299,9 +299,9 @@ function PlatformCard({
                 {/* Icon */}
                 <div style={{
                     width: 44, height: 44, borderRadius: 'var(--radius-md)', flexShrink: 0,
-                    background: `${platform.color}18`,
+                    background: isConnected ? `${platform.color}18` : 'rgba(239,68,68,0.12)',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    color: platform.color,
+                    color: isConnected ? platform.color : '#ef4444',
                 }}>
                     {platform.icon}
                 </div>
@@ -321,7 +321,8 @@ function PlatformCard({
                         ) : (
                             <span style={{
                                 fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
-                                background: 'rgba(255,255,255,0.04)', color: 'var(--text-muted)',
+                                background: 'rgba(239,68,68,0.12)', color: '#ef4444',
+                                border: '1px solid rgba(239,68,68,0.25)',
                                 letterSpacing: '0.3px',
                             }}>
                                 Not connected
@@ -353,23 +354,25 @@ function PlatformCard({
                         fontSize: 12, fontWeight: 600, cursor: 'pointer',
                         border: isOpen
                             ? '1px solid var(--border-default)'
-                            : `1px solid ${platform.color}40`,
+                            : isConnected ? `1px solid ${platform.color}40` : '1px solid rgba(239,68,68,0.4)',
                         background: isOpen
                             ? 'rgba(255,255,255,0.04)'
-                            : `${platform.color}15`,
-                        color: isOpen ? 'var(--text-secondary)' : platform.color,
+                            : isConnected ? `${platform.color}15` : 'rgba(239,68,68,0.12)',
+                        color: isOpen ? 'var(--text-secondary)' : isConnected ? platform.color : '#ef4444',
                         transition: 'all var(--transition-fast)',
                     }}
                     onMouseEnter={(e) => {
                         if (!isOpen) {
-                            e.currentTarget.style.background = `${platform.color}25`;
-                            e.currentTarget.style.borderColor = `${platform.color}70`;
+                            const c = isConnected ? platform.color : '#ef4444';
+                            e.currentTarget.style.background = isConnected ? `${c}25` : 'rgba(239,68,68,0.22)';
+                            e.currentTarget.style.borderColor = isConnected ? `${c}70` : 'rgba(239,68,68,0.6)';
                         }
                     }}
                     onMouseLeave={(e) => {
                         if (!isOpen) {
-                            e.currentTarget.style.background = `${platform.color}15`;
-                            e.currentTarget.style.borderColor = `${platform.color}40`;
+                            const c = isConnected ? platform.color : '#ef4444';
+                            e.currentTarget.style.background = isConnected ? `${c}15` : 'rgba(239,68,68,0.12)';
+                            e.currentTarget.style.borderColor = isConnected ? `${c}40` : 'rgba(239,68,68,0.4)';
                         }
                     }}
                 >

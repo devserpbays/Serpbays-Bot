@@ -18,7 +18,6 @@ import { readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { connectDB } from '../src/lib/mongodb';
 import { evaluatePost, askOpenClaw } from '../src/lib/openclaw';
-import { cronStart, cronFinish, acquireCronLock, releaseCronLock } from '../src/lib/cronState';
 import {
   ensureRedditLoggedIn,
   scrapeProfileIdentity,
@@ -33,7 +32,7 @@ import { logActivity, notifyAuthError } from '../src/lib/activityLog';
 import Post from '../src/models/Post';
 import Settings from '../src/models/Settings';
 
-const DEFAULT_DAILY_LIMIT = 5;
+const DEFAULT_DAILY_LIMIT = 3;  // Reddit bans accounts that post too many comments/day
 const DEFAULT_AUTO_POST_THRESHOLD = 70;
 
 if (CRON_USER_ID && !process.env.REDDIT_PROFILE_DIR) {
@@ -84,38 +83,45 @@ async function getTodayCommentCount(accountId: string): Promise<number> {
 async function generateVariedComment(
   postContent: string,
   companyName: string,
-  companyDescription: string
+  companyDescription: string,
+  brandMentionRate = 25
 ): Promise<string> {
   const randomSeed = Math.floor(Math.random() * 1000);
-  const styles = [
-    `share personal experience using ${companyName}`,
-    `casually recommend ${companyName} to solve the poster's problem`,
-    `mention you found ${companyName} helpful in a similar situation`,
-    `ask a follow-up question then briefly mention ${companyName}`,
-    `give a tip and suggest ${companyName} as a resource`,
-  ];
-  const style = styles[randomSeed % styles.length];
+  const mentionBrand = Math.random() < (brandMentionRate / 100);
 
-  const prompt = `You are a real person on Reddit leaving a helpful comment in an SEO/marketing subreddit.
+  const genericStyles = [
+    'add a genuinely helpful tip or insight related to the post',
+    'ask a thoughtful follow-up question about the topic',
+    'share a personal experience or lesson relevant to the discussion',
+    'give a practical recommendation based on the post topic',
+    'agree with something specific and add a related observation',
+  ];
+  const brandStyles = [
+    `give a helpful tip; only if completely natural, briefly mention ${companyName} — don't force it`,
+    `share a genuine insight; if it fits organically, mention you've also used ${companyName} — otherwise skip it`,
+  ];
+  const stylePool = mentionBrand ? brandStyles : genericStyles;
+  const style = stylePool[randomSeed % stylePool.length];
+
+  const prompt = `You are a real Redditor leaving a genuine comment on a post.
 
 POST:
 """
 ${postContent.slice(0, 500)}
 """
 
-YOUR TASK: Write a SHORT 1-2 sentence comment (under 200 characters) that ${style}.
+YOUR TASK: Write a SHORT 1-2 sentence comment that ${style}.
 
-RULES:
-- MAXIMUM 200 characters. Be brief like a real Reddit comment — not an essay
-- Write ONLY the comment text, nothing else (no quotes, no labels, no explanation)
-- Sound like a genuine Redditor sharing a real recommendation from experience
-- Mention "${companyName}" naturally — tie it to the post topic
-- NEVER include website URLs or domains — just the brand name
-- Vary your opening — do NOT always start with "Hey" or "I"
-- Use natural, conversational Reddit language — no buzzwords, no excessive emojis
-- Do NOT write generic praise — connect the mention to the post topic
+STRICT RULES:
+- MAXIMUM 200 characters — be brief like a real Reddit comment
+- Write ONLY the comment text, nothing else
+- Sound like a real person, NOT a marketer or salesperson
+- NEVER use phrases like "check out X", "X is great for", "highly recommend X", "I've been using X"
+- NEVER include website URLs or domains
+- The comment must genuinely add value to the discussion
+- Use casual, natural Reddit language
 - Do NOT include any code, errors, JSON, or technical output
-- Company context: ${companyDescription}
+${mentionBrand ? `- Company context if it fits: ${companyDescription}` : ''}
 - Seed: ${randomSeed}
 
 Write the comment now:`;
@@ -164,16 +170,8 @@ Write the comment now:`;
 }
 
 async function main() {
-  if (!await acquireCronLock('reddit', CRON_USER_ID || undefined)) {
-    console.log(`[${new Date().toISOString()}] Reddit Cron: already running for user ${CRON_USER_ID || 'default'}, exiting`);
-    process.exit(0);
-  }
-  process.on('exit', () => { releaseCronLock('reddit', CRON_USER_ID || undefined).catch(() => {}); });
-
   console.log(`[${new Date().toISOString()}] Reddit Cron: starting (user: ${CRON_USER_ID || 'default'})`);
   if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'reddit', 'info', 'cron_start', 'Reddit cron started');
-  const _cronId = await cronStart('reddit', 'auto', CRON_USER_ID || undefined);
-  process.on('exit', (code) => { cronFinish(_cronId, 'reddit', code, '', CRON_USER_ID || undefined).catch(() => {}); });
 
   await connectDB();
 
@@ -214,6 +212,8 @@ async function main() {
   const dailyLimit: number = settings.redditDailyLimit ?? DEFAULT_DAILY_LIMIT;
   const autoPostThreshold: number =
     settings.redditAutoPostThreshold ?? DEFAULT_AUTO_POST_THRESHOLD;
+  const brandMentionRate: number = (settings as any).redditBrandMentionRate ?? 25;
+  const cooldownMinutes: number = (settings as any).redditCooldownMinutes ?? 90;
 
   // Step 2b: Read current account identity
   const accountId = getCurrentAccountId();
@@ -232,7 +232,7 @@ async function main() {
 
   // Step 3b: 15-minute cooldown (skipped for manual runs)
   if (!process.env.CRON_MANUAL) {
-    const MIN_COMMENT_GAP_MS = 15 * 60 * 1000;
+    const MIN_COMMENT_GAP_MS = cooldownMinutes * 60 * 1000;
     const lastPosted = await Post.findOne({ platform: 'reddit', status: 'posted', postedAt: { $exists: true }, ...(CRON_USER_ID && { userId: CRON_USER_ID }) })
       .sort({ postedAt: -1 })
       .select('postedAt platform');
@@ -389,7 +389,8 @@ async function main() {
       replyText = await generateVariedComment(
         autoPostCandidate.content,
         settings.companyName,
-        settings.companyDescription
+        settings.companyDescription,
+        brandMentionRate
       );
     }
 
@@ -445,7 +446,15 @@ async function main() {
         console.log(`Comment posted successfully${accountId ? ` (account: ${accountId})` : ''}`);
         if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'reddit', 'success', 'post', `Comment posted on ${autoPostCandidate.url}`, { score: autoPostCandidate.aiRelevanceScore });
       } else {
-        await Post.findByIdAndUpdate(autoPostCandidate._id, { $inc: { postAttempts: 1 } });
+        const newAttempts = (autoPostCandidate.postAttempts || 0) + 1;
+        const isStructuralError = (result.error || '').match(/comment box not found|locked|archived|comments are disabled|login session expired/i);
+        if (isStructuralError || newAttempts >= 3) {
+          // Permanently skip — post is locked/archived or max retries hit
+          await Post.findByIdAndUpdate(autoPostCandidate._id, { status: 'failed', postAttempts: newAttempts });
+          console.error(`Reddit post permanently skipped (${isStructuralError ? 'structural' : 'max retries'}): ${result.error}`);
+        } else {
+          await Post.findByIdAndUpdate(autoPostCandidate._id, { $inc: { postAttempts: 1 } });
+        }
         console.error('Failed to post Reddit comment:', result.error);
         if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'reddit', 'error', 'post_failed', `Failed to post Reddit comment: ${result.error || 'Unknown error'}`, { url: autoPostCandidate.url });
       }

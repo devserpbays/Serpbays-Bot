@@ -6,6 +6,7 @@
 import { connectDB } from './mongodb';
 import ActivityLog from '../models/ActivityLog';
 import Notification from '../models/Notification';
+import { publishNotification } from './redis';
 
 export type LogLevel = 'info' | 'warn' | 'error' | 'success';
 
@@ -47,7 +48,7 @@ export async function notifyAuthError(
     if (existing) return;
 
     const platformName = platform.charAt(0).toUpperCase() + platform.slice(1);
-    await Notification.create({
+    const notifData = {
       userId,
       type: 'cookie_expired',
       platform,
@@ -55,8 +56,46 @@ export async function notifyAuthError(
       message: message || `Your ${platformName} session has expired. Please reconnect from the Accounts page.`,
       actionUrl: '/dashboard/accounts',
       actionLabel: 'Reconnect',
-    });
+    };
+    const doc = await Notification.create(notifData);
+    await publishNotification(userId, { ...notifData, _id: doc._id, ts: Date.now() });
   } catch {
     console.error(`[activityLog] Failed to create auth notification for ${platform}`);
+  }
+}
+
+/**
+ * Notify user that a platform is enabled but has no connected account.
+ * Deduped: fires at most once per platform per 7 days to avoid repeated nags.
+ */
+export async function notifyNotConnected(
+  userId: string,
+  platform: string,
+): Promise<void> {
+  try {
+    await connectDB();
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const existing = await Notification.findOne({
+      userId,
+      type: 'not_connected',
+      platform,
+      createdAt: { $gte: sevenDaysAgo },
+    });
+    if (existing) return;
+
+    const platformName = platform.charAt(0).toUpperCase() + platform.slice(1);
+    const notifData = {
+      userId,
+      type: 'not_connected',
+      platform,
+      title: `${platformName} not connected`,
+      message: `${platformName} is enabled but no account has been connected. Upload cookies from the Accounts page to activate it.`,
+      actionUrl: '/dashboard/accounts',
+      actionLabel: 'Connect',
+    };
+    const doc = await Notification.create(notifData);
+    await publishNotification(userId, { ...notifData, _id: doc._id, ts: Date.now() });
+  } catch {
+    console.error(`[activityLog] Failed to create not_connected notification for ${platform}`);
   }
 }

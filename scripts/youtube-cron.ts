@@ -17,7 +17,6 @@ import { join } from 'path';
 import { execSync } from 'child_process';
 import { chromium, type BrowserContext, type Page } from 'playwright';
 import { connectDB } from '../src/lib/mongodb';
-import { cronStart, cronFinish, acquireCronLock, releaseCronLock } from '../src/lib/cronState';
 import { evaluatePost, askOpenClaw } from '../src/lib/openclaw';
 import { isWithinSchedule } from '../src/lib/schedule';
 import { logActivity, notifyAuthError } from '../src/lib/activityLog';
@@ -35,8 +34,8 @@ const VERIFIED_FILE = join(PROFILE_DIR, '.verified');
 const NAVIGATION_TIMEOUT = 30000;
 const SLOW_WAIT = 4000;
 
-const DEFAULT_DAILY_LIMIT = 5;
-const DEFAULT_AUTO_POST_THRESHOLD = 70;
+const DEFAULT_DAILY_LIMIT = 2;           // Max 2 comments/day — YouTube flags accounts that comment heavily
+const DEFAULT_AUTO_POST_THRESHOLD = 75;  // Higher threshold = only comment on very relevant videos
 
 let _ctx: BrowserContext | null = null;
 let _page: Page | null = null;
@@ -75,10 +74,13 @@ async function getPage(): Promise<Page> {
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-blink-features=AutomationControlled',
+      '--disable-features=IsolateOrigins,site-per-process',
     ],
-    userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
-    viewport: { width: 1280, height: 900 },
+    // Windows UA — Linux is a strong bot signal to Google's detection systems
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    viewport: { width: 1366, height: 768 },
     locale: 'en-US',
+    timezoneId: 'America/New_York',
   });
 
   // Inject cookies from cookies.json if available (written by worker after validation)
@@ -136,9 +138,12 @@ async function ensureYouTubeLoggedIn(): Promise<boolean> {
     const avatar = await page.$('#avatar-btn, ytd-masthead #avatar-btn, button#avatar-btn').catch(() => null);
     if (avatar && await avatar.isVisible().catch(() => false)) return true;
 
-    // Check for any "Sign in" text button in the page — catches header + masthead variants
+    // Check for "Sign in" button only in the masthead/header — avoids false positives
+    // from recommendation widgets that show "Sign in" even when logged in
     const hasSignIn = await page.evaluate(() => {
-      const els = document.querySelectorAll('a, button, yt-button-renderer');
+      const header = document.querySelector('ytd-masthead, #masthead, #page-header');
+      if (!header) return false;
+      const els = header.querySelectorAll('a, button, yt-button-renderer');
       for (const el of els) {
         const text = (el.textContent || '').trim().toLowerCase();
         if (text === 'sign in') return true;
@@ -188,7 +193,8 @@ async function scrapeYouTubeVideos(keywords: string[]): Promise<Array<{ url: str
     } catch (err) {
       console.error(`  Error scraping YouTube for "${keyword}":`, (err as Error).message);
     }
-    await sleep(2000);
+    // Longer random gap between keyword searches — avoids rapid-fire search patterns
+    await sleep(4000 + Math.random() * 4000);
   }
 
   return results;
@@ -245,9 +251,16 @@ async function postYouTubeComment(videoUrl: string, comment: string): Promise<{ 
     }
 
     await commentBox.click();
-    await sleep(500);
-    await commentBox.type(comment, { delay: 50 });
-    await sleep(1000);
+    // Realistic pause before typing — humans don't start immediately
+    await sleep(900 + Math.random() * 700);
+    // Human-like typing: variable delay per character, occasional mid-sentence pauses
+    for (let i = 0; i < comment.length; i++) {
+      await commentBox.type(comment[i]);
+      const isPause = comment[i] === ',' || comment[i] === '.' || (Math.random() < 0.04);
+      await sleep(isPause ? 350 + Math.random() * 300 : 65 + Math.random() * 110);
+    }
+    // Pause to "review" before submitting
+    await sleep(2000 + Math.random() * 2000);
 
     // Click submit button
     const submitBtn = await page.$('#submit-button, ytd-button-renderer#submit-button button').catch(() => null);
@@ -269,35 +282,47 @@ async function postYouTubeComment(videoUrl: string, comment: string): Promise<{ 
 async function generateYouTubeComment(
   postContent: string,
   companyName: string,
-  companyDescription: string
+  companyDescription: string,
+  brandMentionRate = 25
 ): Promise<string> {
   const randomSeed = Math.floor(Math.random() * 1000);
-  const styles = [
-    `share how ${companyName} helped you`,
-    `mention ${companyName} as a resource for the topic`,
-    `give a helpful comment and naturally reference ${companyName}`,
-    `express appreciation for the video and briefly mention ${companyName}`,
-    `provide a useful insight and suggest ${companyName}`,
-  ];
-  const style = styles[randomSeed % styles.length];
 
-  const prompt = `You are a real YouTube user leaving a helpful comment on a video about SEO or digital marketing.
+  const mentionBrand = Math.random() < (brandMentionRate / 100);
+
+  const genericStyles = [
+    'share a genuine insight or tip related to the video topic',
+    'ask a thoughtful question about something mentioned in the video',
+    'share a personal experience or lesson related to the topic',
+    'give a helpful observation or add value to the discussion',
+    'appreciate something specific in the video and add a related thought',
+  ];
+  const brandStyles = [
+    `share a genuine insight and briefly mention ${companyName} only if it fits completely naturally — do NOT force it`,
+    `give a helpful comment; only if very natural, mention you also found ${companyName} useful — otherwise leave it out`,
+  ];
+
+  const stylePool = mentionBrand ? brandStyles : genericStyles;
+  const style = stylePool[randomSeed % stylePool.length];
+
+  const prompt = `You are a real YouTube viewer leaving a genuine comment on a video.
 
 VIDEO TITLE/CONTENT:
 """
 ${postContent.slice(0, 400)}
 """
 
-YOUR TASK: Write a short 1-3 sentence YouTube comment that ${style}.
+YOUR TASK: Write a short 1-2 sentence comment that ${style}.
 
-RULES:
-- Write ONLY the comment text, nothing else
-- Sound like a genuine YouTube viewer sharing a real experience
-- Mention "${companyName}" naturally once — tie it to backlinks, guest posting, or link building
-- NEVER include website URLs or domains — just the brand name
-- Keep it concise and YouTube-appropriate
+STRICT RULES:
+- Write ONLY the comment text, nothing else — no preamble, no labels
+- Sound like a genuine human viewer, NOT a marketer
+- NEVER use phrases like "I've been using X", "check out X", "X is great for", "highly recommend X"
+- NEVER include website URLs or domains
+- NEVER make the comment feel promotional or like an advertisement
+- The comment must add real value or ask a real question about the video topic
+- Keep it natural, conversational, and brief (1-2 sentences)
 - Do NOT include any code, errors, JSON, or technical output
-- Company context: ${companyDescription}
+${mentionBrand ? `- Company context if needed: ${companyDescription}` : ''}
 - Seed: ${randomSeed}
 
 Write the comment now:`;
@@ -351,16 +376,8 @@ async function getTodayCommentCount(accountId: string): Promise<number> {
 }
 
 async function main() {
-  if (!await acquireCronLock('youtube', CRON_USER_ID || undefined)) {
-    console.log(`[${new Date().toISOString()}] YouTube Cron: already running for user ${CRON_USER_ID || 'default'}, exiting`);
-    process.exit(0);
-  }
-  process.on('exit', () => { releaseCronLock('youtube', CRON_USER_ID || undefined).catch(() => {}); });
-
   console.log(`[${new Date().toISOString()}] YouTube Cron: starting (user: ${CRON_USER_ID || 'default'})`);
   if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'youtube', 'info', 'cron_start', 'YouTube cron started');
-  const _cronId = await cronStart('youtube', 'auto', CRON_USER_ID || undefined);
-  process.on('exit', (code) => { cronFinish(_cronId, 'youtube', code, '', CRON_USER_ID || undefined).catch(() => {}); });
 
   await connectDB();
 
@@ -399,6 +416,8 @@ async function main() {
   }
   const dailyLimit: number = (settings as any).youtubeDailyLimit ?? DEFAULT_DAILY_LIMIT;
   const autoPostThreshold: number = (settings as any).youtubeAutoPostThreshold ?? DEFAULT_AUTO_POST_THRESHOLD;
+  const brandMentionRate: number = (settings as any).youtubeBrandMentionRate ?? 25;
+  const cooldownMinutes: number = (settings as any).youtubeCooldownMinutes ?? 180;
 
   const accountId = getCurrentAccountId();
   if (accountId) console.log(`Active YouTube account: ${accountId}`);
@@ -412,9 +431,9 @@ async function main() {
   }
   console.log(`Comments posted today: ${todayCount}/${dailyLimit}`);
 
-  // 15-minute cooldown (skipped for manual runs)
+  // Cooldown between comments (user-configured, default 3h — YouTube flags frequent automated commenting)
   if (!process.env.CRON_MANUAL) {
-    const MIN_COMMENT_GAP_MS = 15 * 60 * 1000;
+    const MIN_COMMENT_GAP_MS = cooldownMinutes * 60 * 1000;
     const lastPosted = await Post.findOne({ platform: 'youtube', status: 'posted', postedAt: { $exists: true }, ...(CRON_USER_ID && { userId: CRON_USER_ID }) })
       .sort({ postedAt: -1 })
       .select('postedAt');
@@ -508,14 +527,34 @@ async function main() {
     process.exit(0);
   }
 
+  // Get URLs we've already commented on in the last 30 days to avoid repeat-commenting on same channel
+  const recentlyPosted = await Post.find({
+    platform: 'youtube',
+    status: 'posted',
+    postedAt: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) },
+    ...(CRON_USER_ID && { userId: CRON_USER_ID }),
+  }).select('url author').lean();
+  const recentAuthors = new Set(recentlyPosted.map(p => p.author).filter(Boolean));
+  const recentUrls = new Set(recentlyPosted.map(p => p.url));
+
   const candidate = await Post.findOne({
     platform: 'youtube',
     status: 'evaluated',
     aiRelevanceScore: { $gte: autoPostThreshold },
     aiReply: { $exists: true, $ne: '' },
     postAttempts: { $not: { $gte: 3 } },
+    // Don't comment on same video or channel we've recently engaged with
+    url: { $nin: Array.from(recentUrls) },
+    author: { $nin: Array.from(recentAuthors) },
     ...(CRON_USER_ID && { userId: CRON_USER_ID }),
   }).sort({ _id: -1 });
+
+  // Random 20% skip rate — humans don't comment on every video they watch
+  if (candidate && Math.random() < 0.2) {
+    console.log('Randomly skipping this run to avoid detectable patterns (20% skip rate)');
+    await closeBrowser();
+    process.exit(0);
+  }
 
   if (candidate) {
     let replyText = candidate.editedReply || '';
@@ -523,7 +562,8 @@ async function main() {
       replyText = await generateYouTubeComment(
         candidate.content,
         settings.companyName,
-        settings.companyDescription
+        settings.companyDescription,
+        brandMentionRate
       );
     }
 

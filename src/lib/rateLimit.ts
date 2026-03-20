@@ -6,6 +6,7 @@ export const RATE_LIMITS = {
   post: { maxRequests: 20, windowSec: 60 },           // 20 posts/min
   auth: { maxRequests: 10, windowSec: 60 },           // 10 auth attempts/min
   billing: { maxRequests: 10, windowSec: 60 },        // 10 billing ops/min
+  cookieUpload: { maxRequests: 8, windowSec: 900 },   // 8 uploads per 15 min (generous for re-uploads, blocks brute force)
 } as const;
 
 export type RateLimitTier = keyof typeof RATE_LIMITS;

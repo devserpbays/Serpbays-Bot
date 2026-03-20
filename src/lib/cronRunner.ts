@@ -6,8 +6,8 @@
 
 import { connectDB } from './mongodb';
 import { loadCookies, getCookieMeta } from './cookieStore';
-import { cronStart, cronFinish, acquireCronLock, releaseCronLock } from './cronState';
-import { logActivity, notifyAuthError } from './activityLog';
+import { readCronStatus, cronStart, cronFinish } from './cronState';
+import { logActivity, notifyAuthError, notifyNotConnected } from './activityLog';
 import { getRedis } from './redis';
 import Settings from '@/models/Settings';
 import { spawn } from 'child_process';
@@ -15,7 +15,7 @@ import { join, resolve } from 'path';
 import { mkdirSync, writeFileSync } from 'fs';
 
 const PROJECT_ROOT = resolve(__dirname, '..', '..');
-const CRON_TIMEOUT_MS = 5 * 60 * 1000; // 5 min max per cron run
+const CRON_TIMEOUT_MS = 3 * 60 * 1000; // 3 min max per cron run
 
 const PLATFORM_SCRIPTS: Record<string, string> = {
   twitter: 'scripts/twitter-cron.ts',
@@ -46,23 +46,27 @@ export async function runCronForPlatform(
   userId: string,
   mode: string = 'full',
 ): Promise<{ success: boolean; message: string }> {
-  // Acquire lock
-  const lockAcquired = await acquireCronLock(platform, userId);
-  if (!lockAcquired) {
+  // Check if already running (the platform script manages its own lock + cronStart/cronFinish)
+  const statusMap = await readCronStatus();
+  if (statusMap[`${userId}:${platform}`]?.running) {
     return { success: false, message: `Cron already running for ${platform}` };
   }
 
-  const cronId = await cronStart(platform, mode === 'manual' ? 'manual' : 'auto', userId);
   let exitCode = 0;
   let message = '';
+  let entryId = '';
 
   try {
+    // Mark as running in Redis before spawning (cronFinish called below)
+    entryId = await cronStart(platform, mode === 'manual' ? 'manual' : 'auto', userId);
+
     await connectDB();
 
     const settings = await Settings.findOne({ userId });
     if (!settings) {
       message = 'No settings configured';
       exitCode = 1;
+      await cronFinish(entryId, platform, 1, message, userId).catch(() => {});
       return { success: false, message };
     }
 
@@ -70,16 +74,28 @@ export async function runCronForPlatform(
       message = 'No company name configured';
       exitCode = 1;
       await logActivity(userId, platform, 'error', 'config_error', message);
+      await cronFinish(entryId, platform, 1, message, userId).catch(() => {});
       return { success: false, message };
     }
 
     // Check cookies exist in DB
     const cookieMeta = await getCookieMeta(userId, platform);
-    if (!cookieMeta?.verified) {
-      message = `No verified cookies for ${platform}`;
+    if (!cookieMeta) {
+      // Never connected — no BrowserCookie document at all
+      message = `${platform} account not connected`;
+      exitCode = 1;
+      await logActivity(userId, platform, 'warn', 'not_connected', `${platform} is enabled but no account has been connected yet`);
+      await notifyNotConnected(userId, platform);
+      await cronFinish(entryId, platform, 1, message, userId).catch(() => {});
+      return { success: false, message };
+    }
+    if (!cookieMeta.verified) {
+      // BrowserCookie exists but verification failed
+      message = `${platform} cookies not verified`;
       exitCode = 1;
       await logActivity(userId, platform, 'error', 'auth_error', message);
       await notifyAuthError(userId, platform, message);
+      await cronFinish(entryId, platform, 1, message, userId).catch(() => {});
       return { success: false, message };
     }
 
@@ -90,13 +106,27 @@ export async function runCronForPlatform(
       exitCode = 1;
       await logActivity(userId, platform, 'error', 'auth_error', message);
       await notifyAuthError(userId, platform, message);
+      await cronFinish(entryId, platform, 1, message, userId).catch(() => {});
       return { success: false, message };
     }
 
     const profileDir = `profiles/${userId}/${platform}`;
     const profileDirAbs = join(PROJECT_ROOT, profileDir);
     mkdirSync(profileDirAbs, { recursive: true });
-    writeFileSync(join(profileDirAbs, 'cookies.json'), JSON.stringify(cookies, null, 2));
+
+    // Extend expiry of short-lived cookies (CSRF tokens, session tokens) that would
+    // expire before the cron script finishes — set them to 90 days so the browser
+    // accepts them. Real session validity is checked by the platform itself.
+    const sixHoursFromNow = Math.floor(Date.now() / 1000) + 6 * 3600;
+    const ninetyDaysFromNow = Math.floor(Date.now() / 1000) + 90 * 24 * 3600;
+    const cookiesForDisk = (cookies as Array<Record<string, unknown>>).map(c => {
+      const exp = Number(c.expires || c.expirationDate || 0);
+      if (exp > 0 && exp < sixHoursFromNow) {
+        return { ...c, expires: ninetyDaysFromNow, expirationDate: ninetyDaysFromNow };
+      }
+      return c;
+    });
+    writeFileSync(join(profileDirAbs, 'cookies.json'), JSON.stringify(cookiesForDisk, null, 2));
 
     // Ensure .verified exists
     const verifiedPath = join(profileDirAbs, '.verified');
@@ -113,6 +143,7 @@ export async function runCronForPlatform(
     if (!scriptPath) {
       message = `No cron script for ${platform}`;
       exitCode = 1;
+      await cronFinish(entryId, platform, 1, message, userId).catch(() => {});
       return { success: false, message };
     }
 
@@ -138,6 +169,9 @@ export async function runCronForPlatform(
       ? `${platform} cron completed`
       : result.stderr.slice(0, 300) || `Cron exited with code ${result.code}`;
 
+    // Always update cron state — this is the reliable path (scripts' process.on('exit') can't run async)
+    await cronFinish(entryId, platform, exitCode, message, userId).catch(() => {});
+
     if (result.code === 0) {
       await logActivity(userId, platform, 'info', 'cron_end', message);
     } else {
@@ -152,12 +186,9 @@ export async function runCronForPlatform(
   } catch (err) {
     exitCode = 1;
     message = (err as Error).message;
+    await cronFinish(entryId, platform, 1, message, userId).catch(() => {});
     await logActivity(userId, platform, 'error', 'cron_error', `Cron failed: ${message}`).catch(() => { });
     return { success: false, message };
-  } finally {
-    // ALWAYS call cronFinish — this was the missing piece
-    await cronFinish(cronId, platform, exitCode, message, userId).catch(() => { });
-    await releaseCronLock(platform, userId).catch(() => { });
   }
 }
 
@@ -202,12 +233,12 @@ function spawnWithTimeout(
             clearTimeout(timeout);
             if (abortInterval) clearInterval(abortInterval);
             child.kill('SIGTERM');
-            setTimeout(() => { try { child.kill('SIGKILL'); } catch { } }, 5000);
+            setTimeout(() => { try { child.kill('SIGKILL'); } catch { } }, 3000);
             await redis.del(abortKey);
             resolvePromise({ code: 1, stderr: 'Stopped by user' });
           }
         } catch { /* Redis down — skip check */ }
-      }, 5000);
+      }, 2000); // Poll every 2s for faster stop response
     }
 
     child.on('close', (code) => {

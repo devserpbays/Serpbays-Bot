@@ -36,11 +36,14 @@ async function getPage(profileDir: string): Promise<Page> {
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-blink-features=AutomationControlled',
+      '--disable-features=IsolateOrigins,site-per-process',
     ],
+    // Windows UA — Linux is a strong bot signal to Google
     userAgent:
-      'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
-    viewport: { width: 1280, height: 900 },
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    viewport: { width: 1366, height: 768 },
     locale: 'en-US',
+    timezoneId: 'America/New_York',
   });
 
   // Inject cookies from cookies.json if available
@@ -174,11 +177,11 @@ export async function scrapeYouTubeVideos(keywords: string[], profileDir: string
       await page.goto(searchUrl, { waitUntil: 'domcontentloaded' });
       await sleep(SLOW_WAIT);
 
-      // Scroll to load more results
-      for (let i = 0; i < 2; i++) {
-        await page.mouse.wheel(0, 800);
-        await sleep(1500);
-      }
+      // Scroll to load more results — use JS scroll, not mouse.wheel
+      await page.evaluate(() => window.scrollBy({ top: 800, behavior: 'smooth' }));
+      await sleep(1800 + Math.random() * 800);
+      await page.evaluate(() => window.scrollBy({ top: 600, behavior: 'smooth' }));
+      await sleep(1200 + Math.random() * 600);
 
       // Extract video cards
       const videoData = await page.evaluate(() => {
@@ -268,6 +271,36 @@ export async function scrapeYouTubeVideos(keywords: string[], profileDir: string
   });
 }
 
+/**
+ * Human-like typing: variable delay per character, occasional pauses mid-word.
+ * Mimics real user typing rhythm to avoid automation detection.
+ */
+async function humanType(page: Page, text: string): Promise<void> {
+  for (let i = 0; i < text.length; i++) {
+    await page.keyboard.type(text[i]);
+    // Variable delay: 60–180ms normally, occasional longer pause (350–700ms) mid-sentence
+    const isPause = text[i] === ',' || text[i] === '.' || text[i] === '!' || (Math.random() < 0.04);
+    const delay = isPause
+      ? 350 + Math.random() * 350
+      : 60 + Math.random() * 120;
+    await sleep(delay);
+  }
+}
+
+/**
+ * Smooth JS scroll — more natural than mouse.wheel which can look mechanical.
+ */
+async function smoothScroll(page: Page, targetY: number): Promise<void> {
+  const steps = 5 + Math.floor(Math.random() * 4);
+  const current = await page.evaluate(() => window.scrollY);
+  const distance = targetY - current;
+  for (let i = 1; i <= steps; i++) {
+    const y = current + (distance * i) / steps;
+    await page.evaluate((scrollY) => window.scrollTo({ top: scrollY, behavior: 'smooth' }), y);
+    await sleep(150 + Math.random() * 200);
+  }
+}
+
 // --- Post a comment on a YouTube video ---
 export async function postYouTubeComment(videoUrl: string, comment: string, profileDir: string): Promise<{ success: boolean; error?: string }> {
   if (!comment || comment.trim().length < 5) {
@@ -278,11 +311,20 @@ export async function postYouTubeComment(videoUrl: string, comment: string, prof
   try {
     const page = await getPage(profileDir);
     await page.goto(videoUrl, { waitUntil: 'domcontentloaded' });
-    await sleep(SLOW_WAIT);
 
-    // Scroll down to the comment section
-    await page.mouse.wheel(0, 600);
-    await sleep(2000);
+    // Simulate reading the video page for a realistic duration (8–18s)
+    const readTime = 8000 + Math.random() * 10000;
+    await sleep(readTime);
+
+    // Scroll slowly through the video description (natural reading behavior)
+    await smoothScroll(page, 300 + Math.random() * 100);
+    await sleep(1500 + Math.random() * 1000);
+    await smoothScroll(page, 650 + Math.random() * 150);
+    await sleep(2000 + Math.random() * 1500);
+
+    // Scroll past description to reveal comment section
+    await smoothScroll(page, 950 + Math.random() * 100);
+    await sleep(1500 + Math.random() * 1000);
 
     // Click the comment box placeholder to activate it
     const placeholderSelectors = [
@@ -294,23 +336,22 @@ export async function postYouTubeComment(videoUrl: string, comment: string, prof
     let clicked = false;
     for (const sel of placeholderSelectors) {
       const el = page.locator(sel).first();
-      if (await el.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await el.isVisible({ timeout: 4000 }).catch(() => false)) {
         await el.click({ force: true });
         clicked = true;
-        await sleep(1500);
+        await sleep(1200 + Math.random() * 800);
         break;
       }
     }
 
     if (!clicked) {
-      // Try scrolling more and clicking
-      await page.mouse.wheel(0, 400);
+      await smoothScroll(page, 1100);
       await sleep(1000);
       await page.locator('#placeholder-area').first().click({ force: true }).catch(() => {});
-      await sleep(1500);
+      await sleep(1200 + Math.random() * 800);
     }
 
-    // Type the comment
+    // Find comment editor
     const editorSelectors = [
       '#contenteditable-root',
       'div[contenteditable="true"]#contenteditable-root',
@@ -320,7 +361,7 @@ export async function postYouTubeComment(videoUrl: string, comment: string, prof
     let editor = null;
     for (const sel of editorSelectors) {
       const el = page.locator(sel).first();
-      if (await el.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await el.isVisible({ timeout: 4000 }).catch(() => false)) {
         editor = el;
         break;
       }
@@ -333,11 +374,16 @@ export async function postYouTubeComment(videoUrl: string, comment: string, prof
     }
 
     await editor.click({ force: true });
-    await sleep(500);
-    await page.keyboard.type(comment, { delay: 30 });
-    await sleep(1000);
+    // Short pause before typing — humans don't start immediately
+    await sleep(800 + Math.random() * 600);
 
-    // Click Submit button
+    // Type with human-like rhythm
+    await humanType(page, comment);
+
+    // Pause to "review" what was typed (1.5–4s)
+    await sleep(1500 + Math.random() * 2500);
+
+    // Click Submit
     const submitSelectors = [
       '#submit-button',
       'yt-button-shape#submit-button button',
@@ -358,7 +404,8 @@ export async function postYouTubeComment(videoUrl: string, comment: string, prof
       await page.keyboard.press('Control+Enter');
     }
 
-    await sleep(4000);
+    // Wait for comment to appear
+    await sleep(5000 + Math.random() * 2000);
 
     const pageText = await page.textContent('body').catch(() => '');
     const posted = pageText?.includes(comment.slice(0, 20)) ?? false;

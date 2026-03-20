@@ -68,8 +68,12 @@ async function handleValidateTwitter(data: ValidateCookiesJob) {
 
     const currentUrl = page.url();
 
-    // Check if redirected to login
-    const loginPatterns = ['/login', '/i/flow/login', '/accounts/login', '/register'];
+    // Check if redirected to login or any challenge/verification page
+    const loginPatterns = [
+      '/login', '/i/flow/login', '/accounts/login', '/register',
+      '/i/flow/suspended', '/i/flow/consent', '/account/access',
+      '/i/flow/verify', '/challenge', '/checkpoint',
+    ];
     const isLoggedOut = loginPatterns.some(p => currentUrl.includes(p));
 
     if (isLoggedOut) {
@@ -83,11 +87,29 @@ async function handleValidateTwitter(data: ValidateCookiesJob) {
     let accountId = '';
 
     if (platform === 'twitter') {
+      // Extra Twitter-specific check: verify the user is actually logged in by checking
+      // for the profile link in the sidebar (not just URL check)
       username = await page.evaluate(() => {
         const link = document.querySelector('a[data-testid="AppTabBar_Profile_Link"]') as HTMLAnchorElement | null;
         if (link?.href) return link.href.split('/').filter(Boolean).pop() || '';
         return '';
       }).catch(() => '');
+
+      // If no profile link found, Twitter might be showing a logged-out state
+      // even at /home (e.g., bot detection challenge rendered client-side)
+      if (!username) {
+        const isActuallyLoggedOut = await page.evaluate(() => {
+          // Check for login button in the sidebar
+          const loginBtn = document.querySelector('a[href="/login"]');
+          const signupBtn = document.querySelector('a[href="/i/flow/login"]');
+          return !!(loginBtn || signupBtn);
+        }).catch(() => false);
+
+        if (isActuallyLoggedOut) {
+          await context.close();
+          return { success: false, loggedIn: false, message: 'Cookies invalid — Twitter shows login prompt' };
+        }
+      }
 
       displayName = await page.evaluate(() => {
         const switcher = document.querySelector('[data-testid="SideNav_AccountSwitcher_Button"]');
@@ -100,7 +122,18 @@ async function handleValidateTwitter(data: ValidateCookiesJob) {
         return '';
       }).catch(() => '');
 
-      const cookies2 = await context.cookies('https://x.com');
+      // Use both x.com and twitter.com cookies to ensure nothing is missed
+      const [xCookies, twitterCookies] = await Promise.all([
+        context.cookies('https://x.com'),
+        context.cookies('https://twitter.com'),
+      ]);
+      // Merge, deduplicating by name+domain
+      const cookieSet = new Map<string, typeof xCookies[0]>();
+      for (const c of [...twitterCookies, ...xCookies]) {
+        cookieSet.set(`${c.name}:${c.domain}`, c);
+      }
+      const cookies2 = Array.from(cookieSet.values());
+
       const twid = cookies2.find(c => c.name === 'twid')?.value || '';
       const twitterUserId = twid ? decodeURIComponent(twid).replace('u=', '') : '';
       accountId = username ? `tw_${username}` : `tw_${twitterUserId || userId}`;

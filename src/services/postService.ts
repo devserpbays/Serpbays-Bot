@@ -183,13 +183,13 @@ export async function upsertPost(
   return Post.findOneAndUpdate(
     { userId, url },
     { $set: data, $setOnInsert: { userId, url } },
-    { upsert: true, new: true },
+    { upsert: true, returnDocument: 'after' },
   ).lean() as Promise<PostDoc>;
 }
 
 export async function updatePost(id: string, update: Partial<PostDoc>): Promise<PostDoc | null> {
   await connectDB();
-  return Post.findByIdAndUpdate(id, update, { new: true }).lean() as Promise<PostDoc | null>;
+  return Post.findByIdAndUpdate(id, update, { returnDocument: 'after' }).lean() as Promise<PostDoc | null>;
 }
 
 export async function updatePostForUser(
@@ -201,7 +201,7 @@ export async function updatePostForUser(
   return Post.findOneAndUpdate(
     { _id: id, userId },
     update,
-    { new: true },
+    { returnDocument: 'after' },
   ).lean() as Promise<PostDoc | null>;
 }
 
@@ -234,7 +234,7 @@ export async function markPostPosted(
       postedAt: new Date(),
       ...data,
     },
-    { new: true },
+    { returnDocument: 'after' },
   ).lean() as Promise<PostDoc | null>;
 }
 

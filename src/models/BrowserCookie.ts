@@ -11,7 +11,9 @@ const BrowserCookieSchema = new Schema(
     username:    { type: String, default: '' },
     displayName: { type: String, default: '' },
     // Earliest expiration among all cookies — used for TTL auto-delete
-    expiresAt:   { type: Date, default: null },
+    expiresAt:      { type: Date, default: null },
+    // Audit trail — updated every time cookies are loaded for use
+    lastAccessedAt: { type: Date, default: null },
   },
   { timestamps: true }
 );

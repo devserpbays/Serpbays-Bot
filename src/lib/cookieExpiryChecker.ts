@@ -9,6 +9,7 @@ import Settings from '@/models/Settings';
 import Notification from '@/models/Notification';
 import { getCookieMeta } from './cookieStore';
 import { sendCookieExpiryEmail } from './emailNotifier';
+import { publishNotification } from './redis';
 
 const THREE_HOURS_MS = 3 * 60 * 60 * 1000;
 const EMAIL_COOLDOWN_MS = 12 * 60 * 60 * 1000;
@@ -95,7 +96,7 @@ export async function checkAndNotifyCookieExpiry(): Promise<{
         .map(p => p.charAt(0).toUpperCase() + p.slice(1))
         .join(', ');
 
-      await Notification.create({
+      const notifData = {
         userId,
         type: 'cookie_expired',
         platform: expiredPlatforms[0],
@@ -103,7 +104,10 @@ export async function checkAndNotifyCookieExpiry(): Promise<{
         message: `Your ${platformNames} cookies have been expired for over 3 hours. Reconnect to resume posting.`,
         actionUrl: '/dashboard/accounts',
         actionLabel: 'Reconnect',
-      });
+      };
+      const doc = await Notification.create(notifData);
+      // Push real-time via Redis pub/sub so users with dashboard open see it instantly
+      await publishNotification(userId, { ...notifData, _id: doc._id, ts: Date.now() }).catch(() => {});
     }
 
     // Email notification — fetch email from Clerk automatically

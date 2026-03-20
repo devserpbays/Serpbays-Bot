@@ -94,19 +94,67 @@ function getHeaders(ct0: string, cookieHeader: string): Record<string, string> {
     'X-Twitter-Active-User': 'yes',
     'X-Twitter-Client-Language': 'en',
     Cookie: cookieHeader,
-    'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
+    // Windows Chrome UA — less likely to trigger Twitter's automation detection than Linux
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
     Referer: 'https://x.com/',
     Origin: 'https://x.com',
     'Accept': '*/*',
     'Accept-Language': 'en-US,en;q=0.9',
     'Accept-Encoding': 'gzip, deflate, br',
-    'Sec-Ch-Ua': '"Google Chrome";v="145", "Chromium";v="145", "Not-A.Brand";v="24"',
+    'Sec-Ch-Ua': '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
     'Sec-Ch-Ua-Mobile': '?0',
-    'Sec-Ch-Ua-Platform': '"Linux"',
+    'Sec-Ch-Ua-Platform': '"Windows"',
     'Sec-Fetch-Dest': 'empty',
     'Sec-Fetch-Mode': 'cors',
     'Sec-Fetch-Site': 'same-origin',
   };
+}
+
+/** Random jitter: wait between min and max ms */
+function jitter(min = 1500, max = 4000): Promise<void> {
+  return new Promise(r => setTimeout(r, Math.floor(Math.random() * (max - min)) + min));
+}
+
+/** Parse a Twitter API error body into a short human-readable message */
+export function parseTwitterError(bodyStr: string): string {
+  const CODE_MAP: Record<number, string> = {
+    32:  'Twitter session expired — re-upload cookies from dashboard',
+    64:  'Twitter account is suspended',
+    88:  'Twitter rate limit reached — will retry later',
+    89:  'Twitter access token expired — re-upload cookies',
+    135: 'Twitter timestamp out of bounds — check server time',
+    161: 'Twitter follow limit reached',
+    179: 'Not authorised to view this tweet',
+    185: 'Twitter daily tweet limit reached',
+    187: 'Duplicate tweet — identical reply already posted',
+    215: 'Twitter authentication failed — re-upload cookies',
+    226: 'Twitter flagged this as automated activity — posting paused temporarily',
+    261: 'Twitter app write permissions revoked — re-connect account',
+    326: 'Twitter account is temporarily locked',
+    349: 'Cannot reply to this tweet (deleted or restricted)',
+    385: 'Cannot reply to this tweet (deleted or not found)',
+    416: 'Twitter application suspended',
+  };
+
+  try {
+    const parsed = JSON.parse(bodyStr);
+    const errors = parsed?.errors as Array<{ code: number; message: string }> | undefined;
+    if (errors && errors.length > 0) {
+      const first = errors[0];
+      const mapped = CODE_MAP[first.code];
+      if (mapped) return mapped;
+      // Strip the verbose suffix Twitter appends and return cleaned message
+      const cleaned = (first.message || '')
+        .replace(/\s*\(\d+\)\s*$/, '')   // remove trailing "(226)"
+        .replace(/\s*Please try again later\.\s*/i, '')
+        .replace(/\s*To protect our users.*$/i, '')
+        .trim();
+      return cleaned || `Twitter error ${first.code}`;
+    }
+  } catch { /* not JSON */ }
+
+  // Not JSON or no errors array — strip the raw body
+  return bodyStr.slice(0, 120).replace(/[\r\n]+/g, ' ').trim();
 }
 
 // --- Verify credentials: read from .verified file + test ct0 cookie exists ---
@@ -150,33 +198,70 @@ async function createTweetHttp(profileDir: string, variables: Record<string, unk
 
   if (!ct0) throw new Error('No ct0 cookie — cannot post tweet');
 
-  const res = await fetch(`${TWITTER_GRAPHQL_BASE}/${_httpCreateTweetQueryId}/CreateTweet`, {
-    method: 'POST',
-    headers: getHeaders(ct0, cookieHeader),
-    body: JSON.stringify({
-      variables,
-      features: CREATE_TWEET_FEATURES,
-      queryId: _httpCreateTweetQueryId,
-    }),
-  });
+  // Human-like jitter before posting (avoids mechanical request timing patterns)
+  await jitter(1500, 4000);
 
-  if (!res.ok) {
-    const errorBody = await res.text();
-    throw new Error(`Twitter API error ${res.status}: ${errorBody.slice(0, 300)}`);
+  const maxAttempts = 3;
+  let lastError = '';
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const res = await fetch(`${TWITTER_GRAPHQL_BASE}/${_httpCreateTweetQueryId}/CreateTweet`, {
+      method: 'POST',
+      headers: getHeaders(ct0, cookieHeader),
+      body: JSON.stringify({
+        variables,
+        features: CREATE_TWEET_FEATURES,
+        queryId: _httpCreateTweetQueryId,
+      }),
+    });
+
+    const body = await res.text();
+
+    if (!res.ok) {
+      const humanError = parseTwitterError(body);
+      lastError = humanError;
+      // Error 226 = automation detection — back off and retry
+      if (body.includes('"code":226') || body.includes('"code": 226')) {
+        if (attempt < maxAttempts) {
+          const backoff = attempt * 8000 + Math.floor(Math.random() * 4000);
+          console.warn(`[Twitter] 226 on attempt ${attempt}/${maxAttempts} — waiting ${backoff}ms`);
+          await new Promise(r => setTimeout(r, backoff));
+          continue;
+        }
+      }
+      throw new Error(humanError);
+    }
+
+    let data: Record<string, unknown>;
+    try { data = JSON.parse(body); } catch { throw new Error(`Twitter returned non-JSON response — session may be expired`); }
+
+    // Check for error 226 inside a 200-OK body (Twitter sometimes does this)
+    const bodyStr = JSON.stringify(data);
+    if (bodyStr.includes('"code":226') || bodyStr.includes('"code": 226')) {
+      if (attempt < maxAttempts) {
+        const backoff = attempt * 8000 + Math.floor(Math.random() * 4000);
+        console.warn(`[Twitter] 226 in body on attempt ${attempt}/${maxAttempts} — waiting ${backoff}ms`);
+        await new Promise(r => setTimeout(r, backoff));
+        continue;
+      }
+      throw new Error(parseTwitterError(bodyStr));
+    }
+
+    const result = (data as Record<string, unknown> & { data?: { create_tweet?: { tweet_results?: { result?: Record<string, unknown> } } } })
+      ?.data?.create_tweet?.tweet_results?.result;
+    if (!result) {
+      throw new Error(parseTwitterError(bodyStr));
+    }
+
+    return {
+      data: {
+        id: (result.rest_id as string) || ((result.legacy as Record<string, string>)?.id_str) || '',
+        text: ((result.legacy as Record<string, string>)?.full_text) || (variables.tweet_text as string) || '',
+      },
+    };
   }
 
-  const data = await res.json();
-  const result = data?.data?.create_tweet?.tweet_results?.result;
-  if (!result) {
-    throw new Error(`Unexpected Twitter response: ${JSON.stringify(data).slice(0, 500)}`);
-  }
-
-  return {
-    data: {
-      id: result.rest_id || result.legacy?.id_str || '',
-      text: result.legacy?.full_text || (variables.tweet_text as string) || '',
-    },
-  };
+  throw new Error(lastError || 'Twitter: max retry attempts exceeded');
 }
 
 // --- Post a new tweet (HTTP) ---
