@@ -10,6 +10,8 @@
 import { chromium, type BrowserContext, type Page } from 'playwright';
 import { join } from 'path';
 import { unlinkSync, existsSync, readFileSync } from 'fs';
+import { isValidComment } from './validateComment';
+import { debugScreenshot } from './debugScreenshot';
 
 const PROFILE_DIR = process.env.FACEBOOK_PROFILE_DIR
   ? join(process.cwd(), process.env.FACEBOOK_PROFILE_DIR)
@@ -26,15 +28,34 @@ interface FacebookPost {
 
 let _context: BrowserContext | null = null;
 let _page: Page | null = null;
+let _activeProfileDir: string = PROFILE_DIR;
+
+/**
+ * Set the profile directory for the next browser session.
+ * If the profile dir changes, the current browser is closed and a new one opened.
+ */
+export function setProfileDir(profileDir: string): void {
+  const resolved = profileDir.startsWith('/') ? profileDir : join(process.cwd(), profileDir);
+  if (resolved !== _activeProfileDir) {
+    if (_context) {
+      _context.close().catch(() => {});
+      _context = null;
+      _page = null;
+    }
+    _activeProfileDir = resolved;
+  }
+}
 
 // --- Launch or reuse persistent browser context ---
 async function getPage(): Promise<Page> {
   if (_page && !_page.isClosed()) return _page;
 
-  // Remove stale browser lock from previous crash
-  try { unlinkSync(join(PROFILE_DIR, 'SingletonLock')); } catch {}
+  const profileDir = _activeProfileDir;
 
-  _context = await chromium.launchPersistentContext(PROFILE_DIR, {
+  // Remove stale browser lock from previous crash
+  try { unlinkSync(join(profileDir, 'SingletonLock')); } catch {}
+
+  _context = await chromium.launchPersistentContext(profileDir, {
     headless: true,
     args: [
       '--no-sandbox',
@@ -49,7 +70,7 @@ async function getPage(): Promise<Page> {
   });
 
   // Inject cookies from cookies.json if available (normalize sameSite for Playwright)
-  const cookiesJsonPath = join(PROFILE_DIR, 'cookies.json');
+  const cookiesJsonPath = join(profileDir, 'cookies.json');
   if (existsSync(cookiesJsonPath)) {
     try {
       const savedCookies = JSON.parse(readFileSync(cookiesJsonPath, 'utf8'));
@@ -89,6 +110,12 @@ export async function closeBrowser(): Promise<void> {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+/** Random delay between min and max ms to mimic human behavior */
+function humanDelay(minMs: number = 1500, maxMs: number = 4000): Promise<void> {
+  const ms = Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
+  return new Promise(r => setTimeout(r, ms));
 }
 
 // --- Check if logged in to Facebook ---
@@ -214,8 +241,8 @@ export async function getJoinedGroups(): Promise<string[]> {
     await sleep(SLOW_WAIT);
 
     // Scroll a bit to load more groups in the sidebar
-    await page.evaluate(() => window.scrollBy({ top: 800, behavior: 'smooth' }));
-    await sleep(2000);
+    await page.mouse.wheel(0, 800);
+    await humanDelay(1500, 3000);
 
     // Extract group links from the page
     const hrefs = await page.$$eval('a[href*="/groups/"]', (anchors) =>
@@ -251,12 +278,12 @@ export async function scrapeGroupPosts(
   try {
     const page = await getPage();
     await page.goto(groupUrl, { waitUntil: 'domcontentloaded' });
-    await sleep(SLOW_WAIT);
+    await humanDelay(3000, 5000);
 
     // Scroll down a couple times to load more posts
     for (let i = 0; i < 3; i++) {
-      await page.evaluate(() => window.scrollBy({ top: 1000, behavior: 'smooth' }));
-      await sleep(1500);
+      await page.mouse.wheel(0, 1000);
+      await humanDelay(1200, 2500);
     }
 
     // Facebook renders posts in feed containers — extract post elements
@@ -417,7 +444,7 @@ export async function likeFacebookPost(postUrl: string): Promise<boolean> {
             return true;
           }
           await btn.click({ force: true });
-          await sleep(2000);
+          await humanDelay(1500, 3000);
           console.log('Liked Facebook post successfully');
           return true;
         }
@@ -430,38 +457,6 @@ export async function likeFacebookPost(postUrl: string): Promise<boolean> {
     console.error('Failed to like Facebook post:', (err as Error).message);
     return false;
   }
-}
-
-// --- Validate comment text before posting ---
-function isValidComment(text: string): boolean {
-  if (!text || text.trim().length < 5) return false;
-  if (text.trim().length > 2000) return false;
-
-  // Patterns that indicate the text is a code dump or error output, not a real comment.
-  // These are intentionally specific to avoid false positives on conversational text
-  // that naturally mentions words like "error" or "failed".
-  const errorPatterns = [
-    /Error:\s*\w+/,                        // "Error: something" (structured error output)
-    /ERR_/,                                 // Node.js error codes
-    /stack\s*trace/i,                       // stack trace dumps
-    /\bundefined\b.*\bundefined\b/i,        // multiple "undefined" = likely a dump
-    /\bnull\b.*\bnull\b/i,                  // multiple "null" = likely a dump
-    /\bNaN\b.*\bNaN\b/,                     // multiple NaN
-    /\b(500|404|403|401|400)\b.*\b(status|code|error)\b/i,
-    /at\s+\w+\s*\(.*:\d+:\d+\)/,           // stack frame: "at func (file:line:col)"
-    /^\s*\{[\s\S]*\}\s*$/,                  // entire text is a JSON object
-    /^\s*\[[\s\S]*\]\s*$/,                  // entire text is a JSON array
-    /TypeError|ReferenceError|SyntaxError/, // JS error type names
-    /ECONNREFUSED|ETIMEDOUT|ENOTFOUND/,     // Node.js network error codes
-    /Could not parse/i,
-    /```[\s\S]*```/,                        // markdown code blocks
-  ];
-
-  for (const pattern of errorPatterns) {
-    if (pattern.test(text)) return false;
-  }
-
-  return true;
 }
 
 // --- Post a comment on a Facebook post ---
@@ -542,28 +537,58 @@ export async function postComment(
       await sleep(2000);
     }
 
-    // Helper: find visible comment box from a list of selectors
-    async function findCommentBox() {
-      const commentSelectors = [
-        // Lexical editor (Facebook's current comment editor)
-        'div[contenteditable="true"][data-lexical-editor="true"]',
-        // aria-label based (most reliable when present)
-        '[aria-label="Write a comment\u2026"][contenteditable="true"]',
-        '[aria-label="Write a comment…"][contenteditable="true"]',
-        '[aria-label="Write a comment"][contenteditable="true"]',
-        '[aria-label*="Write a comment"][contenteditable="true"]',
-        '[aria-label="Leave a comment"][contenteditable="true"]',
-        '[aria-label*="Comment as"][contenteditable="true"]',
-        '[aria-label*="Write a public comment"][contenteditable="true"]',
-        '[aria-label*="comment" i][contenteditable="true"]',
-        // Role-based
-        'div[contenteditable="true"][role="textbox"]',
-        'div[contenteditable="true"][spellcheck="true"]',
-        // Inside form
-        'form div[contenteditable="true"]',
-        // Generic fallback — pick non-post editable divs
-        'div[contenteditable="true"]',
-      ];
+    // Find comment box — try multiple selectors, check visibility
+    const commentSelectors = [
+      '[aria-label*="comment" i][contenteditable="true"]',
+      '[aria-label*="Comment as"]',
+      '[aria-label="Write a comment"]',
+      '[aria-label="Write a comment…"]',
+      '[aria-label="Write a comment\u2026"]',
+      '[aria-label*="Write a comment"]',
+      '[aria-label*="Write a public comment"]',
+      '[placeholder*="comment" i]',
+      'div[contenteditable="true"][role="textbox"]',
+      'form div[contenteditable="true"]',
+    ];
+
+    let commentBox = null;
+    for (const sel of commentSelectors) {
+      const elements = await page.$$(sel);
+      for (const el of elements) {
+        if (await el.isVisible().catch(() => false)) {
+          commentBox = el;
+          break;
+        }
+      }
+      if (commentBox) break;
+    }
+
+    // If not found, try clicking comment/action buttons to reveal the comment box
+    if (!commentBox) {
+      // Try multiple button patterns
+      const buttonTexts = ['Comment', 'comment', 'Write a comment'];
+      const allButtons = await page.$$('[role="button"], button, span[role="button"]');
+      for (const btn of allButtons) {
+        const text = (await btn.textContent().catch(() => ''))?.trim() || '';
+        if (buttonTexts.some(t => text.includes(t))) {
+          await btn.click({ force: true });
+          await humanDelay(2000, 4000);
+          break;
+        }
+      }
+
+      // Also try clicking the comment icon (SVG near like/share buttons)
+      const commentIcons = await page.$$('[aria-label*="comment" i], [aria-label*="Comment" i]');
+      for (const icon of commentIcons) {
+        const tag = await icon.evaluate(el => el.tagName.toLowerCase()).catch(() => '');
+        if (tag === 'div' || tag === 'span' || tag === 'i') {
+          await icon.click({ force: true }).catch(() => {});
+          await humanDelay(1500, 3000);
+          break;
+        }
+      }
+
+      // Retry finding comment box with all selectors
       for (const sel of commentSelectors) {
         const elements = await page.$$(sel);
         for (const el of elements) {
@@ -698,20 +723,15 @@ export async function postComment(
 
     // Click to focus (force to bypass any overlay)
     await commentBox.click({ force: true });
-    await sleep(1000);
+    await humanDelay(800, 1800);
 
-    // Human-like typing: variable delay, occasional natural pauses
-    await sleep(700 + Math.random() * 600);
-    for (let i = 0; i < comment.length; i++) {
-      await page.keyboard.type(comment[i]);
-      const isPause = comment[i] === ',' || comment[i] === '.' || comment[i] === '!' || (Math.random() < 0.04);
-      await sleep(isPause ? 320 + Math.random() * 280 : 60 + Math.random() * 110);
-    }
-    await sleep(1800 + Math.random() * 1500);
+    // Type the comment with human-like delay
+    await page.keyboard.type(comment, { delay: 30 + Math.random() * 60 });
+    await humanDelay(800, 2000);
 
     // Submit with Enter
     await page.keyboard.press('Enter');
-    await sleep(5000);
+    await humanDelay(4000, 7000);
 
     // Verify submission: the comment box should be empty after a successful post
     const boxTextAfter = await commentBox.textContent().catch(() => comment);
@@ -734,7 +754,7 @@ export async function postComment(
       return { success: true };
     } else {
       console.warn(`Comment may NOT have posted on: ${postUrl} (box not cleared, text not found in comments)`);
-      await page.screenshot({ path: '/tmp/fb-post-failed.png', fullPage: false }).catch(() => {});
+      await debugScreenshot(page, 'facebook', 'post-failed');
       return { success: false, error: 'Comment not confirmed after posting — Facebook may have blocked it or session expired' };
     }
   } catch (err) {

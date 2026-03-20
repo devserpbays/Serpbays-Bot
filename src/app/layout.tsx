@@ -27,7 +27,7 @@ export default function RootLayout({
           taskUrls={{ 'reset-password': '/reset-password' }}
           appearance={{
             variables: {
-              colorPrimary: '#7c3aed',
+              colorPrimary: '#0ea5e9',
               colorBackground: '#0f0f12',
               colorInputBackground: '#131316',
               colorInputText: '#fafafa',
@@ -46,7 +46,7 @@ export default function RootLayout({
               headerTitle: { fontWeight: '700', letterSpacing: '-0.02em', color: '#fafafa' },
               headerSubtitle: { color: '#a1a1aa' },
               formButtonPrimary: {
-                background: '#7c3aed',
+                background: '#0ea5e9',
                 boxShadow: 'none',
                 borderRadius: '6px',
                 color: '#ffffff',
@@ -59,7 +59,7 @@ export default function RootLayout({
                 color: '#fafafa',
               },
               formFieldInputShowPasswordButton: { color: '#a1a1aa' },
-              formFieldAction: { color: '#a78bfa' },
+              formFieldAction: { color: '#38bdf8' },
               formFieldHintText: { color: '#71717a' },
               formFieldErrorText: { color: '#f87171' },
               formFieldWarningText: { color: '#fbbf24' },
@@ -73,11 +73,11 @@ export default function RootLayout({
               dividerLine: { background: 'rgba(255,255,255,0.08)' },
               dividerText: { color: '#71717a' },
               footerAction: { color: '#a1a1aa' },
-              footerActionLink: { color: '#a78bfa' },
+              footerActionLink: { color: '#38bdf8' },
               footerActionText: { color: '#71717a' },
               identityPreview: { background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.08)' },
               identityPreviewText: { color: '#d4d4d8' },
-              identityPreviewEditButton: { color: '#a78bfa' },
+              identityPreviewEditButton: { color: '#38bdf8' },
               alternativeMethodsBlockButton: {
                 background: 'rgba(255,255,255,0.04)',
                 border: '1px solid rgba(255,255,255,0.08)',
@@ -88,10 +88,10 @@ export default function RootLayout({
                 border: '1px solid rgba(255,255,255,0.1)',
                 color: '#fafafa',
               },
-              formResendCodeLink: { color: '#a78bfa' },
+              formResendCodeLink: { color: '#38bdf8' },
               alert: { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' },
               alertText: { color: '#d4d4d8' },
-              backLink: { color: '#a78bfa' },
+              backLink: { color: '#38bdf8' },
             },
           }}
         >

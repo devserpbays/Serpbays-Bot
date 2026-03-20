@@ -18,7 +18,7 @@ export default function TermsOfService() {
           margin: "0 auto",
         }}
       >
-        <Link href="/" style={{ fontSize: "1.5rem", fontWeight: 700, color: "#7c3aed", textDecoration: "none" }}>
+        <Link href="/" style={{ fontSize: "1.5rem", fontWeight: 700, color: "#0ea5e9", textDecoration: "none" }}>
           GetMention
         </Link>
         <Link href="/dashboard" style={{ color: "#a0a0b0", textDecoration: "none", fontSize: "0.9rem" }}>
@@ -176,7 +176,7 @@ export default function TermsOfService() {
           </h2>
           <p style={{ lineHeight: 1.75 }}>
             If you have any questions about these Terms of Service, please contact us at{" "}
-            <a href="mailto:support@getmention.com" style={{ color: "#7c3aed", textDecoration: "none" }}>
+            <a href="mailto:support@getmention.com" style={{ color: "#0ea5e9", textDecoration: "none" }}>
               support@getmention.com
             </a>
             .

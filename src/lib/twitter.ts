@@ -13,6 +13,7 @@ import { chromium, type BrowserContext, type Page } from 'playwright';
 import { join } from 'path';
 import { unlinkSync, readFileSync, existsSync } from 'fs';
 import { execSync } from 'child_process';
+import { detectChromiumPath } from './browserPath';
 
 const TWITTER_GRAPHQL_BASE = 'https://x.com/i/api/graphql';
 const BEARER =
@@ -32,6 +33,23 @@ interface TweetResponse {
 
 let _context: BrowserContext | null = null;
 let _page: Page | null = null;
+let _activeProfileDir: string = PROFILE_DIR;
+
+/**
+ * Set the profile directory for the next browser session.
+ * If the profile dir changes, the current browser is closed and a new one opened.
+ */
+export function setProfileDir(profileDir: string): void {
+  const resolved = profileDir.startsWith('/') ? profileDir : join(process.cwd(), profileDir);
+  if (resolved !== _activeProfileDir) {
+    if (_context) {
+      _context.close().catch(() => {});
+      _context = null;
+      _page = null;
+    }
+    _activeProfileDir = resolved;
+  }
+}
 
 // --- Build cookie array from env vars for context.addCookies() ---
 function buildCookies(): Array<{ name: string; value: string; domain: string; path: string }> {
@@ -59,14 +77,14 @@ function buildCookies(): Array<{ name: string; value: string; domain: string; pa
 async function getPage(): Promise<Page> {
   if (_page && !_page.isClosed()) return _page;
 
-  // Kill any orphaned chromium processes using this profile, then clear both lock files
-  try { execSync(`pkill -f "${PROFILE_DIR}" 2>/dev/null || true`, { stdio: 'ignore' }); } catch {}
-  await new Promise(r => setTimeout(r, 600));
-  try { unlinkSync(join(PROFILE_DIR, 'SingletonLock')); } catch {}
-  try { unlinkSync('/root/snap/chromium/common/chromium/SingletonLock'); } catch {}
+  const profileDir = _activeProfileDir;
 
-  _context = await chromium.launchPersistentContext(PROFILE_DIR, {
-    executablePath: '/usr/bin/chromium-browser',
+  // Clear stale lock files from previous crash
+  try { unlinkSync(join(profileDir, 'SingletonLock')); } catch {}
+
+  const execPath = detectChromiumPath();
+  _context = await chromium.launchPersistentContext(profileDir, {
+    ...(execPath && { executablePath: execPath }),
     headless: true,
     args: [
       '--no-sandbox',
@@ -80,7 +98,7 @@ async function getPage(): Promise<Page> {
   });
 
   // Inject cookies: prefer cookies.json from profile dir, fall back to env vars
-  const cookiesJsonPath = join(PROFILE_DIR, 'cookies.json');
+  const cookiesJsonPath = join(profileDir, 'cookies.json');
   let injectedCookies = false;
   if (existsSync(cookiesJsonPath)) {
     try {
@@ -117,10 +135,10 @@ export async function closeBrowser(): Promise<void> {
 // --- Check if Twitter credentials are configured ---
 export function isTwitterConfigured(): boolean {
   if (process.env.TWITTER_AUTH_TOKEN && process.env.TWITTER_CT0) return true;
-  if (existsSync(join(PROFILE_DIR, 'cookies.json'))) return true;
-  if (existsSync(join(PROFILE_DIR, 'Default'))) return true;
+  if (existsSync(join(_activeProfileDir, 'cookies.json'))) return true;
+  if (existsSync(join(_activeProfileDir, 'Default'))) return true;
   try {
-    const data = JSON.parse(readFileSync(join(PROFILE_DIR, '.verified'), 'utf8'));
+    const data = JSON.parse(readFileSync(join(_activeProfileDir, '.verified'), 'utf8'));
     return data.loggedIn === true;
   } catch { return false; }
 }

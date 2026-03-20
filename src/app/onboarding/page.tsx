@@ -30,8 +30,8 @@ const inputBase: React.CSSProperties = {
 };
 
 function focusIn(e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) {
-  e.target.style.borderColor = 'rgba(168,85,247,0.6)';
-  e.target.style.boxShadow = '0 0 0 3px rgba(168,85,247,0.12)';
+  e.target.style.borderColor = 'rgba(14,165,233,0.6)';
+  e.target.style.boxShadow = '0 0 0 3px rgba(14,165,233,0.12)';
 }
 function focusOut(e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) {
   e.target.style.borderColor = 'rgba(255,255,255,0.09)';
@@ -56,7 +56,7 @@ function FeedCard({ children }: { children: React.ReactNode }) {
       }}>
         <div style={{
           width: 34, height: 34, borderRadius: '50%',
-          background: 'linear-gradient(135deg, #a855f7, #7c3aed)',
+          background: 'linear-gradient(135deg, #0ea5e9, #38bdf8)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontSize: 14, fontWeight: 700, color: 'white', flexShrink: 0,
         }}>G</div>
@@ -231,7 +231,7 @@ export default function OnboardingPage() {
     <div style={{
       minHeight: '100vh',
       background: 'var(--bg-primary)',
-      backgroundImage: 'radial-gradient(ellipse 80% 50% at 50% -10%, rgba(168,85,247,0.08) 0%, transparent 60%)',
+      backgroundImage: 'radial-gradient(ellipse 80% 50% at 50% -10%, rgba(14,165,233,0.08) 0%, transparent 60%)',
     }}>
 
       {/* ── Top progress bar ─────────────────────────────── */}
@@ -240,7 +240,7 @@ export default function OnboardingPage() {
         <div style={{ height: 3, background: 'rgba(255,255,255,0.04)' }}>
           <div style={{
             height: '100%', width: `${progress}%`,
-            background: 'linear-gradient(90deg, #a855f7, #7c3aed, #10b981)',
+            background: 'linear-gradient(90deg, #0ea5e9, #0ea5e9, #10b981)',
             transition: 'width 400ms ease',
           }} />
         </div>
@@ -259,8 +259,8 @@ export default function OnboardingPage() {
                   width: 24, height: 24, borderRadius: '50%',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   fontSize: 11, fontWeight: 700,
-                  background: isDone ? 'var(--accent)' : isActive ? 'rgba(168,85,247,0.2)' : 'rgba(255,255,255,0.05)',
-                  border: `2px solid ${isDone ? 'var(--accent)' : isActive ? 'rgba(168,85,247,0.5)' : 'rgba(255,255,255,0.08)'}`,
+                  background: isDone ? 'var(--accent)' : isActive ? 'rgba(14,165,233,0.2)' : 'rgba(255,255,255,0.05)',
+                  border: `2px solid ${isDone ? 'var(--accent)' : isActive ? 'rgba(14,165,233,0.5)' : 'rgba(255,255,255,0.08)'}`,
                   color: isDone || isActive ? 'white' : 'var(--text-muted)',
                   transition: 'all 250ms',
                 }}>
@@ -325,8 +325,8 @@ export default function OnboardingPage() {
                   ].map(pill => (
                     <div key={pill.label} style={{
                       padding: '10px 20px',
-                      background: 'rgba(168,85,247,0.06)',
-                      border: '1px solid rgba(168,85,247,0.15)',
+                      background: 'rgba(14,165,233,0.06)',
+                      border: '1px solid rgba(14,165,233,0.15)',
                       borderRadius: 28,
                       backdropFilter: 'blur(8px)',
                       display: 'flex', alignItems: 'center', gap: 8,
@@ -368,9 +368,9 @@ export default function OnboardingPage() {
                   <div style={{
                     width: 48, height: 48, borderRadius: '50%',
                     background: companyName.trim()
-                      ? 'linear-gradient(135deg, #a855f7, #7c3aed)'
+                      ? 'linear-gradient(135deg, #0ea5e9, #38bdf8)'
                       : 'rgba(255,255,255,0.06)',
-                    border: `2px solid ${companyName.trim() ? 'rgba(168,85,247,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                    border: `2px solid ${companyName.trim() ? 'rgba(14,165,233,0.4)' : 'rgba(255,255,255,0.1)'}`,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     fontSize: 20, fontWeight: 700, color: 'white',
                     transition: 'all 300ms',
@@ -635,8 +635,8 @@ export default function OnboardingPage() {
                             <span key={kw} style={{
                               display: 'inline-flex', alignItems: 'center', gap: 5,
                               padding: '5px 10px',
-                              background: 'rgba(168,85,247,0.15)',
-                              border: '1px solid rgba(168,85,247,0.3)',
+                              background: 'rgba(14,165,233,0.15)',
+                              border: '1px solid rgba(14,165,233,0.3)',
                               borderRadius: 20, fontSize: 12.5, fontWeight: 500,
                               color: 'var(--accent)',
                             }}>
@@ -646,7 +646,7 @@ export default function OnboardingPage() {
                                 onClick={e => { e.stopPropagation(); setKeywords(prev => prev.filter(k => k !== kw)); }}
                                 style={{
                                   background: 'none', border: 'none', cursor: 'pointer',
-                                  color: 'rgba(168,85,247,0.7)', padding: 0, lineHeight: 1,
+                                  color: 'rgba(14,165,233,0.7)', padding: 0, lineHeight: 1,
                                   fontSize: 15, display: 'flex', alignItems: 'center',
                                 }}
                                 aria-label={`Remove ${kw}`}
@@ -726,11 +726,11 @@ export default function OnboardingPage() {
                       </p>
                     </div>
                     {/* AI reply */}
-                    <div style={{ padding: '14px 18px', background: 'rgba(168,85,247,0.04)' }}>
+                    <div style={{ padding: '14px 18px', background: 'rgba(14,165,233,0.04)' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                         <div style={{
                           width: 24, height: 24, borderRadius: '50%',
-                          background: 'linear-gradient(135deg, #a855f7, #7c3aed)',
+                          background: 'linear-gradient(135deg, #0ea5e9, #38bdf8)',
                           display: 'flex', alignItems: 'center', justifyContent: 'center',
                           fontSize: 10, fontWeight: 700, color: 'white',
                         }}>{companyInitial}</div>
@@ -739,7 +739,7 @@ export default function OnboardingPage() {
                         </span>
                         <span style={{
                           fontSize: 10, padding: '2px 6px',
-                          background: 'rgba(168,85,247,0.15)',
+                          background: 'rgba(14,165,233,0.15)',
                           borderRadius: 10, color: 'var(--accent)',
                         }}>AI</span>
                       </div>
@@ -851,12 +851,12 @@ export default function OnboardingPage() {
                 style={{
                   padding: '11px 32px',
                   background: canProceed()
-                    ? 'linear-gradient(135deg, #a855f7, #7c3aed)'
-                    : 'rgba(168,85,247,0.3)',
+                    ? 'linear-gradient(135deg, #0ea5e9, #38bdf8)'
+                    : 'rgba(14,165,233,0.3)',
                   border: 'none', borderRadius: 10,
                   color: 'white', fontSize: 14, fontWeight: 600,
                   cursor: canProceed() ? 'pointer' : 'not-allowed',
-                  boxShadow: canProceed() ? '0 4px 16px rgba(168,85,247,0.35)' : 'none',
+                  boxShadow: canProceed() ? '0 4px 16px rgba(14,165,233,0.35)' : 'none',
                   transition: 'all 160ms',
                 }}
               >
@@ -871,11 +871,11 @@ export default function OnboardingPage() {
                 disabled={loading}
                 style={{
                   padding: '11px 32px',
-                  background: loading ? 'rgba(168,85,247,0.4)' : 'linear-gradient(135deg, #a855f7, #7c3aed)',
+                  background: loading ? 'rgba(14,165,233,0.4)' : 'linear-gradient(135deg, #0ea5e9, #38bdf8)',
                   border: 'none', borderRadius: 10,
                   color: 'white', fontSize: 14, fontWeight: 600,
                   cursor: loading ? 'not-allowed' : 'pointer',
-                  boxShadow: loading ? 'none' : '0 4px 16px rgba(168,85,247,0.35)',
+                  boxShadow: loading ? 'none' : '0 4px 16px rgba(14,165,233,0.35)',
                   display: 'flex', alignItems: 'center', gap: 8,
                   transition: 'all 160ms',
                 }}

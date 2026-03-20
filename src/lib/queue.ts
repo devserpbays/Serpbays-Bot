@@ -102,13 +102,19 @@ async function checkUserFairness(userId: string, planTier?: string): Promise<voi
     if (count && parseInt(count) >= maxJobs) {
       throw new Error('Too many jobs queued. Please wait for current tasks to complete.');
     }
-    // Increment with TTL (auto-cleanup if worker crashes)
-    await redis.incr(`user-jobs:${userId}`);
-    await redis.expire(`user-jobs:${userId}`, 600); // 10 min safety
+    // Note: counter is incremented in enqueueJob after successful queue.add()
   } catch (err) {
     if ((err as Error).message.includes('Too many')) throw err;
     // Redis down — allow the request
   }
+}
+
+async function incrementUserJobCount(userId: string): Promise<void> {
+  try {
+    const redis = getRedis();
+    await redis.incr(`user-jobs:${userId}`);
+    await redis.expire(`user-jobs:${userId}`, 600); // 10 min safety
+  } catch { /* best effort */ }
 }
 
 /** Decrement user job counter (called by worker on completion). */
@@ -140,6 +146,8 @@ export async function enqueueJob(
     priority: opts?.priority ?? basePriority,
   };
   const job = await queue.add(jobData.type, jobData, jobOpts);
+  // Increment counter only after successful queue add to prevent leaks
+  await incrementUserJobCount(jobData.userId);
   return job.id!;
 }
 

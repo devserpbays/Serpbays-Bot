@@ -8,6 +8,8 @@
 import { chromium, type BrowserContext, type Page } from 'playwright';
 import { join } from 'path';
 import { unlinkSync, existsSync, readFileSync } from 'fs';
+import { isValidComment } from './validateComment';
+import { debugScreenshot } from './debugScreenshot';
 
 const NAVIGATION_TIMEOUT = 30000;
 const SLOW_WAIT = 4000;
@@ -303,9 +305,9 @@ async function smoothScroll(page: Page, targetY: number): Promise<void> {
 
 // --- Post a comment on a YouTube video ---
 export async function postYouTubeComment(videoUrl: string, comment: string, profileDir: string): Promise<{ success: boolean; error?: string }> {
-  if (!comment || comment.trim().length < 5) {
-    console.error('Invalid comment text, refusing to post.');
-    return { success: false, error: 'Comment too short (less than 5 characters)' };
+  if (!isValidComment(comment)) {
+    console.error('Invalid comment text (error/code detected), refusing to post:', comment.slice(0, 100));
+    return { success: false, error: 'Invalid comment text detected (contains code/error patterns)' };
   }
 
   try {
@@ -369,7 +371,7 @@ export async function postYouTubeComment(videoUrl: string, comment: string, prof
 
     if (!editor) {
       console.error('Could not find comment editor on:', videoUrl);
-      await page.screenshot({ path: '/tmp/youtube-comment-failed.png', fullPage: false }).catch(() => {});
+      await debugScreenshot(page, 'youtube', 'comment-failed');
       return { success: false, error: 'Comment editor not found — video may have comments disabled, or login session expired' };
     }
 
@@ -415,7 +417,7 @@ export async function postYouTubeComment(videoUrl: string, comment: string, prof
       return { success: true };
     } else {
       console.warn(`YouTube comment may NOT have posted on: ${videoUrl}`);
-      await page.screenshot({ path: '/tmp/youtube-post-failed.png', fullPage: false }).catch(() => {});
+      await debugScreenshot(page, 'youtube', 'post-failed');
       return { success: false, error: 'Comment not confirmed on page — YouTube may have flagged it as spam or session expired' };
     }
   } catch (err) {

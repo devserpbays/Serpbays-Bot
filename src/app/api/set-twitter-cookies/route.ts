@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { connectDB } from '@/lib/mongodb';
 import Settings from '@/models/Settings';
 import { getAuthUserId } from '@/lib/apiAuth';
+import { checkRateLimit } from '@/lib/rateLimit';
 import { checkPlanLimit } from '@/lib/featureGate';
 import { enqueueJob } from '@/lib/queue';
 import { cookieUploadGuard } from '@/lib/cookieUploadGuard';
@@ -23,7 +24,9 @@ export async function POST(req: NextRequest) {
   const userId = await getAuthUserId();
   if (userId instanceof NextResponse) return userId;
 
-  // Enforce platform connection limit (only for new platforms, not cookie refreshes)
+  const rl = await checkRateLimit(userId, 'auth');
+  if (rl) return NextResponse.json({ error: rl.error }, { status: 429 });
+
   await connectDB();
   const existingSettings = await Settings.findOne({ userId }).lean();
   const accounts = (existingSettings?.socialAccounts || []) as Array<{ platform?: string; active?: boolean }>;

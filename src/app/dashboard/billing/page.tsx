@@ -200,8 +200,8 @@ function BillingContent() {
                         borderRadius: 'var(--radius-md)',
                         background: toast.type === 'success'
                             ? 'rgba(16, 185, 129, 0.12)'
-                            : 'rgba(99, 102, 241, 0.12)',
-                        border: `1px solid ${toast.type === 'success' ? 'rgba(16, 185, 129, 0.3)' : 'rgba(99, 102, 241, 0.3)'}`,
+                            : 'rgba(14, 165, 233, 0.12)',
+                        border: `1px solid ${toast.type === 'success' ? 'rgba(16, 185, 129, 0.3)' : 'rgba(14, 165, 233, 0.3)'}`,
                         color: toast.type === 'success' ? '#34d399' : '#a5b4fc',
                         fontSize: 14,
                         fontWeight: 500,
@@ -291,21 +291,21 @@ function BillingContent() {
                                                 letterSpacing: '0.05em',
                                                 background:
                                                     currentPlan.id === 'business'
-                                                        ? 'linear-gradient(135deg, rgba(124,58,237,0.2), rgba(236,72,153,0.2))'
+                                                        ? 'linear-gradient(135deg, rgba(14,165,233,0.2), rgba(236,72,153,0.2))'
                                                         : currentPlan.id === 'pro'
-                                                          ? 'rgba(124,58,237,0.15)'
+                                                          ? 'rgba(14,165,233,0.15)'
                                                           : 'rgba(113,113,122,0.15)',
                                                 color:
                                                     currentPlan.id === 'business'
                                                         ? '#e879f9'
                                                         : currentPlan.id === 'pro'
-                                                          ? '#a78bfa'
+                                                          ? '#38bdf8'
                                                           : '#a1a1aa',
                                                 border: `1px solid ${
                                                     currentPlan.id === 'business'
                                                         ? 'rgba(232,121,249,0.25)'
                                                         : currentPlan.id === 'pro'
-                                                          ? 'rgba(167,139,250,0.25)'
+                                                          ? 'rgba(56,189,248,0.25)'
                                                           : 'rgba(161,161,170,0.15)'
                                                 }`,
                                             }}
@@ -429,7 +429,7 @@ function BillingContent() {
                                     label="Platforms Connected"
                                     current={usage?.connectedPlatforms ?? 0}
                                     max={currentPlan.platforms}
-                                    color="#7c3aed"
+                                    color="#0ea5e9"
                                 />
                                 <UsageMeter
                                     label="Comments Today"
@@ -467,7 +467,7 @@ function BillingContent() {
                                             style={{
                                                 position: 'relative',
                                                 background: isCurrent
-                                                    ? 'linear-gradient(180deg, rgba(124,58,237,0.08) 0%, var(--bg-card-solid) 100%)'
+                                                    ? 'linear-gradient(180deg, rgba(14,165,233,0.08) 0%, var(--bg-card-solid) 100%)'
                                                     : 'var(--bg-card-solid)',
                                                 border: `1px solid ${isCurrent ? 'var(--accent-border)' : 'var(--border-subtle)'}`,
                                                 borderRadius: 'var(--radius-md)',

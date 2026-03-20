@@ -8,6 +8,8 @@
 import { chromium, type BrowserContext, type Page } from 'playwright';
 import { join } from 'path';
 import { unlinkSync, existsSync, readFileSync } from 'fs';
+import { isValidComment } from './validateComment';
+import { debugScreenshot } from './debugScreenshot';
 
 const PROFILE_DIR = process.env.QUORA_PROFILE_DIR
   ? join(process.cwd(), process.env.QUORA_PROFILE_DIR)
@@ -24,15 +26,34 @@ interface QuoraQuestion {
 
 let _context: BrowserContext | null = null;
 let _page: Page | null = null;
+let _activeProfileDir: string = PROFILE_DIR;
+
+/**
+ * Set the profile directory for the next browser session.
+ * If the profile dir changes, the current browser is closed and a new one opened.
+ */
+export function setProfileDir(profileDir: string): void {
+  const resolved = profileDir.startsWith('/') ? profileDir : join(process.cwd(), profileDir);
+  if (resolved !== _activeProfileDir) {
+    if (_context) {
+      _context.close().catch(() => {});
+      _context = null;
+      _page = null;
+    }
+    _activeProfileDir = resolved;
+  }
+}
 
 // --- Launch or reuse persistent browser context ---
 async function getPage(): Promise<Page> {
   if (_page && !_page.isClosed()) return _page;
 
-  // Remove stale browser lock from previous crash
-  try { unlinkSync(join(PROFILE_DIR, 'SingletonLock')); } catch {}
+  const profileDir = _activeProfileDir;
 
-  _context = await chromium.launchPersistentContext(PROFILE_DIR, {
+  // Remove stale browser lock from previous crash
+  try { unlinkSync(join(profileDir, 'SingletonLock')); } catch {}
+
+  _context = await chromium.launchPersistentContext(profileDir, {
     headless: true,
     args: [
       '--no-sandbox',
@@ -66,7 +87,7 @@ async function getPage(): Promise<Page> {
   });
 
   // Inject cookies from cookies.json if available
-  const cookiesJsonPath = join(PROFILE_DIR, 'cookies.json');
+  const cookiesJsonPath = join(profileDir, 'cookies.json');
   if (existsSync(cookiesJsonPath)) {
     try {
       const savedCookies = JSON.parse(readFileSync(cookiesJsonPath, 'utf8'));
@@ -261,44 +282,13 @@ export async function scrapeQuoraQuestions(
   });
 }
 
-// --- Validate answer text before posting ---
-function isValidComment(text: string): boolean {
-  if (!text || text.trim().length < 10) return false;
-  if (text.trim().length > 2000) return false;
-
-  // Patterns that indicate the text is a code dump or error output, not a real comment.
-  // These are intentionally specific to avoid false positives on conversational text
-  // that naturally mentions words like "error" or "failed".
-  const errorPatterns = [
-    /Error:\s*\w+/,                        // "Error: something" (structured error output)
-    /ERR_/,                                 // Node.js error codes
-    /stack\s*trace/i,                       // stack trace dumps
-    /\bundefined\b.*\bundefined\b/i,        // multiple "undefined" = likely a dump
-    /\bnull\b.*\bnull\b/i,                  // multiple "null" = likely a dump
-    /\bNaN\b.*\bNaN\b/,                     // multiple NaN
-    /\b(500|404|403|401|400)\b.*\b(status|code|error)\b/i,
-    /at\s+\w+\s*\(.*:\d+:\d+\)/,           // stack frame: "at func (file:line:col)"
-    /^\s*\{[\s\S]*\}\s*$/,                  // entire text is a JSON object
-    /^\s*\[[\s\S]*\]\s*$/,                  // entire text is a JSON array
-    /TypeError|ReferenceError|SyntaxError/, // JS error type names
-    /ECONNREFUSED|ETIMEDOUT|ENOTFOUND/,     // Node.js network error codes
-    /Could not parse/i,
-    /```[\s\S]*```/,                        // markdown code blocks
-  ];
-
-  for (const pattern of errorPatterns) {
-    if (pattern.test(text)) return false;
-  }
-
-  return true;
-}
 
 // --- Post an answer to a Quora question ---
 export async function postQuoraAnswer(
   questionUrl: string,
   answer: string
 ): Promise<{ success: boolean; error?: string }> {
-  if (!isValidComment(answer)) {
+  if (!isValidComment(answer, 10)) {
     console.error('Invalid answer text (error/code detected), refusing to post:', answer.slice(0, 100));
     return { success: false, error: 'Invalid answer text detected (contains code/error patterns)' };
   }
@@ -484,7 +474,7 @@ export async function postQuoraAnswer(
       }).catch(() => ({ url: '', title: '', btns: [] as string[], editables: [] as unknown[] }));
       console.error('Editor not found. Page diagnostics:', JSON.stringify(diag, null, 2));
 
-      await page.screenshot({ path: '/tmp/quora-answer-failed.png', fullPage: false }).catch(() => {});
+      await debugScreenshot(page, 'quora', 'answer-failed');
       return { success: false, error: 'Answer editor not found — question may be closed, or login session expired' };
     }
 
@@ -565,7 +555,7 @@ export async function postQuoraAnswer(
       return { success: true };
     } else {
       console.warn(`Answer may NOT have posted on: ${questionUrl}`);
-      await page.screenshot({ path: '/tmp/quora-post-failed.png', fullPage: false }).catch(() => {});
+      await debugScreenshot(page, 'quora', 'post-failed');
       return { success: false, error: 'Answer not confirmed on page — Quora may have blocked it or session expired' };
     }
   } catch (err) {

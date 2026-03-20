@@ -48,11 +48,11 @@ export default function GlobalError({
             onClick={reset}
             style={{
               padding: '10px 24px',
-              background: 'linear-gradient(135deg, #7c3aed, #6366f1)',
+              background: 'linear-gradient(135deg, #0ea5e9, #0ea5e9)',
               border: 'none', borderRadius: 10,
               color: 'white', fontSize: 14, fontWeight: 600,
               cursor: 'pointer',
-              boxShadow: '0 2px 12px rgba(124, 58, 237, 0.3)',
+              boxShadow: '0 2px 12px rgba(14, 165, 233, 0.3)',
             }}
           >
             Try again

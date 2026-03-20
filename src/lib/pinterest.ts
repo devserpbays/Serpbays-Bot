@@ -8,6 +8,8 @@
 import { chromium, type BrowserContext, type Page } from 'playwright';
 import { join } from 'path';
 import { unlinkSync, existsSync, readFileSync } from 'fs';
+import { isValidComment } from './validateComment';
+import { debugScreenshot } from './debugScreenshot';
 
 const NAVIGATION_TIMEOUT = 30000;
 const SLOW_WAIT = 4000;
@@ -240,9 +242,9 @@ export async function scrapePinterestPins(keywords: string[], profileDir: string
 
 // --- Post a comment on a Pinterest pin ---
 export async function postPinterestComment(pinUrl: string, comment: string, profileDir: string): Promise<{ success: boolean; error?: string }> {
-  if (!comment || comment.trim().length < 5) {
-    console.error('Invalid comment text, refusing to post.');
-    return { success: false, error: 'Comment too short (less than 5 characters)' };
+  if (!isValidComment(comment)) {
+    console.error('Invalid comment text (error/code detected), refusing to post:', comment.slice(0, 100));
+    return { success: false, error: 'Invalid comment text detected (contains code/error patterns)' };
   }
 
   try {
@@ -387,7 +389,7 @@ export async function postPinterestComment(pinUrl: string, comment: string, prof
 
     if (!commentBox) {
       console.error('Could not find Pinterest comment box on:', normalizedUrl);
-      await page.screenshot({ path: '/tmp/pinterest-comment-failed.png', fullPage: false }).catch(() => {});
+      await debugScreenshot(page, 'pinterest', 'comment-failed');
       return { success: false, error: 'Comment box not found — pin may not allow comments, or login session expired' };
     }
 
@@ -445,7 +447,7 @@ export async function postPinterestComment(pinUrl: string, comment: string, prof
       return { success: true };
     } else {
       console.warn(`Pinterest comment not confirmed on: ${pinUrl}`);
-      await page.screenshot({ path: '/tmp/pinterest-post-failed.png', fullPage: false }).catch(() => {});
+      await debugScreenshot(page, 'pinterest', 'post-failed');
       return { success: false, error: 'Comment not confirmed — "No comments yet" still showing. Pinterest may have blocked it.' };
     }
   } catch (err) {

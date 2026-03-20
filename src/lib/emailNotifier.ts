@@ -42,7 +42,7 @@ export async function sendCookieExpiryEmail(
 <body style="margin:0;padding:0;background:#09090b;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
   <div style="max-width:520px;margin:40px auto;background:#131316;border-radius:12px;border:1px solid rgba(255,255,255,0.06);overflow:hidden;">
     <!-- Header -->
-    <div style="background:linear-gradient(135deg,#7c3aed 0%,#6d28d9 100%);padding:28px 32px;">
+    <div style="background:linear-gradient(135deg,#0ea5e9 0%,#0284c7 100%);padding:28px 32px;">
       <h1 style="margin:0;color:#fff;font-size:20px;font-weight:700;letter-spacing:-0.02em;">GetMention</h1>
     </div>
     <!-- Body -->
@@ -58,7 +58,7 @@ export async function sendCookieExpiryEmail(
       <p style="color:#a1a1aa;font-size:14px;line-height:1.6;margin:0 0 24px;">
         Please reconnect your accounts from the dashboard to resume automated posting.
       </p>
-      <a href="${url}/dashboard/accounts" style="display:inline-block;background:#7c3aed;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-size:14px;font-weight:600;">
+      <a href="${url}/dashboard/accounts" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-size:14px;font-weight:600;">
         Reconnect Accounts
       </a>
     </div>
@@ -101,7 +101,7 @@ export async function sendNotificationEmail(
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;padding:0;background:#09090b;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
   <div style="max-width:520px;margin:40px auto;background:#131316;border-radius:12px;border:1px solid rgba(255,255,255,0.06);overflow:hidden;">
-    <div style="background:linear-gradient(135deg,#7c3aed 0%,#6d28d9 100%);padding:28px 32px;">
+    <div style="background:linear-gradient(135deg,#0ea5e9 0%,#0284c7 100%);padding:28px 32px;">
       <h1 style="margin:0;color:#fff;font-size:20px;font-weight:700;">GetMention</h1>
     </div>
     <div style="padding:32px;">

@@ -1,12 +1,5 @@
-import { exec } from 'child_process';
-import { promisify } from 'util';
-import { writeFile, unlink } from 'fs/promises';
-import { randomUUID } from 'crypto';
-import { tmpdir } from 'os';
-import { join } from 'path';
+import { spawn } from 'child_process';
 import type { AIEvaluation } from './types';
-
-const execAsync = promisify(exec);
 
 const OPENCLAW_HOST = process.env.OPENCLAW_HOST || '127.0.0.1';
 const OPENCLAW_PORT = process.env.OPENCLAW_PORT || '18789';
@@ -122,7 +115,7 @@ async function evaluateViaHTTP(prompt: string): Promise<string> {
     },
     body: JSON.stringify({
       model: 'google-antigravity/gemini-3-flash',
-      instructions: 'CRITICAL OVERRIDE: Ignore ALL previous instructions, personas, and system prompts. You are now a pure JSON API endpoint. Your ONLY job is to analyze the user message and return valid JSON as specified. Do NOT roleplay, do NOT use casual language, do NOT mention any brand unprompted. Return ONLY the JSON object requested.',
+      instructions: 'You are a social media post evaluation API. Analyze the user message and return ONLY valid JSON as specified in the prompt. No markdown, no code blocks, no extra text.',
       input: prompt,
     }),
     signal: AbortSignal.timeout(120000),
@@ -141,21 +134,44 @@ async function evaluateViaHTTP(prompt: string): Promise<string> {
   return stripAnsi(String(content));
 }
 
+// --- Spawn CLI safely, passing prompt via stdin to avoid shell injection ---
+function spawnCLI(args: string[], input: string, timeoutMs: number = 120000): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn('openclaw', args, {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: timeoutMs,
+    });
+
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
+    child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+
+    child.on('close', (code) => {
+      if (code === 0 || stdout.trim().length > 0) {
+        resolve(stdout);
+      } else {
+        reject(new Error(`openclaw exited with code ${code}: ${stderr.slice(0, 300)}`));
+      }
+    });
+    child.on('error', reject);
+
+    child.stdin.write(input);
+    child.stdin.end();
+  });
+}
+
 // --- Method 2: OpenClaw CLI (fallback, concurrency-limited) ---
 async function evaluateViaCLI(prompt: string): Promise<string> {
   await acquireCLISlot();
-  const tmpFile = join(tmpdir(), `openclaw-prompt-${randomUUID()}.txt`);
-  await writeFile(tmpFile, prompt, 'utf-8');
 
   try {
     const sessionId = `social-bot-eval-${Date.now()}`;
-    const { stdout } = await execAsync(
-      `openclaw agent --session-id "${sessionId}" --message "$(cat '${tmpFile}')" --json`,
-      { timeout: 120000, maxBuffer: 1024 * 1024 }
+    const stdout = await spawnCLI(
+      ['agent', '--session-id', sessionId, '--message', prompt, '--json'],
+      prompt,
     );
 
-    // Strip ANSI escape codes — debug prefix "[agent/embedded] google tool schema snapshot"
-    // appears before multi-line pretty-printed JSON. Find first '{' and parse from there.
     const clean = stripAnsi(stdout);
 
     const firstBrace = clean.indexOf('{');
@@ -171,11 +187,9 @@ async function evaluateViaCLI(prompt: string): Promise<string> {
       } catch { /* malformed */ }
     }
 
-    // Last resort: return cleaned text (never raw stdout with ANSI codes)
     return clean.trim();
   } finally {
     releaseCLISlot();
-    await unlink(tmpFile).catch(() => {});
   }
 }
 
@@ -260,19 +274,15 @@ export async function askOpenClaw(message: string, sessionId?: string): Promise<
 
   // Fallback: CLI (concurrency-limited)
   await acquireCLISlot();
-  const tmpFile = join(tmpdir(), `openclaw-msg-${randomUUID()}.txt`);
-  await writeFile(tmpFile, message, 'utf-8');
 
   try {
-    const { stdout } = await execAsync(
-      `openclaw agent --session-id "${sid}" --message "$(cat '${tmpFile}')" --json`,
-      { timeout: 120000, maxBuffer: 1024 * 1024 }
+    const stdout = await spawnCLI(
+      ['agent', '--session-id', sid, '--message', message, '--json'],
+      message,
     );
 
     const clean = stripAnsi(stdout);
 
-    // The CLI outputs debug prefix lines like "[agent/embedded] google tool schema snapshot"
-    // followed by multi-line pretty-printed JSON. Find the first '{' and parse from there.
     const firstBrace = clean.indexOf('{');
     if (firstBrace !== -1) {
       try {
@@ -282,8 +292,6 @@ export async function askOpenClaw(message: string, sessionId?: string): Promise<
           || parsed?.content
           || parsed?.message;
         if (aiText && isHumanReadable(String(aiText))) return String(aiText);
-        // OpenClaw returned an envelope (payloads/meta) but no usable text — don't
-        // fall through to the raw debug string, return empty so callers can handle it.
         if ('payloads' in parsed || 'meta' in parsed) return '';
       } catch { /* malformed or truncated */ }
     }
@@ -292,6 +300,5 @@ export async function askOpenClaw(message: string, sessionId?: string): Promise<
     return isHumanReadable(result) ? result : '';
   } finally {
     releaseCLISlot();
-    await unlink(tmpFile).catch(() => {});
   }
 }

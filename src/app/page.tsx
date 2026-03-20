@@ -97,13 +97,13 @@ export default function LandingPage() {
           }}>
             <span style={{
               width: 32, height: 32, borderRadius: 10,
-              background: '#7c3aed', display: 'inline-flex',
+              background: '#0ea5e9', display: 'inline-flex',
               alignItems: 'center', justifyContent: 'center',
             }}>
               <svg viewBox="0 0 64 64" width="16" height="16">
                 <rect x="4" y="4" width="56" height="46" rx="14" fill="white" />
                 <polygon points="18,50 28,50 20,60" fill="white" />
-                <text x="32" y="37" textAnchor="middle" dominantBaseline="central" fontFamily="system-ui" fontSize="32" fontWeight="800" fill="#7c3aed">G</text>
+                <text x="32" y="37" textAnchor="middle" dominantBaseline="central" fontFamily="system-ui" fontSize="32" fontWeight="800" fill="#0ea5e9">G</text>
               </svg>
             </span>
             GetMention
@@ -115,7 +115,7 @@ export default function LandingPage() {
             <Link href="/login" style={{ color: '#a1a1aa', textDecoration: 'none', fontSize: 14, fontWeight: 500 }}>Login</Link>
             <Link href="/signup" style={{
               padding: '9px 20px', borderRadius: 4,
-              background: '#7c3aed', color: '#fff',
+              background: '#0ea5e9', color: '#fff',
               textDecoration: 'none', fontSize: 14, fontWeight: 600, border: 'none',
               transition: 'background 0.15s',
             }}>
@@ -134,7 +134,7 @@ export default function LandingPage() {
         <div style={{
           position: 'absolute', top: -80, left: '50%', transform: 'translateX(-50%)',
           width: 700, height: 700,
-          background: 'radial-gradient(circle, rgba(124, 58, 237, 0.12) 0%, transparent 65%)',
+          background: 'radial-gradient(circle, rgba(14, 165, 233, 0.12) 0%, transparent 65%)',
           pointerEvents: 'none',
         }} />
         <div style={{
@@ -147,9 +147,9 @@ export default function LandingPage() {
         <div style={{
           display: 'inline-flex', alignItems: 'center', gap: 8,
           padding: '6px 16px 6px 8px', borderRadius: 9999,
-          background: 'rgba(124, 58, 237, 0.1)',
-          border: '1px solid rgba(124, 58, 237, 0.2)',
-          fontSize: 13, fontWeight: 600, color: '#a78bfa',
+          background: 'rgba(14, 165, 233, 0.1)',
+          border: '1px solid rgba(14, 165, 233, 0.2)',
+          fontSize: 13, fontWeight: 600, color: '#38bdf8',
           marginBottom: 36, position: 'relative',
         }}>
           <span style={{
@@ -180,7 +180,7 @@ export default function LandingPage() {
         <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap', position: 'relative' }}>
           <Link href="/signup" style={{
             padding: '14px 32px', borderRadius: 4,
-            background: '#7c3aed', color: '#fff',
+            background: '#0ea5e9', color: '#fff',
             textDecoration: 'none', fontSize: 16, fontWeight: 600,
             transition: 'background 0.15s, transform 0.15s',
           }}>
@@ -223,7 +223,7 @@ export default function LandingPage() {
       {/* ── Features ── */}
       <section id="features" style={{ maxWidth: 1140, margin: '0 auto', padding: '80px 24px' }}>
         <div style={{ textAlign: 'center', marginBottom: 56 }}>
-          <p style={{ fontSize: 13, fontWeight: 700, color: '#7c3aed', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 12 }}>
+          <p style={{ fontSize: 13, fontWeight: 700, color: '#0ea5e9', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 12 }}>
             Features
           </p>
           <h2 style={{ fontSize: 'clamp(28px, 3.5vw, 40px)', fontWeight: 800, letterSpacing: '-0.03em', marginBottom: 12, color: '#fff' }}>
@@ -242,9 +242,9 @@ export default function LandingPage() {
             }}>
               <div style={{
                 width: 48, height: 48, borderRadius: 12,
-                background: 'rgba(124, 58, 237, 0.1)',
+                background: 'rgba(14, 165, 233, 0.1)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                color: '#7c3aed', marginBottom: 18,
+                color: '#0ea5e9', marginBottom: 18,
               }}>
                 {f.icon}
               </div>
@@ -264,7 +264,7 @@ export default function LandingPage() {
         maxWidth: 1140, margin: '0 auto', padding: '80px 24px',
       }}>
         <div style={{ textAlign: 'center', marginBottom: 56 }}>
-          <p style={{ fontSize: 13, fontWeight: 700, color: '#7c3aed', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 12 }}>
+          <p style={{ fontSize: 13, fontWeight: 700, color: '#0ea5e9', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 12 }}>
             How It Works
           </p>
           <h2 style={{ fontSize: 'clamp(28px, 3.5vw, 40px)', fontWeight: 800, letterSpacing: '-0.03em', color: '#fff' }}>
@@ -284,7 +284,7 @@ export default function LandingPage() {
             }}>
               <div style={{
                 width: 56, height: 56, borderRadius: 16,
-                background: '#7c3aed',
+                background: '#0ea5e9',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 fontSize: 20, fontWeight: 800, color: '#fff',
                 margin: '0 auto 20px',
@@ -305,7 +305,7 @@ export default function LandingPage() {
       {/* ── Pricing ── */}
       <section id="pricing" style={{ maxWidth: 1140, margin: '0 auto', padding: '80px 24px' }}>
         <div style={{ textAlign: 'center', marginBottom: 56 }}>
-          <p style={{ fontSize: 13, fontWeight: 700, color: '#7c3aed', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 12 }}>
+          <p style={{ fontSize: 13, fontWeight: 700, color: '#0ea5e9', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 12 }}>
             Pricing
           </p>
           <h2 style={{ fontSize: 'clamp(28px, 3.5vw, 40px)', fontWeight: 800, letterSpacing: '-0.03em', marginBottom: 12, color: '#fff' }}>
@@ -324,16 +324,16 @@ export default function LandingPage() {
             <div key={plan.name} style={{
               padding: 32, borderRadius: 8,
               background: plan.popular ? '#131316' : '#0f0f12',
-              border: plan.popular ? '2px solid #7c3aed' : '1px solid rgba(255,255,255,0.04)',
+              border: plan.popular ? '2px solid #0ea5e9' : '1px solid rgba(255,255,255,0.04)',
               display: 'flex', flexDirection: 'column',
               position: 'relative',
-              boxShadow: plan.popular ? '0 0 40px rgba(124, 58, 237, 0.15)' : 'none',
+              boxShadow: plan.popular ? '0 0 40px rgba(14, 165, 233, 0.15)' : 'none',
             }}>
               {plan.popular && (
                 <span style={{
                   position: 'absolute', top: -11, left: '50%', transform: 'translateX(-50%)',
                   padding: '4px 14px', borderRadius: 9999,
-                  background: '#7c3aed', color: '#fff',
+                  background: '#0ea5e9', color: '#fff',
                   fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em',
                 }}>
                   Most Popular
@@ -360,7 +360,7 @@ export default function LandingPage() {
               <Link href="/signup" style={{
                 display: 'block', textAlign: 'center',
                 padding: '12px 24px', borderRadius: 4,
-                background: plan.popular ? '#7c3aed' : 'rgba(255,255,255,0.06)',
+                background: plan.popular ? '#0ea5e9' : 'rgba(255,255,255,0.06)',
                 color: plan.popular ? '#fff' : '#a1a1aa',
                 textDecoration: 'none', fontSize: 14, fontWeight: 600,
                 transition: 'background 0.15s',
@@ -382,7 +382,7 @@ export default function LandingPage() {
           <div style={{
             position: 'absolute', top: -100, left: '50%', transform: 'translateX(-50%)',
             width: 600, height: 600,
-            background: 'radial-gradient(circle, rgba(124, 58, 237, 0.08) 0%, transparent 60%)',
+            background: 'radial-gradient(circle, rgba(14, 165, 233, 0.08) 0%, transparent 60%)',
             pointerEvents: 'none',
           }} />
           <h2 style={{
@@ -399,7 +399,7 @@ export default function LandingPage() {
           </p>
           <Link href="/signup" style={{
             display: 'inline-block', padding: '14px 36px', borderRadius: 4,
-            background: '#7c3aed', color: '#fff',
+            background: '#0ea5e9', color: '#fff',
             textDecoration: 'none', fontSize: 16, fontWeight: 600,
             position: 'relative',
           }}>

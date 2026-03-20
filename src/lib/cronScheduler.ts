@@ -88,8 +88,8 @@ export async function scheduleCronJobs(options?: {
       }
     }
 
-    // Update lastCronRunAt
-    if (platforms.length > 0) {
+    // Only update lastCronRunAt if at least one job was successfully enqueued
+    if (enqueued.some(e => e.userId === userId)) {
       await Settings.updateOne({ userId }, { $set: { lastCronRunAt: new Date() } });
     }
   }

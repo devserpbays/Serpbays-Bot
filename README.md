@@ -4,7 +4,7 @@ A Next.js dashboard for monitoring social media platforms, evaluating posts with
 
 ## Overview
 
-The bot scrapes posts from Twitter/X, Reddit, Facebook, LinkedIn, and Quora based on configurable keywords. It then uses the **OpenClaw AI gateway** to evaluate each post for relevance to your company and generate a suggested reply. Posts move through an approval workflow before being published.
+The bot scrapes posts from Twitter/X, Reddit, Facebook, YouTube, Pinterest, and Quora based on configurable keywords. It then uses the **OpenClaw AI gateway** to evaluate each post for relevance to your company and generate a suggested reply. Posts move through an approval workflow before being published.
 
 ```
 Scrape → AI Evaluate → Review / Approve → Post Reply
@@ -12,7 +12,7 @@ Scrape → AI Evaluate → Review / Approve → Post Reply
 
 ## Features
 
-- **Multi-platform scraping** — Twitter/X (cookie auth), Reddit (JSON API), Facebook (Playwright), LinkedIn, Quora
+- **Multi-platform scraping** — Twitter/X (cookie auth), Reddit (JSON API), Facebook (Playwright), YouTube, Pinterest, Quora
 - **AI-powered evaluation** — scores each post 0–100 for relevance and generates a suggested reply via OpenClaw
 - **Approval workflow** — post statuses: `new → evaluating → evaluated → approved / rejected → posted`
 - **One-click pipeline** — run scrape + evaluate in a single job from the dashboard
@@ -39,7 +39,7 @@ Scrape → AI Evaluate → Review / Approve → Post Reply
 - Node.js 18+
 - MongoDB instance (local or Atlas)
 - [OpenClaw](https://github.com/openclaw/openclaw) running locally or accessible over the network
-- (Optional) Platform cookies for Twitter, Facebook, LinkedIn, Quora
+- (Optional) Platform cookies for Twitter, Facebook, YouTube, Pinterest, Quora
 
 ## Installation
 
@@ -101,7 +101,8 @@ Accounts are authenticated via browser session cookies. Use the API endpoints be
 |---|---|
 | `POST /api/set-twitter-cookies` | Twitter/X |
 | `POST /api/set-fb-cookies` | Facebook |
-| `POST /api/set-linkedin-cookies` | LinkedIn |
+| `POST /api/set-youtube-cookies` | YouTube |
+| `POST /api/set-pinterest-cookies` | Pinterest |
 | `POST /api/set-reddit-cookies` | Reddit |
 | `POST /api/set-quora-cookies` | Quora |
 
@@ -130,7 +131,7 @@ Accounts are authenticated via browser session cookies. Use the API endpoints be
 | `POST` | `/api/post-reply` | Post a reply (auto-routes by platform) |
 | `POST` | `/api/fb-post-reply` | Post Facebook reply |
 | `POST` | `/api/rd-post-reply` | Post Reddit reply |
-| `POST` | `/api/li-post-reply` | Post LinkedIn reply |
+| `POST` | `/api/post-reply` | Post reply (auto-routes by platform) |
 
 ### Settings & Accounts
 
@@ -146,7 +147,8 @@ Accounts are authenticated via browser session cookies. Use the API endpoints be
 | `GET` | `/api/twitter-status` | Twitter connection status |
 | `GET` | `/api/reddit-status` | Reddit connection status |
 | `GET` | `/api/fb-status` | Facebook connection status |
-| `GET` | `/api/linkedin-status` | LinkedIn connection status |
+| `GET` | `/api/youtube-status` | YouTube connection status |
+| `GET` | `/api/pinterest-status` | Pinterest connection status |
 | `GET` | `/api/quora-status` | Quora connection status |
 
 ## Post Lifecycle
@@ -178,7 +180,8 @@ src/
 │   ├── openclaw.ts    # AI evaluation via OpenClaw
 │   ├── twitter.ts     # Twitter cookie-auth client
 │   ├── facebook.ts    # Facebook Playwright automation
-│   ├── linkedin.ts    # LinkedIn automation
+│   ├── youtube.ts     # YouTube automation
+│   ├── pinterest.ts   # Pinterest automation
 │   ├── reddit.ts      # Reddit helper
 │   ├── quora.ts       # Quora automation
 │   ├── schedule.ts    # Per-platform schedule checks

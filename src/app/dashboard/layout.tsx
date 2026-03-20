@@ -150,7 +150,7 @@ function NotificationBell() {
   const getDotColor = (type: string) => {
     if (type === 'cookie_expired' || type === 'cookie_expiring_soon') return '#ed4245';
     if (type === 'account_removed') return '#fee75c';
-    return '#7c3aed';
+    return '#0ea5e9';
   };
 
   const timeAgo = (dateStr: string) => {
@@ -179,11 +179,9 @@ function NotificationBell() {
           boxShadow: open ? '0 0 14px rgba(168,85,247,0.18)' : 'none',
         }}
         onMouseEnter={(e) => {
-          if (!open) {
-            e.currentTarget.style.background = 'rgba(168, 85, 247, 0.12)';
-            e.currentTarget.style.borderColor = 'rgba(168, 85, 247, 0.32)';
-            e.currentTarget.style.color = 'var(--accent-light)';
-          }
+          e.currentTarget.style.background = 'rgba(14, 165, 233, 0.1)';
+          e.currentTarget.style.borderColor = 'rgba(14, 165, 233, 0.25)';
+          e.currentTarget.style.color = 'var(--text-primary)';
         }}
         onMouseLeave={(e) => {
           if (!open) {
@@ -269,13 +267,13 @@ function NotificationBell() {
                 onClick={markAllRead}
                 style={{
                   background: 'none', border: 'none',
-                  color: '#c084fc', fontSize: 12, fontWeight: 600,
+                  color: '#0ea5e9', fontSize: 12, fontWeight: 600,
                   cursor: 'pointer', padding: '4px 8px',
                   borderRadius: 6,
                   transition: 'all 150ms',
                 }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(168, 85, 247, 0.12)'; e.currentTarget.style.color = '#d8b4fe'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = '#c084fc'; }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(14, 165, 233, 0.1)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; }}
               >
                 Mark all read
               </button>
@@ -311,15 +309,15 @@ function NotificationBell() {
                   key={n._id}
                   onClick={() => handleNotificationClick(n)}
                   style={{
-                    padding: '12px 18px',
-                    borderBottom: '1px solid rgba(139, 92, 246, 0.08)',
-                    background: 'rgba(168, 85, 247, 0.04)',
-                    display: 'flex', gap: 12, alignItems: 'flex-start',
+                    padding: '12px 16px',
+                    borderBottom: '1px solid rgba(255,255,255,0.04)',
+                    background: 'rgba(14, 165, 233, 0.04)',
+                    display: 'flex', gap: 10, alignItems: 'flex-start',
                     cursor: 'pointer',
                     transition: 'background 150ms',
                   }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(168, 85, 247, 0.1)'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(168, 85, 247, 0.04)'; }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(14, 165, 233, 0.1)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(14, 165, 233, 0.04)'; }}
                 >
                   <div style={{
                     width: 8, height: 8, borderRadius: '50%',
@@ -342,9 +340,9 @@ function NotificationBell() {
                       {n.platform && (
                         <span style={{
                           textTransform: 'capitalize',
-                          background: 'rgba(168, 85, 247, 0.12)',
-                          color: '#c084fc',
-                          padding: '2px 8px',
+                          background: 'rgba(14, 165, 233, 0.12)',
+                          color: '#38bdf8',
+                          padding: '1px 8px',
                           borderRadius: 4,
                           fontSize: 11,
                           fontWeight: 600,
@@ -357,7 +355,7 @@ function NotificationBell() {
                       {(n.actionUrl || n.type === 'cookie_expired') && (
                         <span style={{
                           marginLeft: 'auto',
-                          color: '#c084fc',
+                          color: '#0ea5e9',
                           fontSize: 11,
                           fontWeight: 600,
                         }}>
@@ -701,7 +699,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <svg viewBox="0 0 64 64" width="16" height="16">
               <rect x="4" y="4" width="56" height="46" rx="14" fill="white" />
               <polygon points="18,50 28,50 20,60" fill="white" />
-              <text x="32" y="37" textAnchor="middle" dominantBaseline="central" fontFamily="system-ui" fontSize="32" fontWeight="800" fill="#7c3aed">G</text>
+              <text x="32" y="37" textAnchor="middle" dominantBaseline="central" fontFamily="system-ui" fontSize="32" fontWeight="800" fill="#0ea5e9">G</text>
             </svg>
           </div>
           {!collapsed && (
@@ -777,7 +775,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                           overflow: 'hidden',
                           textOverflow: 'ellipsis',
                         }}
-                        onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.background = 'rgba(124,58,237,0.06)'; }}
+                        onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.background = 'rgba(14,165,233,0.06)'; }}
                         onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'none'; }}
                       >
                         {sub.label}

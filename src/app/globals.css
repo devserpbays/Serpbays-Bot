@@ -22,33 +22,32 @@
   --text-muted: #c4b4e0;
   --text-inverse: #0d0914;
 
-  /* Accent — vibrant purple */
-  --accent: #a855f7;
-  --accent-light: #d8b4fe;
-  --accent-hover: #9333ea;
-  --accent-bg: rgba(168, 85, 247, 0.13);
-  --accent-border: rgba(168, 85, 247, 0.34);
-  --accent-glow: rgba(168, 85, 247, 0.28);
+  /* Accent – Clean sky blue */
+  --accent: #0ea5e9;
+  --accent-light: #38bdf8;
+  --accent-hover: #0284c7;
+  --accent-bg: rgba(14, 165, 233, 0.1);
+  --accent-border: rgba(14, 165, 233, 0.25);
+  --accent-glow: rgba(14, 165, 233, 0.15);
 
   /* Gradient accents */
-  --gradient-primary: linear-gradient(135deg, #a855f7 0%, #7c3aed 60%, #6366f1 100%);
-  --gradient-warm: linear-gradient(135deg, #a855f7 0%, #ec4899 100%);
-  --gradient-surface: linear-gradient(180deg, rgba(168, 85, 247, 0.1) 0%, transparent 100%);
-  --gradient-glow: radial-gradient(ellipse at 50% 0%, rgba(168, 85, 247, 0.18) 0%, transparent 70%);
+  --gradient-primary: linear-gradient(135deg, #0ea5e9 0%, #06b6d4 100%);
+  --gradient-warm: linear-gradient(135deg, #0ea5e9 0%, #14b8a6 100%);
+  --gradient-surface: linear-gradient(180deg, rgba(14, 165, 233, 0.06) 0%, transparent 100%);
 
   /* Status Colors */
-  --status-new: #60a5fa;
-  --status-new-bg: rgba(96, 165, 250, 0.1);
-  --status-evaluating: #fbbf24;
-  --status-evaluating-bg: rgba(251, 191, 36, 0.1);
-  --status-evaluated: #c084fc;
-  --status-evaluated-bg: rgba(192, 132, 252, 0.1);
-  --status-approved: #34d399;
-  --status-approved-bg: rgba(52, 211, 153, 0.1);
-  --status-rejected: #f87171;
-  --status-rejected-bg: rgba(248, 113, 113, 0.1);
-  --status-posted: #94a3b8;
-  --status-posted-bg: rgba(148, 163, 184, 0.08);
+  --status-new: #3b82f6;
+  --status-new-bg: rgba(59, 130, 246, 0.1);
+  --status-evaluating: #f59e0b;
+  --status-evaluating-bg: rgba(245, 158, 11, 0.1);
+  --status-evaluated: #38bdf8;
+  --status-evaluated-bg: rgba(56, 189, 248, 0.1);
+  --status-approved: #10b981;
+  --status-approved-bg: rgba(16, 185, 129, 0.1);
+  --status-rejected: #ef4444;
+  --status-rejected-bg: rgba(239, 68, 68, 0.1);
+  --status-posted: #71717a;
+  --status-posted-bg: rgba(113, 113, 122, 0.1);
 
   /* Platform Colors */
   --twitter: #1d9bf0;
@@ -80,10 +79,9 @@
   --radius-2xl: 24px;
 
   /* Shadows */
-  --shadow-card: 0 0 0 1px rgba(139, 92, 246, 0.12), 0 2px 12px rgba(0, 0, 0, 0.45);
-  --shadow-elevated: 0 0 0 1px rgba(139, 92, 246, 0.2), 0 8px 32px rgba(0, 0, 0, 0.6), 0 0 60px rgba(168, 85, 247, 0.06);
-  --shadow-glow: 0 0 40px rgba(168, 85, 247, 0.32);
-  --shadow-purple: 0 4px 24px rgba(168, 85, 247, 0.22);
+  --shadow-card: 0 0 0 1px rgba(255,255,255,0.04), 0 2px 8px rgba(0, 0, 0, 0.3);
+  --shadow-elevated: 0 0 0 1px rgba(255,255,255,0.06), 0 8px 32px rgba(0, 0, 0, 0.5);
+  --shadow-glow: 0 0 40px rgba(14, 165, 233, 0.2);
 }
 
 /* ── Light Theme ────────────────────────────────────────────────── */
@@ -105,29 +103,27 @@
   --text-muted: #5c4a78;
   --text-inverse: #faf8ff;
 
-  --accent: #7c3aed;
-  --accent-light: #6d28d9;
-  --accent-hover: #6d28d9;
-  --accent-bg: rgba(124, 58, 237, 0.08);
-  --accent-border: rgba(124, 58, 237, 0.22);
-  --accent-glow: rgba(124, 58, 237, 0.12);
+  --accent: #0ea5e9;
+  --accent-light: #0284c7;
+  --accent-hover: #0369a1;
+  --accent-bg: rgba(14, 165, 233, 0.08);
+  --accent-border: rgba(14, 165, 233, 0.2);
+  --accent-glow: rgba(14, 165, 233, 0.1);
 
-  --gradient-primary: linear-gradient(135deg, #7c3aed 0%, #6366f1 100%);
-  --gradient-warm: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%);
-  --gradient-surface: linear-gradient(180deg, rgba(124, 58, 237, 0.05) 0%, transparent 100%);
-  --gradient-glow: radial-gradient(ellipse at 50% 0%, rgba(124, 58, 237, 0.08) 0%, transparent 70%);
+  --gradient-primary: linear-gradient(135deg, #0ea5e9 0%, #06b6d4 100%);
+  --gradient-warm: linear-gradient(135deg, #0ea5e9 0%, #14b8a6 100%);
+  --gradient-surface: linear-gradient(180deg, rgba(14, 165, 233, 0.04) 0%, transparent 100%);
 
-  --status-new-bg: rgba(96, 165, 250, 0.08);
-  --status-evaluating-bg: rgba(251, 191, 36, 0.08);
-  --status-evaluated-bg: rgba(192, 132, 252, 0.1);
-  --status-approved-bg: rgba(52, 211, 153, 0.08);
-  --status-rejected-bg: rgba(248, 113, 113, 0.08);
-  --status-posted-bg: rgba(148, 163, 184, 0.08);
+  --status-new-bg: rgba(59, 130, 246, 0.08);
+  --status-evaluating-bg: rgba(245, 158, 11, 0.08);
+  --status-evaluated-bg: rgba(56, 189, 248, 0.08);
+  --status-approved-bg: rgba(16, 185, 129, 0.08);
+  --status-rejected-bg: rgba(239, 68, 68, 0.08);
+  --status-posted-bg: rgba(113, 113, 122, 0.08);
 
-  --shadow-card: 0 1px 4px rgba(88, 28, 220, 0.07), 0 1px 2px rgba(0, 0, 0, 0.04);
-  --shadow-elevated: 0 4px 20px rgba(88, 28, 220, 0.1);
-  --shadow-glow: 0 0 30px rgba(124, 58, 237, 0.12);
-  --shadow-purple: 0 4px 24px rgba(124, 58, 237, 0.15);
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --shadow-elevated: 0 4px 16px rgba(0, 0, 0, 0.1);
+  --shadow-glow: 0 0 40px rgba(14, 165, 233, 0.1);
 }
 
 @theme inline {
@@ -169,7 +165,7 @@ body {
 }
 
 ::selection {
-  background: rgba(168, 85, 247, 0.45);
+  background: rgba(14, 165, 233, 0.4);
   color: #fff;
 }
 
@@ -584,11 +580,11 @@ body {
   background: var(--gradient-primary);
   color: white;
   border-color: transparent;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.3), 0 2px 14px rgba(168, 85, 247, 0.3);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.3), 0 2px 12px rgba(14, 165, 233, 0.25);
 }
 
 .btn-primary:hover:not(:disabled) {
-  box-shadow: 0 2px 4px rgba(0,0,0,0.3), 0 4px 24px rgba(168, 85, 247, 0.45);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.3), 0 4px 20px rgba(14, 165, 233, 0.4);
   transform: translateY(-1px);
   filter: brightness(1.08);
 }
@@ -720,7 +716,7 @@ select.input option {
 }
 
 select.input option:checked {
-  background: #7c3aed;
+  background: #0ea5e9;
   color: #fff;
 }
 
@@ -986,8 +982,8 @@ select.input option:hover {
 }
 
 @keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(168, 85, 247, 0.4); }
-  50% { box-shadow: 0 0 16px 5px rgba(168, 85, 247, 0.15); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(14, 165, 233, 0.3); }
+  50% { box-shadow: 0 0 16px 4px rgba(14, 165, 233, 0.15); }
 }
 
 @keyframes shimmer {
@@ -1444,11 +1440,11 @@ select.input option:hover {
 
 .cl-formFieldAction,
 .cl-formFieldAction__password {
-  color: #d8b4fe !important;
+  color: #38bdf8 !important;
 }
 
 .cl-footerActionLink {
-  color: #d8b4fe !important;
+  color: #38bdf8 !important;
 }
 
 .cl-footerActionText {
@@ -1499,11 +1495,11 @@ select.input option:hover {
 }
 
 .cl-identityPreviewEditButton {
-  color: #d8b4fe !important;
+  color: #38bdf8 !important;
 }
 
 .cl-backLink {
-  color: #d8b4fe !important;
+  color: #38bdf8 !important;
 }
 
 .cl-alertText {
@@ -1521,7 +1517,7 @@ select.input option:hover {
 }
 
 .cl-formResendCodeLink {
-  color: #d8b4fe !important;
+  color: #38bdf8 !important;
 }
 
 /* Catch-all for any remaining Clerk text */

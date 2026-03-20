@@ -28,7 +28,7 @@ interface PostedComment {
 
 const LEVEL_CONFIG: Record<string, { label: string; color: string; bg: string; icon: string }> = {
     success: { label: 'Success', color: '#22c55e', bg: 'rgba(34,197,94,0.08)', icon: '✓' },
-    info:    { label: 'Info',    color: '#6366f1', bg: 'rgba(99,102,241,0.06)', icon: 'i' },
+    info:    { label: 'Info',    color: '#0ea5e9', bg: 'rgba(14,165,233,0.06)', icon: 'i' },
     warn:    { label: 'Warning', color: '#f59e0b', bg: 'rgba(245,158,11,0.06)', icon: '!' },
     error:   { label: 'Error',   color: '#ef4444', bg: 'rgba(239,68,68,0.08)', icon: '✗' },
 };

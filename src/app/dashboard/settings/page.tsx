@@ -866,7 +866,7 @@ export default function SettingsPage() {
                                                         padding: '6px 14px', fontSize: 12, fontWeight: isActive ? 700 : 500,
                                                         borderRadius: 6, cursor: 'pointer',
                                                         border: isActive ? '1.5px solid var(--accent)' : '1px solid var(--border-subtle)',
-                                                        background: isActive ? 'rgba(99,102,241,0.15)' : 'transparent',
+                                                        background: isActive ? 'rgba(14,165,233,0.15)' : 'transparent',
                                                         color: isActive ? 'var(--accent)' : 'var(--text-muted)',
                                                         transition: 'all 0.15s',
                                                     }}
@@ -982,7 +982,7 @@ export default function SettingsPage() {
                                                                             style={{
                                                                                 width: '100%', padding: '10px 14px', border: 'none', cursor: 'pointer',
                                                                                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                                                                                background: isSelected ? 'rgba(99,102,241,0.15)' : 'transparent',
+                                                                                background: isSelected ? 'rgba(14,165,233,0.15)' : 'transparent',
                                                                                 color: isSelected ? 'var(--accent)' : 'var(--text-primary)',
                                                                                 fontSize: 13, fontWeight: isSelected ? 600 : 400, transition: 'background 0.1s',
                                                                             }}
@@ -1029,7 +1029,7 @@ export default function SettingsPage() {
                                         {HOURS.find(h => h.value === (settings.cronStartHour ?? 9))?.label}
                                     </span>
                                     <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>to</span>
-                                    <span style={{ fontSize: 12, color: '#818cf8', fontWeight: 600 }}>
+                                    <span style={{ fontSize: 12, color: '#38bdf8', fontWeight: 600 }}>
                                         {HOURS.find(h => h.value === (settings.cronEndHour ?? 18))?.label}
                                     </span>
                                     <svg viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth={2} width={14} height={14}
@@ -1053,7 +1053,7 @@ export default function SettingsPage() {
                                                         <div style={{
                                                             position: 'absolute', top: 0, bottom: 0,
                                                             left: `${leftPct}%`, width: `${Math.max(widthPct, 1)}%`,
-                                                            background: 'linear-gradient(90deg, #f59e0b, #818cf8)',
+                                                            background: 'linear-gradient(90deg, #f59e0b, #38bdf8)',
                                                             borderRadius: 4, transition: 'all 0.3s ease',
                                                         }} />
                                                     </div>
@@ -1097,8 +1097,8 @@ export default function SettingsPage() {
                                             </div>
                                             <div>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-                                                    <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#818cf8' }} />
-                                                    <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: '#818cf8' }}>End</span>
+                                                    <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#38bdf8' }} />
+                                                    <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: '#38bdf8' }}>End</span>
                                                 </div>
                                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 3 }}>
                                                     {HOURS.map(h => {
@@ -1109,9 +1109,9 @@ export default function SettingsPage() {
                                                                 onClick={() => setSettings(p => ({ ...p, cronEndHour: h.value }))}
                                                                 style={{
                                                                     padding: '5px 0', fontSize: 10, fontWeight: isSelected ? 700 : 500,
-                                                                    border: isSelected ? '1.5px solid #818cf8' : '1px solid transparent',
+                                                                    border: isSelected ? '1.5px solid #38bdf8' : '1px solid transparent',
                                                                     borderRadius: 4, cursor: 'pointer',
-                                                                    background: isSelected ? 'rgba(99,102,241,0.15)' : inRange ? 'rgba(99,102,241,0.04)' : 'transparent',
+                                                                    background: isSelected ? 'rgba(14,165,233,0.15)' : inRange ? 'rgba(14,165,233,0.04)' : 'transparent',
                                                                     color: isSelected ? '#a5b4fc' : inRange ? 'var(--text-secondary)' : 'var(--text-muted)',
                                                                     transition: 'all 0.1s',
                                                                 }}
@@ -1192,7 +1192,7 @@ export default function SettingsPage() {
                                                             padding: '10px 0', borderRadius: 6,
                                                             fontSize: 12, fontWeight: 700, cursor: 'pointer', textAlign: 'center',
                                                             border: active ? '1.5px solid var(--accent)' : '1px solid var(--border-subtle)',
-                                                            background: active ? 'rgba(99,102,241,0.15)' : 'transparent',
+                                                            background: active ? 'rgba(14,165,233,0.15)' : 'transparent',
                                                             color: active ? 'var(--accent)' : 'var(--text-muted)',
                                                             transition: 'all 0.15s',
                                                         }}
@@ -1212,7 +1212,7 @@ export default function SettingsPage() {
                 <div id="notifications" className="form-section" style={{ position: 'relative', overflow: 'hidden', scrollMarginTop: 80 }}>
                     <div style={{
                         position: 'absolute', top: 0, right: 0, width: 200, height: 200,
-                        background: 'radial-gradient(circle at top right, rgba(124,58,237,0.08), transparent 70%)',
+                        background: 'radial-gradient(circle at top right, rgba(14,165,233,0.08), transparent 70%)',
                         pointerEvents: 'none',
                     }} />
                     <div className="form-section-title">
@@ -1237,7 +1237,7 @@ export default function SettingsPage() {
                                 onClick={() => setSettings(p => ({ ...p, notifyViaEmail: !p.notifyViaEmail }))}
                                 style={{
                                     width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer',
-                                    background: settings.notifyViaEmail ? '#7c3aed' : 'rgba(255,255,255,0.1)',
+                                    background: settings.notifyViaEmail ? '#0ea5e9' : 'rgba(255,255,255,0.1)',
                                     position: 'relative', transition: 'background 200ms',
                                 }}
                             >
@@ -1255,11 +1255,11 @@ export default function SettingsPage() {
                             <div style={{
                                 display: 'flex', alignItems: 'center', gap: 8,
                                 padding: '10px 14px', marginBottom: 8,
-                                background: 'rgba(124,58,237,0.06)',
-                                border: '1px solid rgba(124,58,237,0.15)',
+                                background: 'rgba(14,165,233,0.06)',
+                                border: '1px solid rgba(14,165,233,0.15)',
                                 borderRadius: 8, fontSize: 13,
                             }}>
-                                <svg viewBox="0 0 24 24" fill="none" stroke="#7c3aed" strokeWidth={1.8} width="16" height="16" style={{ flexShrink: 0 }}>
+                                <svg viewBox="0 0 24 24" fill="none" stroke="#0ea5e9" strokeWidth={1.8} width="16" height="16" style={{ flexShrink: 0 }}>
                                     <path d="M22 11.08V12a10 10 0 11-5.93-9.14" />
                                     <polyline points="22 4 12 14.01 9 11.01" />
                                 </svg>

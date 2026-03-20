@@ -123,7 +123,7 @@ export default function PricingPage() {
             <Link
               href="/signup"
               className="text-sm px-4 py-2 rounded-lg font-medium text-white transition-all hover:opacity-90"
-              style={{ backgroundColor: '#7c3aed' }}
+              style={{ backgroundColor: '#0ea5e9' }}
             >
               Get Started
             </Link>
@@ -155,7 +155,7 @@ export default function PricingPage() {
                 plan.popular
                   ? {
                       background:
-                        'linear-gradient(135deg, #7c3aed, #2563eb) padding-box, linear-gradient(135deg, #7c3aed, #2563eb) border-box',
+                        'linear-gradient(135deg, #0ea5e9, #2563eb) padding-box, linear-gradient(135deg, #0ea5e9, #2563eb) border-box',
                       padding: '2px',
                       borderRadius: '1rem',
                     }
@@ -166,7 +166,7 @@ export default function PricingPage() {
                 <div
                   className="absolute -top-3.5 left-1/2 -translate-x-1/2 text-xs font-semibold px-4 py-1 rounded-full text-white"
                   style={{
-                    background: 'linear-gradient(135deg, #7c3aed, #2563eb)',
+                    background: 'linear-gradient(135deg, #0ea5e9, #2563eb)',
                   }}
                 >
                   POPULAR
@@ -195,7 +195,7 @@ export default function PricingPage() {
                   style={
                     plan.popular
                       ? {
-                          background: 'linear-gradient(135deg, #7c3aed, #2563eb)',
+                          background: 'linear-gradient(135deg, #0ea5e9, #2563eb)',
                           color: '#fff',
                         }
                       : {

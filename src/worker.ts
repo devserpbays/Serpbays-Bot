@@ -19,6 +19,7 @@ import { chromium } from 'playwright';
 import { spawn } from 'child_process';
 import { join, resolve } from 'path';
 import { mkdirSync, rmSync } from 'fs';
+import { detectChromiumPath } from './lib/browserPath';
 
 const PROJECT_ROOT = resolve(__dirname, '..');
 const CONCURRENCY = parseInt(process.env.MAX_BROWSER_CONCURRENCY || '3', 10);
@@ -42,8 +43,9 @@ async function handleValidateTwitter(data: ValidateCookiesJob) {
 
   let context;
   try {
+    const execPath = detectChromiumPath();
     context = await chromium.launchPersistentContext(tmpDir, {
-      executablePath: '/usr/bin/chromium-browser',
+      ...(execPath && { executablePath: execPath }),
       headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-blink-features=AutomationControlled'],
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',

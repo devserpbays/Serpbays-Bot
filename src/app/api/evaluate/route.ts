@@ -4,10 +4,14 @@ import Post from '@/models/Post';
 import Settings from '@/models/Settings';
 import { evaluatePost } from '@/lib/openclaw';
 import { getAuthUserId } from '@/lib/apiAuth';
+import { checkRateLimit } from '@/lib/rateLimit';
 
 export async function POST() {
   const userId = await getAuthUserId();
   if (userId instanceof NextResponse) return userId;
+
+  const rl = await checkRateLimit(userId, 'scrape');
+  if (rl) return NextResponse.json({ error: rl.error }, { status: 429 });
 
   await connectDB();
 

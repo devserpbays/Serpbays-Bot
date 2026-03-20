@@ -8,6 +8,8 @@
 import { chromium, type BrowserContext, type Page } from 'playwright';
 import { join } from 'path';
 import { unlinkSync, existsSync, readFileSync } from 'fs';
+import { isValidComment } from './validateComment';
+import { debugScreenshot } from './debugScreenshot';
 
 const DEFAULT_PROFILE_DIR = process.env.REDDIT_PROFILE_DIR
   ? join(process.cwd(), process.env.REDDIT_PROFILE_DIR)
@@ -354,37 +356,6 @@ export async function scrapeRedditSearch(
   });
 }
 
-// --- Validate comment text before posting ---
-function isValidComment(text: string): boolean {
-  if (!text || text.trim().length < 5) return false;
-  if (text.trim().length > 2000) return false;
-
-  // Patterns that indicate the text is a code dump or error output, not a real comment.
-  // These are intentionally specific to avoid false positives on conversational text
-  // that naturally mentions words like "error" or "failed".
-  const errorPatterns = [
-    /Error:\s*\w+/,                        // "Error: something" (structured error output)
-    /ERR_/,                                 // Node.js error codes
-    /stack\s*trace/i,                       // stack trace dumps
-    /\bundefined\b.*\bundefined\b/i,        // multiple "undefined" = likely a dump
-    /\bnull\b.*\bnull\b/i,                  // multiple "null" = likely a dump
-    /\bNaN\b.*\bNaN\b/,                     // multiple NaN
-    /\b(500|404|403|401|400)\b.*\b(status|code|error)\b/i,
-    /at\s+\w+\s*\(.*:\d+:\d+\)/,           // stack frame: "at func (file:line:col)"
-    /^\s*\{[\s\S]*\}\s*$/,                  // entire text is a JSON object
-    /^\s*\[[\s\S]*\]\s*$/,                  // entire text is a JSON array
-    /TypeError|ReferenceError|SyntaxError/, // JS error type names
-    /ECONNREFUSED|ETIMEDOUT|ENOTFOUND/,     // Node.js network error codes
-    /Could not parse/i,
-    /```[\s\S]*```/,                        // markdown code blocks
-  ];
-
-  for (const pattern of errorPatterns) {
-    if (pattern.test(text)) return false;
-  }
-
-  return true;
-}
 
 // --- Scrape engagement on our posted comment ---
 export async function scrapeCommentEngagement(
@@ -587,7 +558,7 @@ export async function postRedditComment(
 
     if (!commentBox) {
       console.error('Could not find comment input box on post:', postUrl);
-      await page.screenshot({ path: '/tmp/reddit-comment-failed.png', fullPage: false }).catch(() => {});
+      await debugScreenshot(page, 'reddit', 'comment-failed');
       return { success: false, error: 'Comment box not found on page — post may be locked, archived, or login session expired' };
     }
 
@@ -644,7 +615,7 @@ export async function postRedditComment(
       return { success: true };
     } else {
       console.warn(`Comment may NOT have posted on: ${postUrl}`);
-      await page.screenshot({ path: '/tmp/reddit-post-failed.png', fullPage: false }).catch(() => {});
+      await debugScreenshot(page, 'reddit', 'post-failed');
       return { success: false, error: 'Comment not found on page after posting — may not have submitted. Check if logged in or if Reddit blocked it.' };
     }
   } catch (err) {

@@ -204,7 +204,7 @@ export default function OverviewPage() {
                         {/* Header with gradient */}
                         <div style={{
                             padding: '24px 28px 20px',
-                            background: 'linear-gradient(135deg, rgba(99,102,241,0.1) 0%, rgba(59,130,246,0.06) 100%)',
+                            background: 'linear-gradient(135deg, rgba(14,165,233,0.08) 0%, rgba(37,99,235,0.04) 100%)',
                             borderBottom: '1px solid var(--border-subtle)',
                         }}>
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
@@ -229,7 +229,7 @@ export default function OverviewPage() {
                                 <div style={{
                                     width: `${(completedSteps / steps.length) * 100}%`,
                                     height: '100%', borderRadius: 4,
-                                    background: 'linear-gradient(90deg, #6366f1, #3b82f6)',
+                                    background: 'linear-gradient(90deg, #0ea5e9, #2563eb)',
                                     transition: 'width 600ms ease',
                                 }} />
                             </div>

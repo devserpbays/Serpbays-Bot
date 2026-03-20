@@ -2,6 +2,12 @@ import { connectDB } from './mongodb';
 import Post from '../models/Post';
 import Settings from '../models/Settings';
 
+/** Random delay between min and max ms to mimic human behavior */
+function humanDelay(minMs: number = 1500, maxMs: number = 4000): Promise<void> {
+  const ms = Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
+  return new Promise(r => setTimeout(r, ms));
+}
+
 interface ScrapedPost {
   url: string;
   author: string;
@@ -123,7 +129,7 @@ async function scrapeFacebookGroups(groupUrls: string[], keywords: string[]): Pr
     } catch (err) {
       console.error(`Facebook scrape error for ${groupUrl}:`, (err as Error).message);
     }
-    await new Promise(r => setTimeout(r, 2000));
+    await humanDelay(2000, 5000);
   }
 
   await closeBrowser();
@@ -177,7 +183,7 @@ export async function runScraper(platforms?: string[], userId?: string): Promise
           console.error(msg);
           errors.push(msg);
         }
-        await new Promise(r => setTimeout(r, 1000));
+        await humanDelay(1500, 3500);
       }
     }
   }
@@ -200,7 +206,7 @@ export async function runScraper(platforms?: string[], userId?: string): Promise
           console.error(msg);
           errors.push(msg);
         }
-        await new Promise(r => setTimeout(r, 1000));
+        await humanDelay(1500, 3500);
       }
     }
   }

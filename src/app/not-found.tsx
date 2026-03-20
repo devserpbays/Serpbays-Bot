@@ -13,7 +13,7 @@ export default function NotFound() {
       <div style={{ maxWidth: 480, textAlign: 'center' }}>
         <div style={{
           fontSize: 72, fontWeight: 800, letterSpacing: '-4px',
-          background: 'linear-gradient(135deg, #7c3aed, #2563eb)',
+          background: 'linear-gradient(135deg, #0ea5e9, #2563eb)',
           WebkitBackgroundClip: 'text',
           WebkitTextFillColor: 'transparent',
           marginBottom: 12,
@@ -36,11 +36,11 @@ export default function NotFound() {
             href="/dashboard"
             style={{
               padding: '10px 24px',
-              background: 'linear-gradient(135deg, #7c3aed, #6366f1)',
+              background: 'linear-gradient(135deg, #0ea5e9, #0ea5e9)',
               border: 'none', borderRadius: 10,
               color: 'white', fontSize: 14, fontWeight: 600,
               textDecoration: 'none',
-              boxShadow: '0 2px 12px rgba(124, 58, 237, 0.3)',
+              boxShadow: '0 2px 12px rgba(14, 165, 233, 0.3)',
             }}
           >
             Go to Dashboard

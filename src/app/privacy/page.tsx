@@ -18,7 +18,7 @@ export default function PrivacyPolicy() {
           margin: "0 auto",
         }}
       >
-        <Link href="/" style={{ fontSize: "1.5rem", fontWeight: 700, color: "#7c3aed", textDecoration: "none" }}>
+        <Link href="/" style={{ fontSize: "1.5rem", fontWeight: 700, color: "#0ea5e9", textDecoration: "none" }}>
           GetMention
         </Link>
         <Link href="/dashboard" style={{ color: "#a0a0b0", textDecoration: "none", fontSize: "0.9rem" }}>
@@ -189,7 +189,7 @@ export default function PrivacyPolicy() {
           </ul>
           <p style={{ lineHeight: 1.75, marginTop: "1rem" }}>
             To exercise any of these rights, contact us at{" "}
-            <a href="mailto:support@getmention.com" style={{ color: "#7c3aed", textDecoration: "none" }}>
+            <a href="mailto:support@getmention.com" style={{ color: "#0ea5e9", textDecoration: "none" }}>
               support@getmention.com
             </a>
             .
@@ -207,7 +207,7 @@ export default function PrivacyPolicy() {
             Service), and consent (where explicitly provided). You have the right to lodge a complaint with your local
             data protection authority if you believe your data is being processed unlawfully. For data subject access
             requests or any GDPR-related inquiries, please contact us at{" "}
-            <a href="mailto:support@getmention.com" style={{ color: "#7c3aed", textDecoration: "none" }}>
+            <a href="mailto:support@getmention.com" style={{ color: "#0ea5e9", textDecoration: "none" }}>
               support@getmention.com
             </a>
             . We will respond to all legitimate requests within 30 days.
@@ -234,7 +234,7 @@ export default function PrivacyPolicy() {
           <p style={{ lineHeight: 1.75 }}>
             If you have any questions or concerns about this Privacy Policy or our data practices, please contact us
             at{" "}
-            <a href="mailto:support@getmention.com" style={{ color: "#7c3aed", textDecoration: "none" }}>
+            <a href="mailto:support@getmention.com" style={{ color: "#0ea5e9", textDecoration: "none" }}>
               support@getmention.com
             </a>
             .
