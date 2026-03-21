@@ -393,165 +393,6 @@ export default function PlatformPage() {
                 })()}
             </div>
 
-            {/* ══ Twitter Engagement List Browser ═════════════════════ */}
-            {platformId === 'twitter' && (
-                <div style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                    {/* Tab bar */}
-                    <div style={{ display: 'flex', gap: 0, padding: '0 28px', borderBottom: '1px solid var(--border-subtle)' }}>
-                        {([
-                            { key: 'liked',      label: 'Liked',      color: '#f43f5e' },
-                            { key: 'retweeted',  label: 'Retweeted',  color: '#34d399' },
-                            { key: 'bookmarked', label: 'Bookmarked', color: '#fbbf24' },
-                            { key: 'followed',   label: 'Follows',    color: '#818cf8' },
-                        ] as const).map(({ key, label, color: c }) => (
-                            <button key={key} onClick={() => setEngageTab(key)} style={{
-                                padding: '12px 16px', border: 'none', background: 'none',
-                                fontSize: 12, fontWeight: 700, cursor: 'pointer',
-                                color: engageTab === key ? c : 'var(--text-muted)',
-                                borderBottom: engageTab === key ? `2px solid ${c}` : '2px solid transparent',
-                                transition: 'all 150ms', marginBottom: -1,
-                                display: 'flex', alignItems: 'center', gap: 6,
-                            }}>
-                                {label}
-                                {engageStats && (
-                                    <span style={{
-                                        fontSize: 10, fontWeight: 700,
-                                        padding: '1px 6px', borderRadius: 8,
-                                        background: engageTab === key ? `${c}20` : 'rgba(148,163,184,0.08)',
-                                        color: engageTab === key ? c : 'var(--text-muted)',
-                                    }}>
-                                        {key === 'liked' ? engageStats.totalLiked
-                                            : key === 'retweeted' ? engageStats.totalRetweeted
-                                            : key === 'bookmarked' ? engageStats.totalBookmarked
-                                            : engageStats.currentlyFollowing + engageStats.totalUnfollowed}
-                                    </span>
-                                )}
-                            </button>
-                        ))}
-                    </div>
-
-                    {/* List content */}
-                    <div style={{ padding: '0 28px 16px' }}>
-                        {engageListLoading ? (
-                            <div style={{ padding: '24px 0', textAlign: 'center', fontSize: 12, color: 'var(--text-muted)' }}>Loading…</div>
-                        ) : !engageListData || (engageTab !== 'followed' ? (engageListData.posts?.length ?? 0) === 0 : (engageListData.follows?.length ?? 0) === 0) ? (
-                            <div style={{ padding: '24px 0', textAlign: 'center', fontSize: 12, color: 'var(--text-muted)' }}>
-                                No {engageTab} activity yet — run the engage cron to start
-                            </div>
-                        ) : engageTab === 'followed' ? (
-                            /* ── Follows table ── */
-                            <div>
-                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginTop: 12 }}>
-                                    <thead>
-                                        <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                                            {['Account', 'Followed', 'Status', 'Unfollowed'].map(h => (
-                                                <th key={h} style={{ textAlign: 'left', padding: '8px 12px', fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
-                                            ))}
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {engageListData.follows!.map((f) => (
-                                            <tr key={f.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}
-                                                onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-card)')}
-                                                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
-                                                <td style={{ padding: '10px 12px' }}>
-                                                    <a href={`https://x.com/${f.handle}`} target="_blank" rel="noopener noreferrer"
-                                                        style={{ color: '#1d9bf0', fontWeight: 700, textDecoration: 'none', fontSize: 13 }}>
-                                                        @{f.handle}
-                                                    </a>
-                                                </td>
-                                                <td style={{ padding: '10px 12px', color: 'var(--text-secondary)' }}>{timeAgo(new Date(f.followedAt))}</td>
-                                                <td style={{ padding: '10px 12px' }}>
-                                                    <span style={{
-                                                        fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 6,
-                                                        background: f.isFollowing ? 'rgba(52,211,153,0.12)' : 'rgba(148,163,184,0.12)',
-                                                        color: f.isFollowing ? '#34d399' : 'var(--text-muted)',
-                                                    }}>{f.isFollowing ? 'Following' : 'Unfollowed'}</span>
-                                                </td>
-                                                <td style={{ padding: '10px 12px', color: 'var(--text-muted)' }}>
-                                                    {f.unfollowedAt ? timeAgo(new Date(f.unfollowedAt)) : '—'}
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        ) : (
-                            /* ── Post rows (liked / retweeted / bookmarked) ── */
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-                                {engageListData.posts!.map((p) => (
-                                    <div key={p.id} style={{
-                                        padding: '12px 0', borderBottom: '1px solid var(--border-subtle)',
-                                        display: 'flex', gap: 14, alignItems: 'flex-start',
-                                    }}>
-                                        {/* Engagement badges */}
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0, paddingTop: 2 }}>
-                                            {p.liked && (
-                                                <span title="Liked" style={{ fontSize: 14 }}>
-                                                    <svg viewBox="0 0 24 24" fill="#f43f5e" width="14" height="14"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" /></svg>
-                                                </span>
-                                            )}
-                                            {p.retweeted && (
-                                                <span title="Retweeted">
-                                                    <svg viewBox="0 0 24 24" fill="none" stroke="#34d399" strokeWidth={2.2} width="14" height="14"><path d="M17 1l4 4-4 4" /><path d="M3 11V9a4 4 0 0 1 4-4h14" /><path d="M7 23l-4-4 4-4" /><path d="M21 13v2a4 4 0 0 1-4 4H3" /></svg>
-                                                </span>
-                                            )}
-                                            {p.bookmarked && (
-                                                <span title="Bookmarked">
-                                                    <svg viewBox="0 0 24 24" fill="#fbbf24" width="14" height="14"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" /></svg>
-                                                </span>
-                                            )}
-                                        </div>
-
-                                        {/* Content */}
-                                        <div style={{ flex: 1, minWidth: 0 }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                                                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>{p.author || 'Unknown'}</span>
-                                                {p.score != null && (
-                                                    <span style={{
-                                                        fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 6,
-                                                        background: `${scoreColor(p.score)}18`, color: scoreColor(p.score),
-                                                    }}>Score {p.score}</span>
-                                                )}
-                                                <span style={{ fontSize: 10, color: 'var(--text-muted)', marginLeft: 'auto', flexShrink: 0 }}>{timeAgo(new Date(p.updatedAt))}</span>
-                                            </div>
-                                            <p style={{ margin: 0, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
-                                                {p.content}
-                                            </p>
-                                            <a href={p.url} target="_blank" rel="noopener noreferrer"
-                                                style={{ fontSize: 11, color: '#1d9bf0', textDecoration: 'none', marginTop: 4, display: 'inline-block' }}>
-                                                View on X →
-                                            </a>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-
-                        {/* Pagination */}
-                        {engageListData && engageListData.pages > 1 && (
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 }}>
-                                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                                    Page {engageListData.page} of {engageListData.pages} · {engageListData.total} total
-                                </span>
-                                <div style={{ display: 'flex', gap: 6 }}>
-                                    <button onClick={() => setEngageListPage(p => Math.max(1, p - 1))} disabled={engageListData.page <= 1} style={{
-                                        padding: '5px 12px', borderRadius: 7, border: '1px solid var(--border-subtle)',
-                                        background: 'var(--bg-card)', color: 'var(--text-secondary)', fontSize: 12,
-                                        cursor: engageListData.page <= 1 ? 'default' : 'pointer', opacity: engageListData.page <= 1 ? 0.4 : 1,
-                                    }}>Prev</button>
-                                    <button onClick={() => setEngageListPage(p => Math.min(engageListData.pages, p + 1))} disabled={engageListData.page >= engageListData.pages} style={{
-                                        padding: '5px 12px', borderRadius: 7, border: '1px solid var(--border-subtle)',
-                                        background: 'var(--bg-card)', color: 'var(--text-secondary)', fontSize: 12,
-                                        cursor: engageListData.page >= engageListData.pages ? 'default' : 'pointer', opacity: engageListData.page >= engageListData.pages ? 0.4 : 1,
-                                    }}>Next</button>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            )}
-
             {/* ══ Body ════════════════════════════════════════════════ */}
             <div style={{ padding: '20px 28px', display: 'flex', flexDirection: 'column', gap: 16 }}>
 
@@ -911,6 +752,127 @@ export default function PlatformPage() {
                             )}
                             <button disabled={activePage === totalPages} onClick={() => setActivePage(p => Math.min(totalPages, p + 1))} style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border-subtle)', background: 'var(--bg-card)', color: 'var(--text-secondary)', fontSize: 13, cursor: activePage === totalPages ? 'not-allowed' : 'pointer', opacity: activePage === totalPages ? 0.35 : 1, transition: 'all 150ms' }}>→</button>
                         </div>
+                    </div>
+                )}
+
+                {/* ── Engagement list browser — Twitter only ── */}
+                {platformId === 'twitter' && engageStats && (
+                    <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 20 }}>
+                        {/* Tab bar */}
+                        <div style={{ display: 'flex', gap: 2, marginBottom: 16, background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 10, padding: 3, width: 'fit-content' }}>
+                            {([
+                                { key: 'liked', label: 'Liked', count: engageStats.totalLiked, c: '#f43f5e' },
+                                { key: 'retweeted', label: 'Retweeted', count: engageStats.totalRetweeted, c: '#34d399' },
+                                { key: 'bookmarked', label: 'Bookmarked', count: engageStats.totalBookmarked, c: '#fbbf24' },
+                                { key: 'followed', label: 'Follows', count: engageStats.currentlyFollowing, c: '#818cf8' },
+                            ] as const).map(({ key, label, count, c }) => (
+                                <button key={key} onClick={() => { setEngageTab(key); setEngageListPage(1); }} style={{
+                                    padding: '6px 14px', borderRadius: 8, border: 'none',
+                                    fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                                    background: engageTab === key ? c : 'transparent',
+                                    color: engageTab === key ? '#fff' : 'var(--text-muted)',
+                                    transition: 'all 150ms', display: 'flex', alignItems: 'center', gap: 5,
+                                }}>
+                                    {label}
+                                    {count > 0 && (
+                                        <span style={{
+                                            fontSize: 10, fontWeight: 700, lineHeight: 1,
+                                            padding: '2px 6px', borderRadius: 10,
+                                            background: engageTab === key ? 'rgba(255,255,255,0.25)' : `${c}20`,
+                                            color: engageTab === key ? '#fff' : c,
+                                        }}>{count}</span>
+                                    )}
+                                </button>
+                            ))}
+                        </div>
+
+                        {/* List content */}
+                        {engageListLoading ? (
+                            <div style={{ padding: '24px 0', textAlign: 'center', fontSize: 12, color: 'var(--text-muted)' }}>Loading…</div>
+                        ) : !engageListData || (engageTab !== 'followed' ? (engageListData.posts?.length ?? 0) === 0 : (engageListData.follows?.length ?? 0) === 0) ? (
+                            <div style={{ padding: '24px 0', textAlign: 'center', fontSize: 12, color: 'var(--text-muted)' }}>
+                                No {engageTab} activity yet — run the engage cron to start
+                            </div>
+                        ) : engageTab === 'followed' ? (
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                                <thead>
+                                    <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                                        {['Account', 'Followed', 'Status', 'Unfollowed'].map(h => (
+                                            <th key={h} style={{ textAlign: 'left', padding: '8px 12px', fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
+                                        ))}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {engageListData.follows!.map((f) => (
+                                        <tr key={f.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}
+                                            onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-hover, rgba(255,255,255,0.02))')}
+                                            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                                            <td style={{ padding: '10px 12px' }}>
+                                                <a href={`https://x.com/${f.handle}`} target="_blank" rel="noopener noreferrer"
+                                                    style={{ color: '#1d9bf0', fontWeight: 700, textDecoration: 'none', fontSize: 13 }}>
+                                                    @{f.handle}
+                                                </a>
+                                            </td>
+                                            <td style={{ padding: '10px 12px', color: 'var(--text-secondary)' }}>{timeAgo(new Date(f.followedAt))}</td>
+                                            <td style={{ padding: '10px 12px' }}>
+                                                <span style={{
+                                                    fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 6,
+                                                    background: f.isFollowing ? 'rgba(52,211,153,0.12)' : 'rgba(148,163,184,0.12)',
+                                                    color: f.isFollowing ? '#34d399' : 'var(--text-muted)',
+                                                }}>{f.isFollowing ? 'Following' : 'Unfollowed'}</span>
+                                            </td>
+                                            <td style={{ padding: '10px 12px', color: 'var(--text-muted)' }}>
+                                                {f.unfollowedAt ? timeAgo(new Date(f.unfollowedAt)) : '—'}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+                                {engageListData.posts!.map((p) => (
+                                    <div key={p.id} style={{
+                                        padding: '12px 0', borderBottom: '1px solid var(--border-subtle)',
+                                        display: 'flex', gap: 14, alignItems: 'flex-start',
+                                    }}>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0, paddingTop: 2 }}>
+                                            {p.liked && <span title="Liked"><svg viewBox="0 0 24 24" fill="#f43f5e" width="14" height="14"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" /></svg></span>}
+                                            {p.retweeted && <span title="Retweeted"><svg viewBox="0 0 24 24" fill="none" stroke="#34d399" strokeWidth={2.2} width="14" height="14"><path d="M17 1l4 4-4 4" /><path d="M3 11V9a4 4 0 0 1 4-4h14" /><path d="M7 23l-4-4 4-4" /><path d="M21 13v2a4 4 0 0 1-4 4H3" /></svg></span>}
+                                            {p.bookmarked && <span title="Bookmarked"><svg viewBox="0 0 24 24" fill="#fbbf24" width="14" height="14"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" /></svg></span>}
+                                        </div>
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                                                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>{p.author || 'Unknown'}</span>
+                                                {p.score != null && (
+                                                    <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 6, background: `${scoreColor(p.score)}18`, color: scoreColor(p.score) }}>Score {p.score}</span>
+                                                )}
+                                                <span style={{ fontSize: 10, color: 'var(--text-muted)', marginLeft: 'auto', flexShrink: 0 }}>{timeAgo(new Date(p.updatedAt))}</span>
+                                            </div>
+                                            <p style={{ margin: 0, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                                                {p.content}
+                                            </p>
+                                            <a href={p.url} target="_blank" rel="noopener noreferrer"
+                                                style={{ fontSize: 11, color: '#1d9bf0', textDecoration: 'none', marginTop: 4, display: 'inline-block' }}>
+                                                View on X →
+                                            </a>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        {/* Pagination */}
+                        {engageListData && engageListData.pages > 1 && (
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 }}>
+                                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                                    Page {engageListData.page} of {engageListData.pages} · {engageListData.total} total
+                                </span>
+                                <div style={{ display: 'flex', gap: 6 }}>
+                                    <button onClick={() => setEngageListPage(p => Math.max(1, p - 1))} disabled={engageListData.page <= 1} style={{ padding: '5px 12px', borderRadius: 7, border: '1px solid var(--border-subtle)', background: 'var(--bg-card)', color: 'var(--text-secondary)', fontSize: 12, cursor: engageListData.page <= 1 ? 'default' : 'pointer', opacity: engageListData.page <= 1 ? 0.4 : 1 }}>Prev</button>
+                                    <button onClick={() => setEngageListPage(p => Math.min(engageListData.pages, p + 1))} disabled={engageListData.page >= engageListData.pages} style={{ padding: '5px 12px', borderRadius: 7, border: '1px solid var(--border-subtle)', background: 'var(--bg-card)', color: 'var(--text-secondary)', fontSize: 12, cursor: engageListData.page >= engageListData.pages ? 'default' : 'pointer', opacity: engageListData.page >= engageListData.pages ? 0.4 : 1 }}>Next</button>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
