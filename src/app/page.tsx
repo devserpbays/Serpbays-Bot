@@ -50,7 +50,7 @@ const STEPS = [
   {
     num: '01',
     title: 'Connect Your Accounts',
-    description: 'Log into your social accounts in Chrome, export your session with one click, and paste it in. No passwords stored.',
+    description: 'Log into your social accounts in Chrome, install the free Cookie-Editor extension, export your session as JSON, and paste it in. No passwords stored.',
   },
   {
     num: '02',

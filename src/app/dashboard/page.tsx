@@ -194,7 +194,7 @@ export default function OverviewPage() {
             <div className="page-body" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
                 {/* ── Getting Started Guide ── */}
-                {!onboardingDone && !allDone && (
+                {!allDone && (
                     <div style={{
                         background: 'var(--bg-card)',
                         border: '1px solid var(--border-default)',

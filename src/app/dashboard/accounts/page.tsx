@@ -457,7 +457,16 @@ function PlatformCard({
                             <line x1="12" y1="16" x2="12.01" y2="16" />
                         </svg>
                         <span style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                            Log into {platform.label} in Chrome, then install the <strong style={{ color: 'var(--text-primary)' }}>Cookie-Editor</strong> extension (free). Click it and choose <strong style={{ color: 'var(--text-primary)' }}>Export → JSON</strong>, then paste the result below.
+                            Log into {platform.label} in Chrome, then install{' '}
+                            <a
+                                href="https://chromewebstore.google.com/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkalmdm"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{ color: 'var(--accent)', fontWeight: 600, textDecoration: 'none' }}
+                            >
+                                Cookie-Editor
+                            </a>{' '}
+                            (free Chrome extension). Click it and choose <strong style={{ color: 'var(--text-primary)' }}>Export → Export as JSON</strong>, then paste the result below.
                         </span>
                     </div>
 
