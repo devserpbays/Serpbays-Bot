@@ -46,9 +46,9 @@ interface UserDetail {
 
 /* ── Constants ─────────────────────────────────────────────────── */
 const PLAN_COLORS: Record<string, { bg: string; color: string; border: string }> = {
-  free:     { bg: 'rgba(148,163,184,0.1)', color: '#94a3b8', border: 'rgba(148,163,184,0.2)' },
-  pro:      { bg: 'rgba(168,85,247,0.12)', color: '#c084fc', border: 'rgba(168,85,247,0.25)' },
-  business: { bg: 'rgba(251,191,36,0.1)',  color: '#fbbf24', border: 'rgba(251,191,36,0.2)' },
+  free:     { bg: 'rgba(156,163,175,0.1)', color: '#9ca3af', border: 'rgba(156,163,175,0.2)' },
+  pro:      { bg: 'rgba(14,165,233,0.1)',  color: '#38bdf8', border: 'rgba(14,165,233,0.2)' },
+  business: { bg: 'rgba(244,114,182,0.1)', color: '#f472b6', border: 'rgba(244,114,182,0.2)' },
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -345,8 +345,8 @@ export default function AdminPage() {
             <span style={{
               fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em',
               padding: '3px 8px', borderRadius: 20,
-              background: 'rgba(168,85,247,0.15)', color: 'var(--accent)',
-              border: '1px solid rgba(168,85,247,0.25)',
+              background: 'rgba(14,165,233,0.15)', color: 'var(--accent)',
+              border: '1px solid rgba(14,165,233,0.25)',
             }}>
               Internal
             </span>
@@ -361,7 +361,7 @@ export default function AdminPage() {
           style={{
             display: 'flex', alignItems: 'center', gap: 7,
             padding: '8px 16px', borderRadius: 'var(--radius-sm)',
-            background: 'rgba(168,85,247,0.08)', border: '1px solid var(--border-default)',
+            background: 'rgba(14,165,233,0.08)', border: '1px solid var(--border-default)',
             color: 'var(--text-secondary)', fontSize: 13, fontWeight: 600, cursor: 'pointer',
             transition: 'all 150ms', opacity: refreshing ? 0.6 : 1,
           }}
@@ -406,7 +406,7 @@ export default function AdminPage() {
                 {
                   label: 'Total Users', value: stats?.totalUsers ?? 0,
                   sub: `+${stats?.newUsersThisWeek ?? 0} this week`,
-                  color: '#a855f7', bg: 'rgba(168,85,247,0.1)',
+                  color: '#38bdf8', bg: 'rgba(14,165,233,0.1)',
                   icon: <><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></>,
                 },
                 {
@@ -682,7 +682,7 @@ export default function AdminPage() {
                       onClick={() => openUser(user)}
                       className="admin-user-table-row"
                       style={{
-                        background: isSelected ? 'rgba(168,85,247,0.07)' : 'transparent',
+                        background: isSelected ? 'rgba(14,165,233,0.07)' : 'transparent',
                         borderLeft: isSelected ? '2px solid var(--accent)' : '2px solid transparent',
                       }}
                       onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = 'rgba(255,255,255,0.02)'; }}
@@ -776,14 +776,14 @@ export default function AdminPage() {
                 {/* Panel header */}
                 <div style={{
                   padding: '16px 20px', borderBottom: '1px solid var(--border-subtle)',
-                  background: 'rgba(168,85,247,0.04)',
+                  background: 'rgba(14,165,233,0.04)',
                   flexShrink: 0,
                 }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
                       <div style={{
                         width: 40, height: 40, borderRadius: '50%', flexShrink: 0,
-                        background: 'linear-gradient(135deg, var(--accent), #7c3aed)',
+                        background: 'linear-gradient(135deg, var(--accent), #0284c7)',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         fontSize: 14, fontWeight: 800, color: 'white',
                       }}>
@@ -1045,7 +1045,7 @@ export default function AdminPage() {
                         {editingPlan && editingPlan !== userDetail.subscription.plan && (
                           <button onClick={savePlanChange} disabled={saving} style={{
                             width: '100%', padding: '8px 0', fontSize: 12, fontWeight: 700,
-                            color: '#fff', background: 'linear-gradient(135deg, #a855f7, #7c3aed)',
+                            color: '#fff', background: 'linear-gradient(135deg, #0ea5e9, #2563eb)',
                             border: 'none', borderRadius: 6, cursor: saving ? 'wait' : 'pointer',
                             opacity: saving ? 0.7 : 1, transition: 'all 150ms',
                           }}>
