@@ -6,7 +6,7 @@ import { replyToTweet, postTweet, extractTweetId, isTwitterConfigured } from '@/
 import { getAuthUserId } from '@/lib/apiAuth';
 import { checkDailyPostLimit } from '@/lib/featureGate';
 import { checkRateLimit } from '@/lib/rateLimit';
-import { PLATFORM_SAFE_LIMITS, checkBackoff, getBackoffMs } from '@/lib/humanize';
+import { PLATFORM_SAFE_LIMITS, checkBackoff, getBackoffMs, getWarmupLimit } from '@/lib/humanize';
 
 export async function POST(req: NextRequest) {
   const userId = await getAuthUserId();
@@ -65,6 +65,15 @@ export async function POST(req: NextRequest) {
   if (todayCount >= safeLimit) {
     return NextResponse.json(
       { error: `Daily safety limit of ${safeLimit} posts reached for Twitter. Resumes tomorrow.` },
+      { status: 429 }
+    );
+  }
+
+  // Warm-up cap — new accounts post less to avoid spam detection
+  const warmupLimit = getWarmupLimit(account?.createdAt);
+  if (warmupLimit !== null && todayCount >= warmupLimit) {
+    return NextResponse.json(
+      { error: `Account is still warming up (day ${Math.floor((Date.now() - new Date(account!.createdAt).getTime()) / 86400000) + 1} of 14). Daily limit is ${warmupLimit} posts today. This increases automatically over time.` },
       { status: 429 }
     );
   }

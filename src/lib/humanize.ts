@@ -107,6 +107,45 @@ export async function humanType(page: Page, selector: string, text: string): Pro
   }
 }
 
+// ─── Warm-up schedule ─────────────────────────────────────────────────────────
+
+/**
+ * Daily post cap based on how long the account has been connected.
+ * New accounts ramp up slowly to avoid triggering platform spam filters.
+ *
+ *   Days 1–3   → max 2 posts/day   (brand-new, very cautious)
+ *   Days 4–7   → max 5 posts/day   (still warming up)
+ *   Days 8–14  → max 10 posts/day  (almost warmed up)
+ *   Day 15+    → null (no warm-up cap — plan limit applies)
+ */
+export function getWarmupLimit(connectedAt: Date | null | undefined): number | null {
+  if (!connectedAt) return null;
+  const daysSince = Math.floor((Date.now() - new Date(connectedAt).getTime()) / (1000 * 60 * 60 * 24));
+  if (daysSince < 3)  return 2;
+  if (daysSince < 7)  return 5;
+  if (daysSince < 14) return 10;
+  return null; // fully warmed up
+}
+
+/**
+ * Returns the current warm-up stage info for display in the UI.
+ */
+export function getWarmupStatus(connectedAt: Date | null | undefined): {
+  isWarmingUp: boolean;
+  daysSince: number;
+  dailyLimit: number | null;
+  daysRemaining: number;
+  progressPct: number;
+} {
+  if (!connectedAt) return { isWarmingUp: false, daysSince: 0, dailyLimit: null, daysRemaining: 0, progressPct: 100 };
+  const daysSince = Math.floor((Date.now() - new Date(connectedAt).getTime()) / (1000 * 60 * 60 * 24));
+  const dailyLimit = getWarmupLimit(connectedAt);
+  const isWarmingUp = dailyLimit !== null;
+  const daysRemaining = isWarmingUp ? Math.max(0, 14 - daysSince) : 0;
+  const progressPct = Math.min(100, Math.round((daysSince / 14) * 100));
+  return { isWarmingUp, daysSince, dailyLimit, daysRemaining, progressPct };
+}
+
 // ─── Backoff logic ────────────────────────────────────────────────────────────
 
 /**

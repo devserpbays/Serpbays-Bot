@@ -193,17 +193,35 @@ function AccountPill({
                 </div>
             </div>
 
-            {/* Active dot */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
-                <div style={{
-                    width: 7, height: 7, borderRadius: '50%',
-                    background: acc.active !== false ? 'var(--status-approved)' : 'var(--text-muted)',
-                    boxShadow: acc.active !== false ? '0 0 6px rgba(52,211,153,0.6)' : 'none',
-                }} />
-                <span style={{ fontSize: 10, color: acc.active !== false ? 'var(--status-approved)' : 'var(--text-muted)', fontWeight: 600 }}>
-                    {acc.active !== false ? 'Active' : 'Inactive'}
-                </span>
-            </div>
+            {/* Warm-up badge or active dot */}
+            {(acc as SocialAccount & { warmup?: { isWarmingUp: boolean; daysRemaining: number; dailyLimit: number | null; progressPct: number } }).warmup?.isWarmingUp ? (() => {
+                const w = (acc as SocialAccount & { warmup: { isWarmingUp: boolean; daysRemaining: number; dailyLimit: number | null; progressPct: number } }).warmup;
+                return (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3, flexShrink: 0 }}>
+                        <span style={{
+                            fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 10,
+                            background: 'rgba(251,191,36,0.12)', color: '#fbbf24',
+                            border: '1px solid rgba(251,191,36,0.25)', letterSpacing: '0.05em',
+                            textTransform: 'uppercase',
+                        }}>Warming up · {w.daysRemaining}d left</span>
+                        <div style={{ width: 80, height: 3, borderRadius: 99, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+                            <div style={{ width: `${w.progressPct}%`, height: '100%', background: '#fbbf24', borderRadius: 99 }} />
+                        </div>
+                        <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>{w.dailyLimit} posts/day max</span>
+                    </div>
+                );
+            })() : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+                    <div style={{
+                        width: 7, height: 7, borderRadius: '50%',
+                        background: acc.active !== false ? 'var(--status-approved)' : 'var(--text-muted)',
+                        boxShadow: acc.active !== false ? '0 0 6px rgba(52,211,153,0.6)' : 'none',
+                    }} />
+                    <span style={{ fontSize: 10, color: acc.active !== false ? 'var(--status-approved)' : 'var(--text-muted)', fontWeight: 600 }}>
+                        {acc.active !== false ? 'Active' : 'Inactive'}
+                    </span>
+                </div>
+            )}
 
             {/* Disconnect button */}
             <button

@@ -6,6 +6,7 @@ import { getAuthUserId } from '@/lib/apiAuth';
 import { deleteCookies } from '@/lib/cookieStore';
 import { rm } from 'fs/promises';
 import { existsSync } from 'fs';
+import { getWarmupStatus } from '@/lib/humanize';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,11 +25,11 @@ export async function GET() {
   const BrowserCookie = (await import('@/models/BrowserCookie')).default;
   const allCookies = await BrowserCookie.find(
     { userId },
-    { platform: 1, accountId: 1, username: 1, displayName: 1, verified: 1, verifiedAt: 1 },
+    { platform: 1, accountId: 1, username: 1, displayName: 1, verified: 1, verifiedAt: 1, createdAt: 1 },
   ).lean();
 
   // Build a map: platform → cookie metadata
-  const cookieMap = new Map<string, { verified: boolean; verifiedAt?: string; username?: string; displayName?: string; accountId?: string }>();
+  const cookieMap = new Map<string, { verified: boolean; verifiedAt?: string; username?: string; displayName?: string; accountId?: string; connectedAt?: string }>();
   for (const c of allCookies) {
     cookieMap.set(c.platform, {
       verified: !!c.verified,
@@ -36,6 +37,7 @@ export async function GET() {
       username: c.username || '',
       displayName: c.displayName || '',
       accountId: c.accountId || '',
+      connectedAt: c.createdAt ? new Date(c.createdAt).toISOString() : undefined,
     });
   }
 
@@ -51,6 +53,8 @@ export async function GET() {
       acc.verifiedAt = cookie.verifiedAt;
       if (!acc.username && cookie.username) acc.username = cookie.username;
       if (!acc.displayName && cookie.displayName) acc.displayName = cookie.displayName;
+      (acc as SocialAccount & { warmup?: ReturnType<typeof getWarmupStatus> }).warmup =
+        getWarmupStatus(cookie.connectedAt ? new Date(cookie.connectedAt) : null);
       validAccounts.push(acc);
     } else {
       // No BrowserCookie document at all — entry is stale, remove it
@@ -68,7 +72,7 @@ export async function GET() {
   const existingPlatforms = new Set(validAccounts.map((a: SocialAccount) => a.platform));
   for (const [platform, cookie] of cookieMap.entries()) {
     if (!existingPlatforms.has(platform) && cookie.verified) {
-      const newAcc: SocialAccount = {
+      const newAcc: SocialAccount & { warmup?: ReturnType<typeof getWarmupStatus> } = {
         id: cookie.accountId || `${platform.slice(0, 2)}_${userId}`,
         platform,
         username: cookie.username || '',
@@ -79,6 +83,7 @@ export async function GET() {
         active: true,
         cookieVerified: true,
         verifiedAt: cookie.verifiedAt,
+        warmup: getWarmupStatus(cookie.connectedAt ? new Date(cookie.connectedAt) : null),
       };
       validAccounts.push(newAcc);
 
