@@ -125,6 +125,7 @@ export default function PlatformPage() {
     type EngageTab = 'liked' | 'retweeted' | 'bookmarked' | 'followed';
     const [showEngageList, setShowEngageList] = useState(false);
     const [engageTab, setEngageTab] = useState<EngageTab>('liked');
+    const [engageTimeFilter, setEngageTimeFilter] = useState('today');
     const [engageListPage, setEngageListPage] = useState(1);
     const [engageListData, setEngageListData] = useState<{
         total: number; pages: number; page: number;
@@ -133,11 +134,11 @@ export default function PlatformPage() {
     } | null>(null);
     const [engageListLoading, setEngageListLoading] = useState(false);
 
-    const fetchEngageList = useCallback(async (tab: EngageTab, pg: number) => {
+    const fetchEngageList = useCallback(async (tab: EngageTab, pg: number, filter: string) => {
         if (platformId !== 'twitter') return;
         setEngageListLoading(true);
         try {
-            const res = await fetch(`${API_BASE}/api/twitter-engagement?list=${tab}&page=${pg}`);
+            const res = await fetch(`${API_BASE}/api/twitter-engagement?list=${tab}&page=${pg}&filter=${filter}`);
             if (res.ok) setEngageListData(await res.json());
         } catch { /* silent */ }
         setEngageListLoading(false);
@@ -196,8 +197,8 @@ export default function PlatformPage() {
     useEffect(() => { setCommunityLoading(true); fetchCommunityPosts(); }, [fetchCommunityPosts]);
     useEffect(() => { fetchEngageStats(); }, [fetchEngageStats]);
     useEffect(() => {
-        if (showEngageList) fetchEngageList(engageTab, engageListPage);
-    }, [showEngageList, engageTab, engageListPage, fetchEngageList]);
+        if (showEngageList) fetchEngageList(engageTab, engageListPage, engageTimeFilter);
+    }, [showEngageList, engageTab, engageListPage, engageTimeFilter, fetchEngageList]);
     useEffect(() => {
         pollRef.current = setInterval(() => { fetchPosts(); fetchCommunityPosts(); fetchEngageStats(); }, POLL_MS);
         return () => { if (pollRef.current) clearInterval(pollRef.current); };
@@ -449,7 +450,7 @@ export default function PlatformPage() {
                                     return (
                                         <button key={label} onClick={() => {
                                             if (active) { setShowEngageList(false); }
-                                            else { setEngageTab(tab); setEngageListPage(1); setShowEngageList(true); }
+                                            else { setEngageTab(tab); setEngageListPage(1); setEngageListData(null); setShowEngageList(true); }
                                         }} style={{
                                             display: 'flex', alignItems: 'center', gap: 4,
                                             padding: '5px 10px', borderRadius: 7, border: 'none',
@@ -474,30 +475,44 @@ export default function PlatformPage() {
                             border: '1px solid var(--border-subtle)',
                             borderRadius: 10, padding: 3,
                         }}>
-                            {TIME_FILTERS.map(({ value, label: lbl }) => (
-                                <button key={value} onClick={() => { setTimeFilter(value); setPage(1); setCommunityPage(1); }} style={{
-                                    padding: '6px 14px', borderRadius: 8, border: 'none',
-                                    fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                                    background: timeFilter === value ? color : 'transparent',
-                                    color: timeFilter === value ? '#fff' : 'var(--text-muted)',
-                                    transition: 'all 150ms',
-                                }}>
-                                    {lbl}
-                                </button>
-                            ))}
+                            {TIME_FILTERS.map(({ value, label: lbl }) => {
+                                const activeFilter = showEngageList ? engageTimeFilter : timeFilter;
+                                return (
+                                    <button key={value} onClick={() => {
+                                        if (showEngageList) { setEngageTimeFilter(value); setEngageListPage(1); }
+                                        else { setTimeFilter(value); setPage(1); setCommunityPage(1); }
+                                    }} style={{
+                                        padding: '6px 14px', borderRadius: 8, border: 'none',
+                                        fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                                        background: activeFilter === value ? color : 'transparent',
+                                        color: activeFilter === value ? '#fff' : 'var(--text-muted)',
+                                        transition: 'all 150ms',
+                                    }}>
+                                        {lbl}
+                                    </button>
+                                );
+                            })}
                         </div>
                     </div>
 
                     {/* Result count */}
-                    {activeTotal > 0 && (
-                        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                            Showing <strong style={{ color: 'var(--text-secondary)' }}>{startItem}–{endItem}</strong> of <strong style={{ color: 'var(--text-secondary)' }}>{activeTotal}</strong> {isCommunityView ? 'replies' : 'comments'}
-                        </span>
+                    {showEngageList ? (
+                        engageListData && engageListData.total > 0 && (
+                            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                                Showing <strong style={{ color: 'var(--text-secondary)' }}>{(engageListData.page - 1) * 15 + 1}–{Math.min(engageListData.page * 15, engageListData.total)}</strong> of <strong style={{ color: 'var(--text-secondary)' }}>{engageListData.total}</strong> {engageTab}
+                            </span>
+                        )
+                    ) : (
+                        activeTotal > 0 && (
+                            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                                Showing <strong style={{ color: 'var(--text-secondary)' }}>{startItem}–{endItem}</strong> of <strong style={{ color: 'var(--text-secondary)' }}>{activeTotal}</strong> {isCommunityView ? 'replies' : 'comments'}
+                            </span>
+                        )
                     )}
                 </div>
 
-                {/* ── Post list ── */}
-                {activeLoading ? (
+                {/* ── Post list (hidden when engage list is open) ── */}
+                {!showEngageList && (activeLoading ? (
                     <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--text-muted)', fontSize: 13 }}>
                         Loading…
                     </div>
@@ -733,10 +748,10 @@ export default function PlatformPage() {
                             );
                         })}
                     </div>
-                )}
+                ))}
 
                 {/* ── Pagination ── */}
-                {totalPages > 1 && (
+                {!showEngageList && totalPages > 1 && (
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 20 }}>
                         <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                             Page {activePage} of {totalPages}

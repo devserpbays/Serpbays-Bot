@@ -6,6 +6,19 @@ import TwitterFollowed from '@/models/TwitterFollowed';
 
 const LIST_LIMIT = 15;
 
+function buildDateCond(filter: string | null): Record<string, Date> | undefined {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  switch (filter) {
+    case 'today':     return { $gte: today } as any;
+    case 'yesterday': { const y = new Date(today); y.setDate(y.getDate() - 1); return { $gte: y, $lt: today } as any; }
+    case '7days':     { const d = new Date(today); d.setDate(d.getDate() - 6); return { $gte: d } as any; }
+    case '15days':    { const d = new Date(today); d.setDate(d.getDate() - 14); return { $gte: d } as any; }
+    case '30days':    { const d = new Date(today); d.setDate(d.getDate() - 29); return { $gte: d } as any; }
+    default:          return undefined;
+  }
+}
+
 export async function GET(req: Request) {
   const { userId } = await auth();
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -15,12 +28,15 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const list = searchParams.get('list'); // 'liked' | 'retweeted' | 'bookmarked' | 'followed'
   const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10));
+  const timeFilter = searchParams.get('filter'); // 'today' | 'yesterday' | '7days' | '15days' | '30days' | 'all'
   const skip = (page - 1) * LIST_LIMIT;
+  const dateCond = buildDateCond(timeFilter);
 
   // ── List mode: return paginated rows ─────────────────────────────────────
   if (list === 'liked' || list === 'retweeted' || list === 'bookmarked') {
     const field = list === 'liked' ? 'likedByBot' : list === 'retweeted' ? 'retweetedByBot' : 'bookmarkedByBot';
-    const filter = { userId, platform: 'twitter', [field]: true };
+    const filter: Record<string, any> = { userId, platform: 'twitter', [field]: true };
+    if (dateCond) filter.updatedAt = dateCond;
     const [total, posts] = await Promise.all([
       Post.countDocuments(filter),
       Post.find(filter)
@@ -49,7 +65,8 @@ export async function GET(req: Request) {
   }
 
   if (list === 'followed') {
-    const filter = { userId };
+    const filter: Record<string, any> = { userId };
+    if (dateCond) filter.followedAt = dateCond;
     const [total, follows] = await Promise.all([
       TwitterFollowed.countDocuments(filter),
       TwitterFollowed.find(filter)
