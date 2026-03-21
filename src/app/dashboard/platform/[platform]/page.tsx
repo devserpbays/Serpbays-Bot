@@ -561,7 +561,7 @@ export default function PlatformPage() {
                         {/* Source toggle — Twitter only */}
                         {platformId === 'twitter' && (
                             <div style={{
-                                display: 'flex', gap: 2,
+                                display: 'flex', gap: 2, alignItems: 'center',
                                 background: 'var(--bg-card)',
                                 border: '1px solid var(--border-subtle)',
                                 borderRadius: 10, padding: 3,
@@ -594,6 +594,27 @@ export default function PlatformPage() {
                                         )}
                                     </button>
                                 ))}
+
+                                {/* Divider */}
+                                {engageStats && <span style={{ width: 1, height: 18, background: 'var(--border-subtle)', flexShrink: 0 }} />}
+
+                                {/* Engagement stats — inside the same pill */}
+                                {engageStats && ([
+                                    { icon: <svg viewBox="0 0 24 24" fill="#f43f5e" width="11" height="11"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" /></svg>, label: 'Liked', value: engageStats.totalLiked, sub: `+${engageStats.todayLiked} today`, c: '#f43f5e' },
+                                    { icon: <svg viewBox="0 0 24 24" fill="none" stroke="#34d399" strokeWidth={2.2} width="11" height="11"><path d="M17 1l4 4-4 4" /><path d="M3 11V9a4 4 0 0 1 4-4h14" /><path d="M7 23l-4-4 4-4" /><path d="M21 13v2a4 4 0 0 1-4 4H3" /></svg>, label: 'Retweeted', value: engageStats.totalRetweeted, sub: `+${engageStats.todayRetweeted} today`, c: '#34d399' },
+                                    { icon: <svg viewBox="0 0 24 24" fill="#fbbf24" width="11" height="11"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" /></svg>, label: 'Bookmarked', value: engageStats.totalBookmarked, sub: 'all time', c: '#fbbf24' },
+                                    { icon: <svg viewBox="0 0 24 24" fill="none" stroke="#818cf8" strokeWidth={2} width="11" height="11"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><line x1="19" y1="8" x2="19" y2="14" /><line x1="22" y1="11" x2="16" y2="11" /></svg>, label: 'Following', value: engageStats.currentlyFollowing, sub: `${engageStats.totalUnfollowed} unfollowed`, c: '#818cf8' },
+                                ] as const).map(({ icon, label, value, sub, c }) => (
+                                    <div key={label} title={`${label}: ${value} (${sub})`} style={{
+                                        display: 'flex', alignItems: 'center', gap: 4,
+                                        padding: '4px 10px', borderRadius: 7,
+                                        fontSize: 11, cursor: 'default',
+                                    }}>
+                                        {icon}
+                                        <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>{label}:</span>
+                                        <span style={{ color: c, fontWeight: 800 }}>{value}</span>
+                                    </div>
+                                ))}
                             </div>
                         )}
 
@@ -616,30 +637,6 @@ export default function PlatformPage() {
                                 </button>
                             ))}
                         </div>
-
-                        {/* Engagement stat chips — Twitter only, same row as keyword/community */}
-                        {platformId === 'twitter' && engageStats && (
-                            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                                {([
-                                    { icon: <svg viewBox="0 0 24 24" fill="#f43f5e" width="11" height="11"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" /></svg>, label: 'Liked', value: engageStats.totalLiked, sub: `+${engageStats.todayLiked} today`, c: '#f43f5e' },
-                                    { icon: <svg viewBox="0 0 24 24" fill="none" stroke="#34d399" strokeWidth={2.2} width="11" height="11"><path d="M17 1l4 4-4 4" /><path d="M3 11V9a4 4 0 0 1 4-4h14" /><path d="M7 23l-4-4 4-4" /><path d="M21 13v2a4 4 0 0 1-4 4H3" /></svg>, label: 'Retweeted', value: engageStats.totalRetweeted, sub: `+${engageStats.todayRetweeted} today`, c: '#34d399' },
-                                    { icon: <svg viewBox="0 0 24 24" fill="#fbbf24" width="11" height="11"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" /></svg>, label: 'Bookmarked', value: engageStats.totalBookmarked, sub: 'all time', c: '#fbbf24' },
-                                    { icon: <svg viewBox="0 0 24 24" fill="none" stroke="#818cf8" strokeWidth={2} width="11" height="11"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><line x1="19" y1="8" x2="19" y2="14" /><line x1="22" y1="11" x2="16" y2="11" /></svg>, label: 'Following', value: engageStats.currentlyFollowing, sub: `${engageStats.totalUnfollowed} unfollowed`, c: '#818cf8' },
-                                ] as const).map(({ icon, label, value, sub, c }) => (
-                                    <div key={label} title={`${label}: ${value} (${sub})`} style={{
-                                        display: 'flex', alignItems: 'center', gap: 5,
-                                        padding: '5px 11px', borderRadius: 8,
-                                        background: 'var(--bg-card)',
-                                        border: '1px solid var(--border-subtle)',
-                                        fontSize: 11, cursor: 'default',
-                                    }}>
-                                        {icon}
-                                        <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>{label}:</span>
-                                        <span style={{ color: c, fontWeight: 800 }}>{value}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
                     </div>
 
                     {/* Result count */}
