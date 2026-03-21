@@ -104,6 +104,23 @@ export default function PlatformPage() {
     const [platformSettings, setPlatformSettings] = useState<Record<string, any>>({});
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+    // Twitter engagement stats (likes, retweets, bookmarks, follows)
+    const [engageStats, setEngageStats] = useState<{
+        totalLiked: number; todayLiked: number;
+        totalRetweeted: number; todayRetweeted: number;
+        totalBookmarked: number;
+        currentlyFollowing: number; totalUnfollowed: number;
+        recentFollows: { handle: string; followedAt: string }[];
+    } | null>(null);
+
+    const fetchEngageStats = useCallback(async () => {
+        if (platformId !== 'twitter') return;
+        try {
+            const res = await fetch(`${API_BASE}/api/twitter-engagement`);
+            if (res.ok) setEngageStats(await res.json());
+        } catch { /* silent */ }
+    }, [platformId]);
+
     useEffect(() => { if (!meta) router.replace('/dashboard'); }, [meta, router]);
 
     const fetchAccounts = useCallback(async () => {
@@ -155,10 +172,11 @@ export default function PlatformPage() {
     useEffect(() => { fetchAccounts(); }, [fetchAccounts]);
     useEffect(() => { setLoading(true); fetchPosts(); }, [fetchPosts]);
     useEffect(() => { setCommunityLoading(true); fetchCommunityPosts(); }, [fetchCommunityPosts]);
+    useEffect(() => { fetchEngageStats(); }, [fetchEngageStats]);
     useEffect(() => {
-        pollRef.current = setInterval(() => { fetchPosts(); fetchCommunityPosts(); }, POLL_MS);
+        pollRef.current = setInterval(() => { fetchPosts(); fetchCommunityPosts(); fetchEngageStats(); }, POLL_MS);
         return () => { if (pollRef.current) clearInterval(pollRef.current); };
-    }, [fetchPosts, fetchCommunityPosts]);
+    }, [fetchPosts, fetchCommunityPosts, fetchEngageStats]);
 
     if (!meta) return null;
 
@@ -348,6 +366,115 @@ export default function PlatformPage() {
                     );
                 })()}
             </div>
+
+            {/* ══ Twitter Engagement Stats ════════════════════════════ */}
+            {platformId === 'twitter' && engageStats && (
+                <div style={{
+                    padding: '16px 28px',
+                    borderBottom: '1px solid var(--border-subtle)',
+                    background: 'var(--bg-card)',
+                }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 12 }}>
+                        Bot Engagement Activity
+                    </div>
+                    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+
+                        {/* Likes */}
+                        <div style={{
+                            flex: '1 1 130px', minWidth: 130,
+                            background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)',
+                            borderRadius: 12, padding: '12px 16px',
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 6 }}>
+                                <svg viewBox="0 0 24 24" fill="#f43f5e" width="15" height="15">
+                                    <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
+                                </svg>
+                                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>Liked</span>
+                            </div>
+                            <div style={{ fontSize: 24, fontWeight: 800, color: '#f43f5e', lineHeight: 1 }}>{engageStats.totalLiked}</div>
+                            <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>
+                                +{engageStats.todayLiked} today
+                            </div>
+                        </div>
+
+                        {/* Retweets */}
+                        <div style={{
+                            flex: '1 1 130px', minWidth: 130,
+                            background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)',
+                            borderRadius: 12, padding: '12px 16px',
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 6 }}>
+                                <svg viewBox="0 0 24 24" fill="none" stroke="#34d399" strokeWidth={2.2} width="15" height="15">
+                                    <path d="M17 1l4 4-4 4" /><path d="M3 11V9a4 4 0 0 1 4-4h14" />
+                                    <path d="M7 23l-4-4 4-4" /><path d="M21 13v2a4 4 0 0 1-4 4H3" />
+                                </svg>
+                                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>Retweeted</span>
+                            </div>
+                            <div style={{ fontSize: 24, fontWeight: 800, color: '#34d399', lineHeight: 1 }}>{engageStats.totalRetweeted}</div>
+                            <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>
+                                +{engageStats.todayRetweeted} today
+                            </div>
+                        </div>
+
+                        {/* Bookmarks */}
+                        <div style={{
+                            flex: '1 1 130px', minWidth: 130,
+                            background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)',
+                            borderRadius: 12, padding: '12px 16px',
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 6 }}>
+                                <svg viewBox="0 0 24 24" fill="#fbbf24" width="15" height="15">
+                                    <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+                                </svg>
+                                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>Bookmarked</span>
+                            </div>
+                            <div style={{ fontSize: 24, fontWeight: 800, color: '#fbbf24', lineHeight: 1 }}>{engageStats.totalBookmarked}</div>
+                            <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>all time</div>
+                        </div>
+
+                        {/* Following */}
+                        <div style={{
+                            flex: '1 1 130px', minWidth: 130,
+                            background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)',
+                            borderRadius: 12, padding: '12px 16px',
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 6 }}>
+                                <svg viewBox="0 0 24 24" fill="none" stroke="#818cf8" strokeWidth={2} width="15" height="15">
+                                    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                                    <circle cx="9" cy="7" r="4" />
+                                    <line x1="19" y1="8" x2="19" y2="14" /><line x1="22" y1="11" x2="16" y2="11" />
+                                </svg>
+                                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>Following</span>
+                            </div>
+                            <div style={{ fontSize: 24, fontWeight: 800, color: '#818cf8', lineHeight: 1 }}>{engageStats.currentlyFollowing}</div>
+                            <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>
+                                {engageStats.totalUnfollowed} unfollowed
+                            </div>
+                        </div>
+
+                        {/* Recent follows list */}
+                        {engageStats.recentFollows.length > 0 && (
+                            <div style={{
+                                flex: '2 1 220px', minWidth: 220,
+                                background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)',
+                                borderRadius: 12, padding: '12px 16px',
+                            }}>
+                                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8 }}>Recently Followed</div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                                    {engageStats.recentFollows.map((f) => (
+                                        <div key={f.handle} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <span style={{ fontSize: 12, fontWeight: 600, color: '#1d9bf0' }}>@{f.handle}</span>
+                                            <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+                                                {timeAgo(new Date(f.followedAt))}
+                                            </span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
 
             {/* ══ Body ════════════════════════════════════════════════ */}
             <div style={{ padding: '20px 28px', display: 'flex', flexDirection: 'column', gap: 16 }}>
