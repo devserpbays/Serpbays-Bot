@@ -393,149 +393,67 @@ export default function PlatformPage() {
                 })()}
             </div>
 
-            {/* ══ Twitter Engagement Stats ════════════════════════════ */}
-            {platformId === 'twitter' && engageStats && (
-                <div style={{
-                    padding: '16px 28px',
-                    borderBottom: '1px solid var(--border-subtle)',
-                    background: 'var(--bg-card)',
-                }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 12 }}>
-                        Bot Engagement Activity
-                    </div>
-                    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-
-                        {/* Likes */}
-                        <div style={{
-                            flex: '1 1 130px', minWidth: 130,
-                            background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)',
-                            borderRadius: 12, padding: '12px 16px',
-                        }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 6 }}>
-                                <svg viewBox="0 0 24 24" fill="#f43f5e" width="15" height="15">
-                                    <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
-                                </svg>
-                                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>Liked</span>
-                            </div>
-                            <div style={{ fontSize: 24, fontWeight: 800, color: '#f43f5e', lineHeight: 1 }}>{engageStats.totalLiked}</div>
-                            <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>
-                                +{engageStats.todayLiked} today
-                            </div>
-                        </div>
-
-                        {/* Retweets */}
-                        <div style={{
-                            flex: '1 1 130px', minWidth: 130,
-                            background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)',
-                            borderRadius: 12, padding: '12px 16px',
-                        }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 6 }}>
-                                <svg viewBox="0 0 24 24" fill="none" stroke="#34d399" strokeWidth={2.2} width="15" height="15">
-                                    <path d="M17 1l4 4-4 4" /><path d="M3 11V9a4 4 0 0 1 4-4h14" />
-                                    <path d="M7 23l-4-4 4-4" /><path d="M21 13v2a4 4 0 0 1-4 4H3" />
-                                </svg>
-                                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>Retweeted</span>
-                            </div>
-                            <div style={{ fontSize: 24, fontWeight: 800, color: '#34d399', lineHeight: 1 }}>{engageStats.totalRetweeted}</div>
-                            <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>
-                                +{engageStats.todayRetweeted} today
-                            </div>
-                        </div>
-
-                        {/* Bookmarks */}
-                        <div style={{
-                            flex: '1 1 130px', minWidth: 130,
-                            background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)',
-                            borderRadius: 12, padding: '12px 16px',
-                        }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 6 }}>
-                                <svg viewBox="0 0 24 24" fill="#fbbf24" width="15" height="15">
-                                    <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
-                                </svg>
-                                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>Bookmarked</span>
-                            </div>
-                            <div style={{ fontSize: 24, fontWeight: 800, color: '#fbbf24', lineHeight: 1 }}>{engageStats.totalBookmarked}</div>
-                            <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>all time</div>
-                        </div>
-
-                        {/* Following */}
-                        <div style={{
-                            flex: '1 1 130px', minWidth: 130,
-                            background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)',
-                            borderRadius: 12, padding: '12px 16px',
-                        }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 6 }}>
-                                <svg viewBox="0 0 24 24" fill="none" stroke="#818cf8" strokeWidth={2} width="15" height="15">
-                                    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-                                    <circle cx="9" cy="7" r="4" />
-                                    <line x1="19" y1="8" x2="19" y2="14" /><line x1="22" y1="11" x2="16" y2="11" />
-                                </svg>
-                                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>Following</span>
-                            </div>
-                            <div style={{ fontSize: 24, fontWeight: 800, color: '#818cf8', lineHeight: 1 }}>{engageStats.currentlyFollowing}</div>
-                            <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>
-                                {engageStats.totalUnfollowed} unfollowed
-                            </div>
-                        </div>
-
-                        {/* Recent follows list */}
-                        {engageStats.recentFollows.length > 0 && (
-                            <div style={{
-                                flex: '2 1 220px', minWidth: 220,
-                                background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)',
-                                borderRadius: 12, padding: '12px 16px',
-                            }}>
-                                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8 }}>Recently Followed</div>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                                    {engageStats.recentFollows.map((f) => (
-                                        <div key={f.handle} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                            <span style={{ fontSize: 12, fontWeight: 600, color: '#1d9bf0' }}>@{f.handle}</span>
-                                            <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
-                                                {timeAgo(new Date(f.followedAt))}
-                                            </span>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            )}
-
             {/* ══ Twitter Engagement List Browser ═════════════════════ */}
             {platformId === 'twitter' && (
                 <div style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                    {/* Tab bar */}
-                    <div style={{ display: 'flex', gap: 0, padding: '0 28px', borderBottom: '1px solid var(--border-subtle)' }}>
-                        {([
-                            { key: 'liked',      label: 'Liked',      color: '#f43f5e' },
-                            { key: 'retweeted',  label: 'Retweeted',  color: '#34d399' },
-                            { key: 'bookmarked', label: 'Bookmarked', color: '#fbbf24' },
-                            { key: 'followed',   label: 'Follows',    color: '#818cf8' },
-                        ] as const).map(({ key, label, color: c }) => (
-                            <button key={key} onClick={() => setEngageTab(key)} style={{
-                                padding: '12px 18px', border: 'none', background: 'none',
-                                fontSize: 12, fontWeight: 700, cursor: 'pointer',
-                                color: engageTab === key ? c : 'var(--text-muted)',
-                                borderBottom: engageTab === key ? `2px solid ${c}` : '2px solid transparent',
-                                transition: 'all 150ms', marginBottom: -1,
-                            }}>
-                                {label}
-                                {engageStats && (
-                                    <span style={{
-                                        marginLeft: 6, fontSize: 10, fontWeight: 700,
-                                        padding: '1px 6px', borderRadius: 8,
-                                        background: engageTab === key ? `${c}20` : 'var(--bg-card)',
-                                        color: engageTab === key ? c : 'var(--text-muted)',
+                    {/* Tab bar — same padding/height as keyword/community + time-filter row */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 28px', borderBottom: '1px solid var(--border-subtle)' }}>
+                        {/* Left: tab buttons */}
+                        <div style={{ display: 'flex', gap: 0 }}>
+                            {([
+                                { key: 'liked',      label: 'Liked',      color: '#f43f5e' },
+                                { key: 'retweeted',  label: 'Retweeted',  color: '#34d399' },
+                                { key: 'bookmarked', label: 'Bookmarked', color: '#fbbf24' },
+                                { key: 'followed',   label: 'Follows',    color: '#818cf8' },
+                            ] as const).map(({ key, label, color: c }) => (
+                                <button key={key} onClick={() => setEngageTab(key)} style={{
+                                    padding: '12px 16px', border: 'none', background: 'none',
+                                    fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                                    color: engageTab === key ? c : 'var(--text-muted)',
+                                    borderBottom: engageTab === key ? `2px solid ${c}` : '2px solid transparent',
+                                    transition: 'all 150ms', marginBottom: -1,
+                                    display: 'flex', alignItems: 'center', gap: 6,
+                                }}>
+                                    {label}
+                                    {engageStats && (
+                                        <span style={{
+                                            fontSize: 10, fontWeight: 700,
+                                            padding: '1px 6px', borderRadius: 8,
+                                            background: engageTab === key ? `${c}20` : 'rgba(148,163,184,0.08)',
+                                            color: engageTab === key ? c : 'var(--text-muted)',
+                                        }}>
+                                            {key === 'liked' ? engageStats.totalLiked
+                                                : key === 'retweeted' ? engageStats.totalRetweeted
+                                                : key === 'bookmarked' ? engageStats.totalBookmarked
+                                                : engageStats.currentlyFollowing + engageStats.totalUnfollowed}
+                                        </span>
+                                    )}
+                                </button>
+                            ))}
+                        </div>
+
+                        {/* Right: compact stat chips — same style as config chips in header */}
+                        {engageStats && (
+                            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
+                                {([
+                                    { icon: <svg viewBox="0 0 24 24" fill="#f43f5e" width="11" height="11"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" /></svg>, label: 'Liked', value: engageStats.totalLiked, sub: `+${engageStats.todayLiked} today`, color: '#f43f5e' },
+                                    { icon: <svg viewBox="0 0 24 24" fill="none" stroke="#34d399" strokeWidth={2.2} width="11" height="11"><path d="M17 1l4 4-4 4" /><path d="M3 11V9a4 4 0 0 1 4-4h14" /><path d="M7 23l-4-4 4-4" /><path d="M21 13v2a4 4 0 0 1-4 4H3" /></svg>, label: 'RT', value: engageStats.totalRetweeted, sub: `+${engageStats.todayRetweeted} today`, color: '#34d399' },
+                                    { icon: <svg viewBox="0 0 24 24" fill="#fbbf24" width="11" height="11"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" /></svg>, label: 'Saved', value: engageStats.totalBookmarked, sub: 'bookmarked', color: '#fbbf24' },
+                                    { icon: <svg viewBox="0 0 24 24" fill="none" stroke="#818cf8" strokeWidth={2} width="11" height="11"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><line x1="19" y1="8" x2="19" y2="14" /><line x1="22" y1="11" x2="16" y2="11" /></svg>, label: 'Following', value: engageStats.currentlyFollowing, sub: `${engageStats.totalUnfollowed} unfollowed`, color: '#818cf8' },
+                                ] as const).map(({ icon, label, value, sub, color: c }) => (
+                                    <div key={label} title={sub} style={{
+                                        display: 'flex', alignItems: 'center', gap: 5,
+                                        padding: '4px 10px', borderRadius: 8,
+                                        background: `${c}10`, border: `1px solid ${c}28`,
+                                        fontSize: 11, cursor: 'default',
                                     }}>
-                                        {key === 'liked' ? engageStats.totalLiked
-                                            : key === 'retweeted' ? engageStats.totalRetweeted
-                                            : key === 'bookmarked' ? engageStats.totalBookmarked
-                                            : engageStats.currentlyFollowing + engageStats.totalUnfollowed}
-                                    </span>
-                                )}
-                            </button>
-                        ))}
+                                        {icon}
+                                        <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>{label}:</span>
+                                        <span style={{ color: c, fontWeight: 800 }}>{value}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
 
                     {/* List content */}
