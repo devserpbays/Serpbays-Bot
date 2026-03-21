@@ -764,3 +764,168 @@ export async function postComment(
     return { success: false, error: msg };
   }
 }
+
+// ─── Passive engagement ────────────────────────────────────────────────────────
+
+export type FbReaction = 'Like' | 'Love' | 'Care' | 'Haha' | 'Wow' | 'Sad' | 'Angry';
+
+/**
+ * React to a Facebook post with a specific reaction.
+ * To use non-Like reactions: hover over the Like button to reveal the picker,
+ * wait for it to appear, then click the desired reaction.
+ */
+export async function reactToPost(
+  postUrl: string,
+  reaction: FbReaction = 'Like'
+): Promise<{ success: boolean; reaction: FbReaction }> {
+  try {
+    const page = await getPage();
+    await page.goto(postUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+    await randomDelay(3000, 6000);
+    await readingPause(page);
+
+    if (reaction === 'Like') {
+      // Simple like — find Like button and click
+      const likeBtn = await page.$('[aria-label="Like"][role="button"], div[aria-label="Like"]');
+      if (likeBtn && await likeBtn.isVisible().catch(() => false)) {
+        const pressed = await likeBtn.getAttribute('aria-pressed').catch(() => null);
+        if (pressed !== 'true') {
+          await likeBtn.click({ force: true });
+          await randomDelay(1000, 2500);
+        }
+      }
+    } else {
+      // Non-Like reaction: hover over Like button to trigger reaction picker
+      const likeBtn = await page.$('[aria-label="Like"][role="button"], div[aria-label="Like"]');
+      if (!likeBtn || !await likeBtn.isVisible().catch(() => false)) {
+        return { success: false, reaction };
+      }
+
+      // Hover and hold to trigger reaction picker (Facebook shows it after ~0.6s)
+      const box = await likeBtn.boundingBox();
+      if (box) {
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 8 });
+        await randomDelay(700, 1200); // wait for picker to appear
+      }
+
+      // Reaction picker aria-labels: Love, Care, Haha, Wow, Sad, Angry
+      const reactionBtn = await page.$(`[aria-label="${reaction}"][role="button"]`);
+      if (reactionBtn && await reactionBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await reactionBtn.click({ force: true });
+        await randomDelay(1000, 2500);
+        console.log(`[facebook] Reacted with ${reaction} on: ${postUrl}`);
+        return { success: true, reaction };
+      }
+
+      // Fallback: try text-based search for reaction
+      const fallback = await page.evaluate((label: string) => {
+        const els = Array.from(document.querySelectorAll('[role="button"]'));
+        for (const el of els) {
+          if (el.getAttribute('aria-label') === label) {
+            (el as HTMLElement).click();
+            return true;
+          }
+        }
+        return false;
+      }, reaction);
+
+      if (fallback) {
+        await randomDelay(1000, 2000);
+        return { success: true, reaction };
+      }
+    }
+
+    return { success: true, reaction };
+  } catch (err) {
+    console.error(`[facebook] reactToPost error:`, (err as Error).message);
+    return { success: false, reaction };
+  }
+}
+
+// Reactions weighted toward positive/neutral — matches real human behavior
+const REACTION_WEIGHTS: Array<{ reaction: FbReaction; weight: number }> = [
+  { reaction: 'Like',  weight: 45 },
+  { reaction: 'Love',  weight: 20 },
+  { reaction: 'Haha',  weight: 15 },
+  { reaction: 'Wow',   weight: 10 },
+  { reaction: 'Care',  weight:  7 },
+  { reaction: 'Sad',   weight:  2 },
+  { reaction: 'Angry', weight:  1 },
+];
+
+function pickReaction(): FbReaction {
+  const total = REACTION_WEIGHTS.reduce((s, r) => s + r.weight, 0);
+  let rand = Math.random() * total;
+  for (const { reaction, weight } of REACTION_WEIGHTS) {
+    rand -= weight;
+    if (rand <= 0) return reaction;
+  }
+  return 'Like';
+}
+
+/**
+ * Browse a Facebook group feed and react to a few posts without commenting.
+ * Picks reactions based on weighted probability matching real user distribution.
+ */
+export async function browseFeedAndReact(
+  groupUrls: string[],
+  maxReactions: number = 2
+): Promise<{ reacted: number; reactions: FbReaction[] }> {
+  let reacted = 0;
+  const reactions: FbReaction[] = [];
+
+  for (const groupUrl of groupUrls) {
+    if (reacted >= maxReactions) break;
+    try {
+      const page = await getPage();
+      await page.goto(groupUrl, { waitUntil: 'domcontentloaded' });
+      await randomDelay(3000, 6000);
+      await readingPause(page);
+
+      // Scroll through to load posts
+      for (let i = 0; i < 3; i++) {
+        await page.evaluate(() => window.mouse?.wheel(0, 700) || window.scrollBy({ top: 700, behavior: 'smooth' }));
+        await randomDelay(1500, 3000);
+      }
+
+      // Find Like buttons on visible posts
+      const likeBtns = await page.$$('[aria-label="Like"][role="button"]');
+
+      for (const btn of likeBtns) {
+        if (reacted >= maxReactions) break;
+        if (!await btn.isVisible().catch(() => false)) continue;
+
+        const pressed = await btn.getAttribute('aria-pressed').catch(() => null);
+        if (pressed === 'true') continue; // already reacted
+
+        const reaction = pickReaction();
+        if (reaction === 'Like') {
+          await btn.click({ force: true });
+        } else {
+          // Hover to open picker
+          const box = await btn.boundingBox();
+          if (box) {
+            await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 8 });
+            await randomDelay(700, 1200);
+            const picker = await page.$(`[aria-label="${reaction}"][role="button"]`);
+            if (picker && await picker.isVisible({ timeout: 2000 }).catch(() => false)) {
+              await picker.click({ force: true });
+            } else {
+              // Picker didn't show — fall back to like
+              await btn.click({ force: true });
+            }
+          }
+        }
+
+        reacted++;
+        reactions.push(reaction);
+        await randomDelay(2000, 5000);
+        await readingPause(page);
+      }
+    } catch (err) {
+      console.error(`[facebook] browseFeedAndReact error on ${groupUrl}:`, (err as Error).message);
+    }
+  }
+
+  return { reacted, reactions };
+}

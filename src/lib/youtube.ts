@@ -10,6 +10,7 @@ import { join } from 'path';
 import { unlinkSync, existsSync, readFileSync } from 'fs';
 import { isValidComment } from './validateComment';
 import { debugScreenshot } from './debugScreenshot';
+import { buildLaunchArgs, randomTimezone, applyStealth, randomUserAgent, randomViewport } from './humanize';
 
 const NAVIGATION_TIMEOUT = 30000;
 const SLOW_WAIT = 4000;
@@ -34,19 +35,13 @@ async function getPage(profileDir: string): Promise<Page> {
 
   const context = await chromium.launchPersistentContext(profileDir, {
     headless: true,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-blink-features=AutomationControlled',
-      '--disable-features=IsolateOrigins,site-per-process',
-    ],
-    // Windows UA — Linux is a strong bot signal to Google
-    userAgent:
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-    viewport: { width: 1366, height: 768 },
+    args: buildLaunchArgs(),
+    userAgent: randomUserAgent(),
+    viewport: randomViewport(),
     locale: 'en-US',
-    timezoneId: 'America/New_York',
+    timezoneId: randomTimezone(),
   });
+  await applyStealth(context);
 
   // Inject cookies from cookies.json if available
   const cookiesJsonPath = join(profileDir, 'cookies.json');
@@ -425,4 +420,167 @@ export async function postYouTubeComment(videoUrl: string, comment: string, prof
     console.error(`Failed to post YouTube comment on ${videoUrl}:`, msg);
     return { success: false, error: msg };
   }
+}
+
+// ─── Passive engagement ────────────────────────────────────────────────────────
+
+/**
+ * Like a YouTube video (thumbs up).
+ */
+export async function likeYouTubeVideo(
+  videoUrl: string,
+  profileDir: string
+): Promise<{ success: boolean }> {
+  try {
+    const page = await getPage(profileDir);
+    await page.goto(videoUrl, { waitUntil: 'domcontentloaded' });
+    await sleep(SLOW_WAIT);
+
+    await smoothScroll(page, 300);
+    await sleep(1000 + Math.random() * 1000);
+
+    const likeSelectors = [
+      'button[aria-label*="like this video" i]',
+      'ytd-toggle-button-renderer button[aria-label*="like" i]',
+      '#top-level-buttons-computed ytd-toggle-button-renderer:first-child button',
+      'yt-button-shape button[aria-label*="like" i]',
+    ];
+
+    for (const sel of likeSelectors) {
+      const btn = page.locator(sel).first();
+      if (await btn.isVisible({ timeout: 3000 }).catch(() => false)) {
+        const pressed = await btn.getAttribute('aria-pressed').catch(() => null);
+        if (pressed === 'true') {
+          console.log('[youtube] Video already liked');
+          return { success: true };
+        }
+        const box = await btn.boundingBox();
+        if (box) await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 8 });
+        await sleep(300 + Math.random() * 400);
+        await btn.click({ force: true });
+        console.log(`[youtube] Liked video: ${videoUrl}`);
+        return { success: true };
+      }
+    }
+
+    console.warn('[youtube] Like button not found on:', videoUrl);
+    return { success: false };
+  } catch (err) {
+    console.error('[youtube] likeYouTubeVideo error:', (err as Error).message);
+    return { success: false };
+  }
+}
+
+/**
+ * Watch a YouTube video passively for a realistic duration, then optionally like it.
+ * Does NOT comment — pure viewing simulation.
+ *
+ * @param videoUrl    Full YouTube video URL
+ * @param profileDir  Playwright profile directory
+ * @param watchMs     How long to "watch" (default: 2–4 min random)
+ * @param andLike     Whether to like after watching (default: true)
+ */
+export async function watchAndLike(
+  videoUrl: string,
+  profileDir: string,
+  watchMs?: number,
+  andLike: boolean = true
+): Promise<{ watched: boolean; liked: boolean }> {
+  const ms = watchMs ?? (120_000 + Math.random() * 120_000); // 2–4 min
+  let watched = false;
+  let liked = false;
+
+  try {
+    const page = await getPage(profileDir);
+    await page.goto(videoUrl, { waitUntil: 'domcontentloaded' });
+    await sleep(3000 + Math.random() * 2000);
+
+    // Dismiss consent/cookie dialogs
+    for (const sel of ['button[aria-label*="Accept" i]', 'button[aria-label*="Agree" i]']) {
+      const el = page.locator(sel).first();
+      if (await el.isVisible({ timeout: 1500 }).catch(() => false)) {
+        await el.click({ force: true }).catch(() => {});
+      }
+    }
+
+    // Scroll through description (reading simulation)
+    await smoothScroll(page, 200 + Math.random() * 100);
+    await sleep(2000 + Math.random() * 2000);
+    await smoothScroll(page, 400 + Math.random() * 100);
+    await sleep(1500 + Math.random() * 1500);
+    await smoothScroll(page, 0);
+    await sleep(1000);
+
+    // "Watch" by waiting — split into chunks with occasional micro-scrolls
+    const chunks = 4 + Math.floor(Math.random() * 3);
+    const chunkMs = ms / chunks;
+    for (let i = 0; i < chunks; i++) {
+      await sleep(chunkMs);
+      if (Math.random() < 0.4) {
+        const scrollAmt = 150 + Math.random() * 200;
+        await smoothScroll(page, scrollAmt);
+        await sleep(2000 + Math.random() * 3000);
+        await smoothScroll(page, 0);
+      }
+    }
+
+    watched = true;
+    console.log(`[youtube] Finished watching ${Math.round(ms / 1000)}s of: ${videoUrl}`);
+
+    if (andLike) {
+      const result = await likeYouTubeVideo(videoUrl, profileDir);
+      liked = result.success;
+    }
+  } catch (err) {
+    console.error('[youtube] watchAndLike error:', (err as Error).message);
+  }
+
+  return { watched, liked };
+}
+
+/**
+ * Browse the YouTube homepage, pick random videos, and watch them passively.
+ * Does NOT comment — pure browse-and-watch simulation.
+ */
+export async function browseAndWatch(
+  profileDir: string,
+  maxVideos: number = 2
+): Promise<{ watched: number }> {
+  let watched = 0;
+
+  try {
+    const page = await getPage(profileDir);
+    await page.goto('https://www.youtube.com', { waitUntil: 'domcontentloaded' });
+    await sleep(3000 + Math.random() * 2000);
+
+    for (let i = 0; i < 3; i++) {
+      await smoothScroll(page, (i + 1) * 600);
+      await sleep(1200 + Math.random() * 800);
+    }
+
+    const videoLinks: string[] = await page.evaluate(() => {
+      const links = Array.from(document.querySelectorAll('a#video-title-link, ytd-rich-item-renderer a[href*="/watch?v="]'));
+      return links
+        .map(a => (a as HTMLAnchorElement).href)
+        .filter(href => href && href.includes('/watch?v='))
+        .slice(0, 10);
+    }).catch(() => []);
+
+    if (videoLinks.length === 0) {
+      console.warn('[youtube] No videos found on home feed');
+      return { watched: 0 };
+    }
+
+    const picks = [...videoLinks].sort(() => Math.random() - 0.5).slice(0, maxVideos);
+    for (const url of picks) {
+      const watchMs = 60_000 + Math.random() * 60_000; // 1–2 min browse watch
+      const result = await watchAndLike(url, profileDir, watchMs, Math.random() > 0.5);
+      if (result.watched) watched++;
+      await sleep(3000 + Math.random() * 3000);
+    }
+  } catch (err) {
+    console.error('[youtube] browseAndWatch error:', (err as Error).message);
+  }
+
+  return { watched };
 }

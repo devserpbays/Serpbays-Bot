@@ -624,3 +624,56 @@ export async function postRedditComment(
     return { success: false, error: msg };
   }
 }
+
+// ─── Passive engagement ────────────────────────────────────────────────────────
+
+/**
+ * Browse one or more subreddits and upvote a few posts without commenting.
+ * Simulates human browsing: scroll, read, upvote, move on.
+ * @param subreddits List of subreddit names (e.g. ['startups', 'SaaS'])
+ * @param maxUpvotes How many posts to upvote (1–3 recommended)
+ */
+export async function browseAndUpvote(
+  subreddits: string[],
+  maxUpvotes: number = 2
+): Promise<{ upvoted: number }> {
+  let upvoted = 0;
+
+  for (const sub of subreddits) {
+    if (upvoted >= maxUpvotes) break;
+    try {
+      const page = await getPage();
+      const url = `https://old.reddit.com/r/${sub}/`;
+      await page.goto(url, { waitUntil: 'domcontentloaded' });
+      await randomDelay(3000, 5000);
+      await readingPause(page);
+
+      // Scroll through the feed a bit
+      for (let i = 0; i < 3 && upvoted < maxUpvotes; i++) {
+        await page.evaluate(() => window.scrollBy({ top: 600 + Math.random() * 300, behavior: 'smooth' }));
+        await randomDelay(1500, 3000);
+
+        // Find unvoted up-arrows
+        const upArrows = await page.$$('.arrow.up:not(.upmod)');
+        if (upArrows.length > 0) {
+          // Pick a random post to upvote (not always the first)
+          const target = upArrows[Math.floor(Math.random() * Math.min(upArrows.length, 5))];
+          const visible = await target.isVisible().catch(() => false);
+          if (visible) {
+            const box = await target.boundingBox();
+            if (box) await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 6 });
+            await randomDelay(200, 600);
+            await target.click({ force: true });
+            upvoted++;
+            await randomDelay(1500, 3500);
+          }
+        }
+        await readingPause(page);
+      }
+    } catch (err) {
+      console.error(`[reddit] browseAndUpvote error on r/${sub}:`, (err as Error).message);
+    }
+  }
+
+  return { upvoted };
+}

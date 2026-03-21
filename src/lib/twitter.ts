@@ -632,3 +632,51 @@ export async function likeTweet(tweetId: string): Promise<void> {
     }
   );
 }
+
+// ─── Passive engagement ────────────────────────────────────────────────────────
+
+/**
+ * Browse the Twitter home feed and like a few tweets without commenting.
+ * Simulates human browsing: scroll, pause, like, scroll more.
+ * @param maxLikes How many tweets to like (1–3 recommended)
+ */
+export async function browseFeedAndLike(maxLikes: number = 2): Promise<{ liked: number }> {
+  const page = await getPage();
+  let liked = 0;
+
+  try {
+    await page.goto('https://x.com/home', { waitUntil: 'domcontentloaded', timeout: NAVIGATION_TIMEOUT });
+    await randomDelay(3000, 6000);
+    await readingPause(page);
+
+    for (let pass = 0; pass < 5 && liked < maxLikes; pass++) {
+      // Scroll down naturally
+      await page.evaluate(() => window.scrollBy({ top: 500 + Math.random() * 300, behavior: 'smooth' }));
+      await randomDelay(1500, 3500);
+
+      // Find all visible like buttons that aren't already liked
+      const likeButtons = await page.$$('[data-testid="like"]:not([aria-pressed="true"])');
+
+      // Pick a random one to like (not always the first)
+      if (likeButtons.length > 0) {
+        const target = likeButtons[Math.floor(Math.random() * Math.min(likeButtons.length, 4))];
+        const visible = await target.isVisible().catch(() => false);
+        if (visible) {
+          // Hover briefly before clicking (human behavior)
+          const box = await target.boundingBox();
+          if (box) await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 8 });
+          await randomDelay(300, 800);
+          await target.click({ force: true });
+          liked++;
+          await randomDelay(1200, 3000);
+        }
+      }
+
+      await readingPause(page);
+    }
+  } catch (err) {
+    console.error('[twitter] browseFeedAndLike error:', (err as Error).message);
+  }
+
+  return { liked };
+}
