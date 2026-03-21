@@ -309,6 +309,105 @@ export async function likeTweetHttp(profileDir: string, tweetId: string): Promis
   }
 }
 
+// --- Retweet a tweet (HTTP) ---
+const RETWEET_QUERY_ID = 'ojPdsZsimiJrUGLR1sjUtA';
+export async function retweetHttp(profileDir: string, tweetId: string): Promise<void> {
+  const cookies = loadCookies(profileDir);
+  const ct0 = getCt0(cookies);
+  const cookieHeader = buildCookieHeader(cookies);
+  if (!ct0) throw new Error('No ct0 cookie — cannot retweet');
+
+  await jitter(1500, 4000);
+
+  const res = await fetch(`${TWITTER_GRAPHQL_BASE}/${RETWEET_QUERY_ID}/CreateRetweet`, {
+    method: 'POST',
+    headers: getHeaders(ct0, cookieHeader),
+    body: JSON.stringify({
+      variables: { tweet_id: tweetId, dark_request: false },
+      queryId: RETWEET_QUERY_ID,
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Twitter retweet error ${res.status}: ${parseTwitterError(body)}`);
+  }
+}
+
+// --- Bookmark a tweet (HTTP) ---
+const BOOKMARK_QUERY_ID = 'aoDbu3RHznuiSkQ9aaC-wg';
+export async function bookmarkHttp(profileDir: string, tweetId: string): Promise<void> {
+  const cookies = loadCookies(profileDir);
+  const ct0 = getCt0(cookies);
+  const cookieHeader = buildCookieHeader(cookies);
+  if (!ct0) throw new Error('No ct0 cookie — cannot bookmark');
+
+  await jitter(800, 2500);
+
+  const res = await fetch(`${TWITTER_GRAPHQL_BASE}/${BOOKMARK_QUERY_ID}/CreateBookmark`, {
+    method: 'POST',
+    headers: getHeaders(ct0, cookieHeader),
+    body: JSON.stringify({
+      variables: { tweet_id: tweetId },
+      queryId: BOOKMARK_QUERY_ID,
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Twitter bookmark error ${res.status}: ${parseTwitterError(body)}`);
+  }
+}
+
+// --- Follow a user by screen name (HTTP REST) ---
+export async function followUserHttp(profileDir: string, screenName: string): Promise<void> {
+  const cookies = loadCookies(profileDir);
+  const ct0 = getCt0(cookies);
+  const cookieHeader = buildCookieHeader(cookies);
+  if (!ct0) throw new Error('No ct0 cookie — cannot follow');
+
+  await jitter(2000, 5000);
+
+  const res = await fetch('https://x.com/i/api/1.1/friendships/create.json', {
+    method: 'POST',
+    headers: {
+      ...getHeaders(ct0, cookieHeader),
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: `screen_name=${encodeURIComponent(screenName)}&skip_status=1`,
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    const msg = parseTwitterError(body);
+    throw new Error(`Twitter follow error ${res.status}: ${msg}`);
+  }
+}
+
+// --- Unfollow a user by screen name (HTTP REST) ---
+export async function unfollowUserHttp(profileDir: string, screenName: string): Promise<void> {
+  const cookies = loadCookies(profileDir);
+  const ct0 = getCt0(cookies);
+  const cookieHeader = buildCookieHeader(cookies);
+  if (!ct0) throw new Error('No ct0 cookie — cannot unfollow');
+
+  await jitter(2000, 4000);
+
+  const res = await fetch('https://x.com/i/api/1.1/friendships/destroy.json', {
+    method: 'POST',
+    headers: {
+      ...getHeaders(ct0, cookieHeader),
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: `screen_name=${encodeURIComponent(screenName)}&skip_status=1`,
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Twitter unfollow error ${res.status}: ${parseTwitterError(body)}`);
+  }
+}
+
 // --- Check if Twitter is configured (has cookies.json) ---
 export function isTwitterConfiguredHttp(profileDir: string): boolean {
   return existsSync(join(profileDir, 'cookies.json'));

@@ -30,13 +30,19 @@ import { buildSuccessPatch, buildFailurePatch } from '../src/lib/accountHealth';
 import {
   replyToTweetHttp,
   likeTweetHttp,
+  retweetHttp,
+  bookmarkHttp,
+  followUserHttp,
+  unfollowUserHttp,
   extractTweetId,
   isTwitterConfiguredHttp,
   verifyCredentialsHttp,
 } from '../src/lib/twitterHttp';
 
 // Browser-based scraping + fallback posting (needs Chromium)
-import { searchTweets, searchCommunityTweets, closeBrowser, replyToTweet, likeTweet } from '../src/lib/twitter';
+import { searchTweets, searchCommunityTweets, closeBrowser, scrollHomeFeed, replyToTweet, likeTweet } from '../src/lib/twitter';
+
+import TwitterFollowed from '../src/models/TwitterFollowed';
 
 const DEFAULT_DAILY_LIMIT = 4;
 const DEFAULT_AUTO_POST_THRESHOLD = 70;
@@ -54,7 +60,7 @@ const PROFILE_DIR = process.env.TWITTER_PROFILE_DIR
 // Parse --mode flag
 const MODE = (() => {
   const modeArg = process.argv.find(a => a.startsWith('--mode='));
-  return (modeArg?.split('=')[1] || 'full') as 'scrape' | 'post' | 'full';
+  return (modeArg?.split('=')[1] || 'full') as 'scrape' | 'post' | 'full' | 'engage';
 })();
 
 // --- Read current Twitter account identity from profile dir's .verified file ---
@@ -555,6 +561,237 @@ async function postPhase(settings: any, accountId: string, dailyLimit: number, a
   await closeBrowser();
 }
 
+// ── Human engagement phase ────────────────────────────────────────────────────
+// Each cron run in 'engage' mode picks ONE action at random.
+// Actions are HTTP-only (except browse) so runs finish in < 3 min.
+//
+// Weighted distribution designed to look like a social media manager:
+//   Browse  20% — passive: scroll home feed, no engagement
+//   Like    30% — like 2–4 relevant tweets from DB
+//   Retweet 15% — retweet 1 high-score tweet
+//   Bookmark 15% — bookmark 1–2 tweets
+//   Follow  12% — follow 1 relevant author
+//   Unfollow 8% — unfollow someone followed 3+ days ago
+
+type EngageAction = 'browse' | 'like' | 'retweet' | 'bookmark' | 'follow' | 'unfollow';
+
+const ENGAGE_WEIGHTS: { action: EngageAction; weight: number }[] = [
+  { action: 'browse',   weight: 20 },
+  { action: 'like',     weight: 30 },
+  { action: 'retweet',  weight: 15 },
+  { action: 'bookmark', weight: 15 },
+  { action: 'follow',   weight: 12 },
+  { action: 'unfollow', weight: 8  },
+];
+
+function pickEngageAction(): EngageAction {
+  const total = ENGAGE_WEIGHTS.reduce((s, w) => s + w.weight, 0);
+  let r = Math.random() * total;
+  for (const { action, weight } of ENGAGE_WEIGHTS) {
+    r -= weight;
+    if (r <= 0) return action;
+  }
+  return 'browse';
+}
+
+/** ms pause between micro-steps within one engage run */
+function engageDelay(minS: number, maxS: number): Promise<void> {
+  return new Promise(r => setTimeout(r, (minS + Math.random() * (maxS - minS)) * 1000));
+}
+
+// Daily cap for follows to avoid triggering Twitter's spam detection
+const MAX_FOLLOWS_PER_DAY = 5;
+
+async function engagePhase(): Promise<void> {
+  const action = pickEngageAction();
+  console.log(`[Engage] Action selected: ${action}`);
+
+  switch (action) {
+    case 'browse': {
+      // Open browser, scroll home feed for 45–90s, no likes
+      const browseMs = 45_000 + Math.random() * 45_000;
+      console.log(`[Engage] Browsing home feed for ${Math.round(browseMs / 1000)}s`);
+      await scrollHomeFeed(browseMs);
+      await closeBrowser();
+      if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'engage', `Browsed home feed for ${Math.round(browseMs / 1000)}s`);
+      break;
+    }
+
+    case 'like': {
+      const count = 2 + Math.floor(Math.random() * 3); // 2–4 likes
+      const candidates = await Post.find({
+        platform: 'twitter',
+        likedByBot: { $ne: true },
+        aiRelevanceScore: { $gte: 30 },
+        ...(CRON_USER_ID && { userId: CRON_USER_ID }),
+      }).sort({ aiRelevanceScore: -1 }).limit(count * 2);
+
+      if (candidates.length === 0) {
+        console.log('[Engage] No like candidates found');
+        break;
+      }
+
+      // Shuffle and pick up to `count`
+      const shuffled = candidates.sort(() => Math.random() - 0.5).slice(0, count);
+      let liked = 0;
+
+      for (const post of shuffled) {
+        const tweetId = extractTweetId(post.url);
+        if (!tweetId) continue;
+        try {
+          await likeTweetHttp(PROFILE_DIR, tweetId);
+          await Post.findByIdAndUpdate(post._id, { likedByBot: true });
+          liked++;
+          console.log(`[Engage] Liked tweet ${tweetId}`);
+          if (liked < shuffled.length) {
+            // 30–90s between likes (human pacing)
+            await engageDelay(30, 90);
+          }
+        } catch (err) {
+          console.warn(`[Engage] Like failed for ${tweetId}:`, (err as Error).message);
+        }
+      }
+
+      if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'engage', `Liked ${liked} tweet${liked !== 1 ? 's' : ''}`);
+      break;
+    }
+
+    case 'retweet': {
+      const candidate = await Post.findOne({
+        platform: 'twitter',
+        retweetedByBot: { $ne: true },
+        aiRelevanceScore: { $gte: 55 },
+        ...(CRON_USER_ID && { userId: CRON_USER_ID }),
+      }).sort({ aiRelevanceScore: -1 });
+
+      if (!candidate) {
+        console.log('[Engage] No retweet candidates found');
+        break;
+      }
+
+      const tweetId = extractTweetId(candidate.url);
+      if (tweetId) {
+        try {
+          await retweetHttp(PROFILE_DIR, tweetId);
+          await Post.findByIdAndUpdate(candidate._id, { retweetedByBot: true });
+          console.log(`[Engage] Retweeted tweet ${tweetId}`);
+          if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'engage', `Retweeted ${candidate.url}`);
+        } catch (err) {
+          console.warn('[Engage] Retweet failed:', (err as Error).message);
+        }
+      }
+      break;
+    }
+
+    case 'bookmark': {
+      const count = 1 + Math.floor(Math.random() * 2); // 1–2 bookmarks
+      const candidates = await Post.find({
+        platform: 'twitter',
+        bookmarkedByBot: { $ne: true },
+        aiRelevanceScore: { $gte: 40 },
+        ...(CRON_USER_ID && { userId: CRON_USER_ID }),
+      }).sort({ aiRelevanceScore: -1 }).limit(count);
+
+      let bookmarked = 0;
+      for (const post of candidates) {
+        const tweetId = extractTweetId(post.url);
+        if (!tweetId) continue;
+        try {
+          await bookmarkHttp(PROFILE_DIR, tweetId);
+          await Post.findByIdAndUpdate(post._id, { bookmarkedByBot: true });
+          bookmarked++;
+          console.log(`[Engage] Bookmarked tweet ${tweetId}`);
+          if (bookmarked < candidates.length) await engageDelay(20, 60);
+        } catch (err) {
+          console.warn('[Engage] Bookmark failed:', (err as Error).message);
+        }
+      }
+
+      if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'engage', `Bookmarked ${bookmarked} tweet${bookmarked !== 1 ? 's' : ''}`);
+      break;
+    }
+
+    case 'follow': {
+      // Check daily follow cap
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const followsToday = await TwitterFollowed.countDocuments({
+        userId: CRON_USER_ID,
+        followedAt: { $gte: todayStart },
+      });
+
+      if (followsToday >= MAX_FOLLOWS_PER_DAY) {
+        console.log(`[Engage] Follow cap reached (${followsToday}/${MAX_FOLLOWS_PER_DAY} today)`);
+        break;
+      }
+
+      // Find a high-relevance author we haven't followed yet
+      // `author` field stores the handle (e.g. @username) from scrapePhase
+      const alreadyFollowing = await TwitterFollowed.distinct('targetHandle', {
+        userId: CRON_USER_ID,
+        isFollowing: true,
+      });
+
+      const candidate = await Post.findOne({
+        platform: 'twitter',
+        author: { $exists: true, $ne: '', $nin: alreadyFollowing },
+        aiRelevanceScore: { $gte: 50 },
+        ...(CRON_USER_ID && { userId: CRON_USER_ID }),
+      }).sort({ aiRelevanceScore: -1 });
+
+      if (!candidate?.author) {
+        console.log('[Engage] No follow candidate found');
+        break;
+      }
+
+      const handle = (candidate.author as string).replace(/^@/, '');
+      if (!handle || handle.length < 1) break;
+
+      try {
+        await followUserHttp(PROFILE_DIR, handle);
+        await TwitterFollowed.findOneAndUpdate(
+          { userId: CRON_USER_ID, targetHandle: handle },
+          { userId: CRON_USER_ID, targetHandle: handle, followedAt: new Date(), isFollowing: true, unfollowedAt: null },
+          { upsert: true, new: true },
+        );
+        console.log(`[Engage] Followed @${handle}`);
+        if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'engage', `Followed @${handle}`);
+      } catch (err) {
+        console.warn(`[Engage] Follow @${handle} failed:`, (err as Error).message);
+      }
+      break;
+    }
+
+    case 'unfollow': {
+      // Unfollow the oldest person we followed 3+ days ago
+      const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+      const target = await TwitterFollowed.findOne({
+        userId: CRON_USER_ID,
+        isFollowing: true,
+        followedAt: { $lt: threeDaysAgo },
+      }).sort({ followedAt: 1 }); // oldest first
+
+      if (!target) {
+        console.log('[Engage] No unfollow candidates (need to follow someone first, or wait 3+ days)');
+        break;
+      }
+
+      try {
+        await unfollowUserHttp(PROFILE_DIR, target.targetHandle);
+        await TwitterFollowed.findByIdAndUpdate(target._id, {
+          isFollowing: false,
+          unfollowedAt: new Date(),
+        });
+        console.log(`[Engage] Unfollowed @${target.targetHandle}`);
+        if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'engage', `Unfollowed @${target.targetHandle}`);
+      } catch (err) {
+        console.warn(`[Engage] Unfollow @${target.targetHandle} failed:`, (err as Error).message);
+      }
+      break;
+    }
+  }
+}
+
 async function main() {
   console.log(`[${new Date().toISOString()}] Twitter Cron: starting (user: ${CRON_USER_ID || 'default'}, mode: ${MODE})`);
   if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'cron_start', 'Twitter cron started');
@@ -634,6 +871,10 @@ async function main() {
 
   if (MODE === 'post' || MODE === 'full') {
     await postPhase(settings, accountId, dailyLimit, autoPostThreshold);
+  }
+
+  if (MODE === 'engage') {
+    await engagePhase();
   }
 
   console.log(`[${new Date().toISOString()}] Twitter Cron: complete`);

@@ -636,6 +636,37 @@ export async function likeTweet(tweetId: string): Promise<void> {
 // ─── Passive engagement ────────────────────────────────────────────────────────
 
 /**
+ * Scroll the Twitter home feed for a set duration without liking anything.
+ * Simulates a human reading their timeline passively.
+ * @param durationMs How long to scroll (default 60s)
+ */
+export async function scrollHomeFeed(durationMs = 60_000): Promise<void> {
+  const page = await getPage();
+  try {
+    await page.goto('https://x.com/home', { waitUntil: 'domcontentloaded', timeout: NAVIGATION_TIMEOUT });
+    await randomDelay(2000, 5000);
+    await readingPause(page);
+
+    const endTime = Date.now() + durationMs;
+    while (Date.now() < endTime) {
+      // Scroll down at human reading speed
+      const scrollAmt = 200 + Math.floor(Math.random() * 500);
+      await page.evaluate((amt: number) => window.scrollBy({ top: amt, behavior: 'smooth' }), scrollAmt);
+      // Pause to "read" — sometimes longer, simulating stopping on an interesting tweet
+      const readTime = Math.random() < 0.3 ? 6000 + Math.random() * 6000 : 2000 + Math.random() * 3000;
+      await randomDelay(readTime, readTime + 1000);
+      // Occasionally scroll back up slightly (human re-reading behaviour)
+      if (Math.random() < 0.15) {
+        await page.evaluate(() => window.scrollBy({ top: -150, behavior: 'smooth' }));
+        await randomDelay(800, 2000);
+      }
+    }
+  } catch (err) {
+    console.error('[twitter] scrollHomeFeed error:', (err as Error).message);
+  }
+}
+
+/**
  * Browse the Twitter home feed and like a few tweets without commenting.
  * Simulates human browsing: scroll, pause, like, scroll more.
  * @param maxLikes How many tweets to like (1–3 recommended)

@@ -23,6 +23,8 @@ const PostSchema = new Schema({
   bookmarkCount: { type: Number, default: 0 },
   viewCount: { type: Number, default: 0 },
   likedByBot: { type: Boolean, default: false },
+  retweetedByBot: { type: Boolean, default: false },
+  bookmarkedByBot: { type: Boolean, default: false },
   editedReply: String,
   replyUrl: String,
   evaluatedAt: Date,
