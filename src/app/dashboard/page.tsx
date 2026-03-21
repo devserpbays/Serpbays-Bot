@@ -302,6 +302,15 @@ export default function OverviewPage() {
                             const posted = stats.postedByPlatform[p.id] ?? 0;
                             const pct = total > 0 ? Math.round((posted / total) * 100) : 0;
 
+                            // Cookie expiry warning: any connected account with bad cookies,
+                            // or last cron run ended with an auth-related error message
+                            const hasExpiredCookies = platAccounts.some((a) => a.cookieVerified === false);
+                            const cronMsg = cronStatus?.crons[p.id]?.lastMessage ?? '';
+                            const cronAuthFailed = !cronStatus?.crons[p.id]?.running
+                                && (cronStatus?.crons[p.id]?.lastExitCode ?? 0) !== 0
+                                && /cookie|auth|expired|session|login|not logged/i.test(cronMsg);
+                            const showCookieWarning = hasExpiredCookies || cronAuthFailed;
+
                             return (
                                 <Link
                                     key={p.id}
@@ -356,6 +365,18 @@ export default function OverviewPage() {
                                                     {stoppingPlatforms.has(p.id) ? 'Stopping…' : 'Stop'}
                                                 </button>
                                             </div>
+                                        ) : showCookieWarning ? (
+                                            <span style={{
+                                                fontSize: 10, fontWeight: 700, padding: '3px 9px',
+                                                borderRadius: 20, background: 'rgba(239,68,68,0.12)',
+                                                color: '#f87171', border: '1px solid rgba(239,68,68,0.3)',
+                                                display: 'flex', alignItems: 'center', gap: 4,
+                                            }}>
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} width={10} height={10}>
+                                                    <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                                                </svg>
+                                                Expired
+                                            </span>
                                         ) : platAccounts.length > 0 && (
                                             <span style={{
                                                 fontSize: 10, fontWeight: 700, padding: '3px 9px',
@@ -405,6 +426,41 @@ export default function OverviewPage() {
                                             boxShadow: pct > 0 ? `0 0 6px ${p.color}60` : 'none',
                                         }} />
                                     </div>
+
+                                    {/* Cookie expiry warning banner */}
+                                    {showCookieWarning && (
+                                        <div style={{
+                                            marginTop: 12, padding: '9px 12px',
+                                            background: 'rgba(239,68,68,0.07)',
+                                            border: '1px solid rgba(239,68,68,0.3)',
+                                            borderRadius: 8,
+                                            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+                                        }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="#f87171" strokeWidth={2} width={13} height={13} style={{ flexShrink: 0 }}>
+                                                    <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                                                </svg>
+                                                <span style={{ fontSize: 11, color: '#f87171', fontWeight: 600 }}>
+                                                    {cronAuthFailed && !hasExpiredCookies
+                                                        ? 'Session expired — bot was blocked on last run'
+                                                        : 'Cookies expired — bot cannot post'}
+                                                </span>
+                                            </div>
+                                            <Link
+                                                href="/dashboard/accounts"
+                                                onClick={e => e.stopPropagation()}
+                                                style={{
+                                                    fontSize: 11, fontWeight: 700, color: '#f87171',
+                                                    textDecoration: 'none', padding: '3px 10px',
+                                                    background: 'rgba(239,68,68,0.12)', borderRadius: 5,
+                                                    border: '1px solid rgba(239,68,68,0.3)',
+                                                    whiteSpace: 'nowrap', flexShrink: 0,
+                                                }}
+                                            >
+                                                Reconnect →
+                                            </Link>
+                                        </div>
+                                    )}
 
                                     {/* Connected accounts — or prompt to connect */}
                                     {platAccounts.length === 0 && isEnabled && (
@@ -457,7 +513,7 @@ export default function OverviewPage() {
                                                             width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
                                                             background: cookieOk ? '#10b981' : '#ef4444',
                                                             boxShadow: cookieOk ? '0 0 5px #10b98180' : '0 0 5px #ef444480',
-                                                        }} title={cookieOk ? 'Cookies active' : 'Cookies expired'} />
+                                                        }} title={cookieOk ? 'Session active' : 'Session expired — reconnect from Accounts'} />
                                                     </div>
                                                 );
                                             })}
