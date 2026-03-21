@@ -319,34 +319,50 @@ export async function searchCommunityTweets(
   const page = await getPage();
   const communityUrl = `https://x.com/i/communities/${communityId}`;
 
-  const [apiResponse] = await Promise.all([
-    page.waitForResponse(
-      (r) =>
-        (r.url().includes('CommunityTweetTimeline') || r.url().includes('communityResults')) &&
-        r.status() === 200,
-      { timeout: NAVIGATION_TIMEOUT }
-    ),
-    page.goto(communityUrl, { waitUntil: 'domcontentloaded' }),
-  ]);
+  // Capture all GraphQL responses while navigating to the community page.
+  // Twitter frequently renames community operation names so we cast a wide net:
+  // match any /graphql/ response that looks community-related.
+  const capturedResponses: any[] = [];
+  const onResponse = async (r: any) => {
+    const url: string = r.url();
+    if (
+      url.includes('/i/api/graphql/') &&
+      r.status() === 200 &&
+      (url.toLowerCase().includes('community') || url.includes('Timeline') || url.includes('timeline'))
+    ) {
+      try { capturedResponses.push(await r.json()); } catch { /* skip non-JSON */ }
+    }
+  };
+  page.on('response', onResponse);
 
-  const data = await apiResponse.json();
+  try {
+    await page.goto(communityUrl, { waitUntil: 'domcontentloaded', timeout: NAVIGATION_TIMEOUT });
+    // Wait a bit for async API calls to land
+    await page.waitForTimeout(3000);
+  } finally {
+    page.off('response', onResponse);
+  }
+
+  console.log(`  Community ${communityId}: captured ${capturedResponses.length} graphql responses`);
 
   const tweets: SearchTweet[] = [];
 
-  // Try multiple known response shapes Twitter has used
-  const communityResult =
-    data?.data?.communityResults?.result ||
-    data?.data?.community_results?.result ||
-    {};
+  for (const data of capturedResponses) {
+    // Try every known community response shape Twitter has used
+    const communityResult =
+      data?.data?.communityResults?.result ||
+      data?.data?.community_results?.result ||
+      {};
 
-  const instructions: any[] =
-    communityResult?.ranked_community_timeline?.timeline?.instructions ||
-    communityResult?.community_tweet_timeline?.timeline?.instructions ||
-    communityResult?.timeline_by_id?.timeline?.instructions ||
-    [];
+    const instructions: any[] =
+      communityResult?.ranked_community_timeline?.timeline?.instructions ||
+      communityResult?.community_tweet_timeline?.timeline?.instructions ||
+      communityResult?.timeline_by_id?.timeline?.instructions ||
+      data?.data?.timeline_by_id?.timeline?.instructions ||
+      data?.data?.ranked_community_timeline?.timeline?.instructions ||
+      [];
 
-  function extractTweetsFromInstructions(instrs: any[]) {
-    for (const instruction of instrs) {
+    for (const instruction of instructions) {
       const entries: any[] = instruction?.entries || [];
       for (const entry of entries) {
         if (!entry.entryId?.startsWith('tweet-')) continue;
@@ -357,6 +373,9 @@ export async function searchCommunityTweets(
         const legacy = result.legacy || {};
         const userLegacy = result.core?.user_results?.result?.legacy || {};
         const views = result.views || {};
+
+        // avoid duplicates across multiple captured responses
+        if (tweets.some(t => t.id === tweetId)) continue;
 
         tweets.push({
           id: tweetId,
@@ -374,12 +393,11 @@ export async function searchCommunityTweets(
           viewCount: parseInt(views.count || '0', 10) || 0,
         });
 
-        if (tweets.length >= count) return;
+        if (tweets.length >= count) return tweets;
       }
     }
   }
 
-  extractTweetsFromInstructions(instructions);
   return tweets;
 }
 

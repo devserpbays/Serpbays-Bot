@@ -250,10 +250,10 @@ async function scrapePhase(settings: any, keywords: string[]): Promise<{ totalFo
           console.log(`  Saved community tweet ${tweet.id} (engagement: ${engagementScore})`);
         }
       }
-
+      console.log(`  Community ${communityId}: ${tweets.length} found, ${newPostCount} new saved`);
       await new Promise((r) => setTimeout(r, 3000));
     } catch (err) {
-      console.error(`Error scraping community ${communityId}:`, (err as Error).message);
+      console.error(`Error scraping community ${communityId}:`, (err as Error).message, (err as Error).stack?.split('\n')[1]);
     }
   }
 
