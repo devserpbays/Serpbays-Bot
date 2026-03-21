@@ -31,6 +31,8 @@ import { isWithinSchedule } from '../src/lib/schedule';
 import { logActivity, notifyAuthError } from '../src/lib/activityLog';
 import Post from '../src/models/Post';
 import Settings from '../src/models/Settings';
+import BrowserCookie from '../src/models/BrowserCookie';
+import { buildSuccessPatch, buildFailurePatch } from '../src/lib/accountHealth';
 
 const DEFAULT_DAILY_LIMIT = 3;  // Reddit bans accounts that post too many comments/day
 const DEFAULT_AUTO_POST_THRESHOLD = 70;
@@ -443,6 +445,14 @@ async function main() {
           editedReply: replyText,
           postedByAccount: accountId,
         });
+        // Update account health on success
+        if (CRON_USER_ID) {
+          const acc = await BrowserCookie.findOne({ userId: CRON_USER_ID, platform: 'reddit' }).lean();
+          if (acc) {
+            const patch = buildSuccessPatch(acc as Parameters<typeof buildSuccessPatch>[0]);
+            await BrowserCookie.updateOne({ userId: CRON_USER_ID, platform: 'reddit' }, patch.$set ? { $set: patch.$set } : patch);
+          }
+        }
         console.log(`Comment posted successfully${accountId ? ` (account: ${accountId})` : ''}`);
         if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'reddit', 'success', 'post', `Comment posted on ${autoPostCandidate.url}`, { score: autoPostCandidate.aiRelevanceScore });
       } else {
@@ -454,6 +464,15 @@ async function main() {
           console.error(`Reddit post permanently skipped (${isStructuralError ? 'structural' : 'max retries'}): ${result.error}`);
         } else {
           await Post.findByIdAndUpdate(autoPostCandidate._id, { $inc: { postAttempts: 1 } });
+        }
+        // Update account health on failure
+        if (CRON_USER_ID) {
+          const acc = await BrowserCookie.findOne({ userId: CRON_USER_ID, platform: 'reddit' }).lean();
+          if (acc) {
+            const backoffUntil = new Date(Date.now() + 1 * 60 * 60 * 1000);
+            const patch = buildFailurePatch(acc as Parameters<typeof buildFailurePatch>[0], backoffUntil);
+            await BrowserCookie.updateOne({ userId: CRON_USER_ID, platform: 'reddit' }, { $set: patch.$set });
+          }
         }
         console.error('Failed to post Reddit comment:', result.error);
         if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'reddit', 'error', 'post_failed', `Failed to post Reddit comment: ${result.error || 'Unknown error'}`, { url: autoPostCandidate.url });

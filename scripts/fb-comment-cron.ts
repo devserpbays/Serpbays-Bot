@@ -31,6 +31,8 @@ import { isWithinSchedule } from '../src/lib/schedule';
 import { logActivity, notifyAuthError } from '../src/lib/activityLog';
 import Post from '../src/models/Post';
 import Settings from '../src/models/Settings';
+import BrowserCookie from '../src/models/BrowserCookie';
+import { buildSuccessPatch, buildFailurePatch } from '../src/lib/accountHealth';
 
 const DEFAULT_DAILY_LIMIT = 3;  // Facebook flags accounts posting too many group comments/day
 const DEFAULT_AUTO_POST_THRESHOLD = 10;
@@ -448,6 +450,14 @@ async function main() {
           editedReply: replyText,
           postedByAccount: accountId,
         });
+        // Update account health on success
+        if (CRON_USER_ID) {
+          const acc = await BrowserCookie.findOne({ userId: CRON_USER_ID, platform: 'facebook' }).lean();
+          if (acc) {
+            const patch = buildSuccessPatch(acc as Parameters<typeof buildSuccessPatch>[0]);
+            await BrowserCookie.updateOne({ userId: CRON_USER_ID, platform: 'facebook' }, patch.$set ? { $set: patch.$set } : patch);
+          }
+        }
         console.log(`Comment posted successfully${accountId ? ` (account: ${accountId})` : ''}`);
         if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'facebook', 'success', 'post', `Comment posted on ${autoPostCandidate.url}`, { score: autoPostCandidate.aiRelevanceScore });
       } else {
@@ -462,6 +472,15 @@ async function main() {
           console.error('Post permanently skipped (restricted comment section):', result.error);
         } else {
           await Post.findByIdAndUpdate(autoPostCandidate._id, { $inc: { postAttempts: 1 } });
+          // Update account health on failure
+          if (CRON_USER_ID) {
+            const acc = await BrowserCookie.findOne({ userId: CRON_USER_ID, platform: 'facebook' }).lean();
+            if (acc) {
+              const backoffUntil = new Date(Date.now() + 1 * 60 * 60 * 1000);
+              const patch = buildFailurePatch(acc as Parameters<typeof buildFailurePatch>[0], backoffUntil);
+              await BrowserCookie.updateOne({ userId: CRON_USER_ID, platform: 'facebook' }, { $set: patch.$set });
+            }
+          }
         }
         console.error('Failed to post Facebook comment:', result.error);
         if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'facebook', 'error', 'post_failed', `Failed to post Facebook comment: ${result.error || 'Unknown error'}`, { url: autoPostCandidate.url });

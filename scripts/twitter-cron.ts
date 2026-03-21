@@ -23,6 +23,8 @@ import { logActivity, notifyAuthError } from '../src/lib/activityLog';
 import { isWithinSchedule } from '../src/lib/schedule';
 import Post from '../src/models/Post';
 import Settings from '../src/models/Settings';
+import BrowserCookie from '../src/models/BrowserCookie';
+import { buildSuccessPatch, buildFailurePatch } from '../src/lib/accountHealth';
 
 // HTTP-only posting (no Chromium)
 import {
@@ -397,6 +399,15 @@ async function postOneTweet(
       postedByAccount: accountId,
     });
 
+    // Update account health — success resets errorCount and boosts score
+    if (CRON_USER_ID) {
+      const acc = await BrowserCookie.findOne({ userId: CRON_USER_ID, platform: 'twitter' }).lean();
+      if (acc) {
+        const patch = buildSuccessPatch(acc as Parameters<typeof buildSuccessPatch>[0]);
+        await BrowserCookie.updateOne({ userId: CRON_USER_ID, platform: 'twitter' }, patch.$set ? { $set: patch.$set } : patch);
+      }
+    }
+
     console.log(`Reply posted successfully: ${replyUrl}`);
     if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'success', 'post', `Reply posted to ${candidate.url}`, { replyUrl, score: candidate.aiRelevanceScore });
     return 'posted';
@@ -407,8 +418,21 @@ async function postOneTweet(
     const isSuspended = msg.includes('suspended') || msg.includes('locked') || msg.includes('64') || msg.includes('326');
     const isDuplicate = msg.includes('Duplicate tweet') || msg.includes('187');
 
+    // Helper: apply failure patch to health score
+    const applyFailurePatch = async (backoffHours: number) => {
+      if (!CRON_USER_ID) return;
+      const acc = await BrowserCookie.findOne({ userId: CRON_USER_ID, platform: 'twitter' }).lean();
+      if (acc) {
+        const backoffUntil = new Date(Date.now() + backoffHours * 60 * 60 * 1000);
+        const patch = buildFailurePatch(acc as Parameters<typeof buildFailurePatch>[0], backoffUntil);
+        await BrowserCookie.updateOne({ userId: CRON_USER_ID, platform: 'twitter' }, { $set: patch.$set });
+        console.log(`[Twitter] Health patch applied — errorCount+1, backoff ${backoffHours}h, score updated`);
+      }
+    };
+
     if (isAuthError) {
       console.error(`[Twitter] Auth error: ${msg}`);
+      await applyFailurePatch(4);
       if (CRON_USER_ID) {
         await logActivity(CRON_USER_ID, 'twitter', 'error', 'auth_error', 'Twitter cookies expired — re-upload from dashboard');
         await notifyAuthError(CRON_USER_ID, 'twitter', 'Twitter cookies expired — re-upload from dashboard');
@@ -417,6 +441,7 @@ async function postOneTweet(
     } else if (isAutomationBlock) {
       const attempts = (candidate.postAttempts || 0) + 1;
       await Post.findByIdAndUpdate(candidate._id, { $inc: { postAttempts: 1 } });
+      await applyFailurePatch(attempts >= 3 ? 24 : 4);
       console.warn(`[Twitter] Automation block (attempt ${attempts}/3): ${msg}`);
       if (CRON_USER_ID) {
         await logActivity(CRON_USER_ID, 'twitter', 'warn', 'automation_block', `Twitter flagged posting as automated activity (attempt ${attempts}/3). Posting paused — will retry automatically.`);
@@ -427,6 +452,7 @@ async function postOneTweet(
       return 'error';
     } else if (isSuspended) {
       console.error(`[Twitter] Account locked/suspended: ${msg}`);
+      await applyFailurePatch(24);
       if (CRON_USER_ID) {
         await logActivity(CRON_USER_ID, 'twitter', 'error', 'account_suspended', msg);
         await notifyAuthError(CRON_USER_ID, 'twitter', msg);
@@ -440,6 +466,7 @@ async function postOneTweet(
     } else {
       const attempts = (candidate.postAttempts || 0) + 1;
       await Post.findByIdAndUpdate(candidate._id, { $inc: { postAttempts: 1 } });
+      await applyFailurePatch(1);
       console.error(`[Twitter] Reply failed (attempt ${attempts}/3): ${msg}`);
       if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'error', 'post_failed', `Reply failed (attempt ${attempts}/3): ${msg}`);
       return 'error';
