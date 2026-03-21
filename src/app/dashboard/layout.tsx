@@ -413,6 +413,16 @@ const NAV_ITEMS = [
     ),
   },
   {
+    href: '/dashboard/health',
+    label: 'Health',
+    desc: 'Account health scores',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="nav-icon">
+        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+      </svg>
+    ),
+  },
+  {
     href: '/dashboard/settings',
     label: 'Settings',
     desc: 'Configure bot',

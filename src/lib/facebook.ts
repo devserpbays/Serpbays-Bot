@@ -810,7 +810,7 @@ export async function reactToPost(
 
       // Reaction picker aria-labels: Love, Care, Haha, Wow, Sad, Angry
       const reactionBtn = await page.$(`[aria-label="${reaction}"][role="button"]`);
-      if (reactionBtn && await reactionBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (reactionBtn && await reactionBtn.isVisible().catch(() => false)) {
         await reactionBtn.click({ force: true });
         await randomDelay(1000, 2500);
         console.log(`[facebook] Reacted with ${reaction} on: ${postUrl}`);
@@ -884,7 +884,7 @@ export async function browseFeedAndReact(
 
       // Scroll through to load posts
       for (let i = 0; i < 3; i++) {
-        await page.evaluate(() => window.mouse?.wheel(0, 700) || window.scrollBy({ top: 700, behavior: 'smooth' }));
+        await page.evaluate(() => window.scrollBy({ top: 700, behavior: 'smooth' }));
         await randomDelay(1500, 3000);
       }
 
@@ -908,7 +908,7 @@ export async function browseFeedAndReact(
             await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 8 });
             await randomDelay(700, 1200);
             const picker = await page.$(`[aria-label="${reaction}"][role="button"]`);
-            if (picker && await picker.isVisible({ timeout: 2000 }).catch(() => false)) {
+            if (picker && await picker.isVisible().catch(() => false)) {
               await picker.click({ force: true });
             } else {
               // Picker didn't show — fall back to like
