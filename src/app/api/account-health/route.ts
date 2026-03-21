@@ -15,36 +15,80 @@ export async function GET() {
 
   const accounts = await BrowserCookie.find({ userId }).lean();
 
-  // Last 7 days post counts per platform
+  // Aggregate real stats from Post collection — this is the source of truth
+  // since BrowserCookie counters may be zeroed (new feature, no backfill).
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-  const recentPosts = await Post.aggregate([
-    { $match: { userId, status: 'posted', postedAt: { $gte: sevenDaysAgo } } },
-    { $group: { _id: '$platform', count: { $sum: 1 } } },
+
+  const [postedAgg, failedAgg, recentAgg, lastPostedAgg] = await Promise.all([
+    // Total successful posts per platform
+    Post.aggregate([
+      { $match: { userId, status: 'posted' } },
+      { $group: { _id: '$platform', count: { $sum: 1 } } },
+    ]),
+    // Total "failed" attempts — posts with postAttempts > 0 that never got posted
+    Post.aggregate([
+      { $match: { userId, postAttempts: { $gt: 0 }, status: { $ne: 'posted' } } },
+      { $group: { _id: '$platform', count: { $sum: '$postAttempts' } } },
+    ]),
+    // Posts in last 7 days
+    Post.aggregate([
+      { $match: { userId, status: 'posted', postedAt: { $gte: sevenDaysAgo } } },
+      { $group: { _id: '$platform', count: { $sum: 1 } } },
+    ]),
+    // Most recent successful post date per platform
+    Post.aggregate([
+      { $match: { userId, status: 'posted', postedAt: { $exists: true } } },
+      { $sort: { postedAt: -1 } },
+      { $group: { _id: '$platform', lastPostedAt: { $first: '$postedAt' } } },
+    ]),
   ]);
-  const recentMap: Record<string, number> = {};
-  for (const r of recentPosts) recentMap[r._id] = r.count;
+
+  const postedMap:     Record<string, number> = {};
+  const failedMap:     Record<string, number> = {};
+  const recentMap:     Record<string, number> = {};
+  const lastPostedMap: Record<string, Date>   = {};
+
+  for (const r of postedAgg)     postedMap[r._id]     = r.count;
+  for (const r of failedAgg)     failedMap[r._id]     = r.count;
+  for (const r of recentAgg)     recentMap[r._id]     = r.count;
+  for (const r of lastPostedAgg) lastPostedMap[r._id] = r.lastPostedAt;
 
   const result = accounts.map((acc) => {
-    const health = computeHealthScore(acc as Parameters<typeof computeHealthScore>[0]);
+    const totalPosts  = postedMap[acc.platform]  ?? acc.totalPosts  ?? 0;
+    const totalErrors = failedMap[acc.platform]  ?? acc.totalErrors ?? 0;
+    // lastPostedAt: prefer live Post data; fall back to BrowserCookie
+    const lastPostedAt = lastPostedMap[acc.platform] ?? acc.lastPostedAt ?? null;
+
+    // Re-compute health with real Post-derived counters
+    const health = computeHealthScore({
+      totalPosts,
+      totalErrors,
+      errorCount:   acc.errorCount   ?? 0,
+      backoffUntil: acc.backoffUntil ?? null,
+      createdAt:    acc.createdAt,
+      lastPostedAt,
+      autoPaused:   acc.autoPaused   ?? false,
+    });
+
+    const computedScore = health.score;
+
     return {
       platform:     acc.platform,
-      username:     acc.username || '',
+      username:     acc.username    || '',
       displayName:  acc.displayName || '',
-      accountId:    acc.accountId || '',
-      healthScore:  acc.healthScore ?? 100,
+      accountId:    acc.accountId   || '',
+      healthScore:  computedScore,
       status:       health.status,
       reasons:      health.reasons,
-      autoPaused:   acc.autoPaused ?? false,
-      totalPosts:   acc.totalPosts ?? 0,
-      totalErrors:  acc.totalErrors ?? 0,
-      errorRate:    (acc.totalPosts ?? 0) > 0
-        ? Math.round(((acc.totalErrors ?? 0) / (acc.totalPosts ?? 1)) * 100)
-        : 0,
-      errorCount:   acc.errorCount ?? 0,
+      autoPaused:   acc.autoPaused  ?? false,
+      totalPosts,
+      totalErrors,
+      errorRate:    totalPosts > 0 ? Math.round((totalErrors / totalPosts) * 100) : 0,
+      errorCount:   acc.errorCount  ?? 0,
       backoffUntil: acc.backoffUntil ?? null,
-      lastPostedAt: acc.lastPostedAt ?? null,
+      lastPostedAt,
       lastErrorAt:  acc.lastErrorAt ?? null,
-      connectedAt:  acc.createdAt ?? null,
+      connectedAt:  acc.createdAt   ?? null,
       recentPosts:  recentMap[acc.platform] ?? 0,
     };
   });
