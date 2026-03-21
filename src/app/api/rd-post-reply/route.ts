@@ -8,6 +8,8 @@ import { getAuthUserId } from '@/lib/apiAuth';
 import { checkDailyPostLimit } from '@/lib/featureGate';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { PLATFORM_SAFE_LIMITS, checkBackoff, getBackoffMs, getWarmupLimit } from '@/lib/humanize';
+import { checkContentSafety } from '@/lib/contentSafety';
+import { buildSuccessPatch, buildFailurePatch } from '@/lib/accountHealth';
 
 export async function POST(req: NextRequest) {
   const userId = await getAuthUserId();
@@ -43,8 +45,14 @@ export async function POST(req: NextRequest) {
   // Load account for backoff + safety limit checks
   const account = await BrowserCookie.findOne({ userId, platform: 'reddit' });
 
-  // Backoff check
+  // Backoff + auto-pause check
   if (account) {
+    if (account.autoPaused) {
+      return NextResponse.json(
+        { error: `Account is auto-paused due to low health score (${account.healthScore ?? 0}/100). Check the Accounts page for details.` },
+        { status: 429 }
+      );
+    }
     const backoff = checkBackoff(account.backoffUntil);
     if (backoff.blocked) {
       const retryIn = Math.ceil((backoff.retryAt.getTime() - Date.now()) / 60000);
@@ -102,7 +110,7 @@ export async function POST(req: NextRequest) {
         const backoffUntil = new Date(Date.now() + getBackoffMs(newCount));
         await BrowserCookie.updateOne(
           { _id: account._id },
-          { $set: { errorCount: newCount, backoffUntil, lastErrorAt: new Date() } }
+          buildFailurePatch(account, backoffUntil)
         );
       }
       return NextResponse.json(
@@ -117,7 +125,7 @@ export async function POST(req: NextRequest) {
     if (account) {
       await BrowserCookie.updateOne(
         { _id: account._id },
-        { $set: { errorCount: 0, backoffUntil: null } }
+        buildSuccessPatch(account)
       );
     }
 
@@ -135,7 +143,7 @@ export async function POST(req: NextRequest) {
       const backoffUntil = new Date(Date.now() + getBackoffMs(newCount));
       await BrowserCookie.updateOne(
         { _id: account._id },
-        { $set: { errorCount: newCount, backoffUntil, lastErrorAt: new Date() } }
+        buildFailurePatch(account, backoffUntil)
       );
     }
 

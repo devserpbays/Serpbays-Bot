@@ -25,11 +25,11 @@ export async function GET() {
   const BrowserCookie = (await import('@/models/BrowserCookie')).default;
   const allCookies = await BrowserCookie.find(
     { userId },
-    { platform: 1, accountId: 1, username: 1, displayName: 1, verified: 1, verifiedAt: 1, createdAt: 1 },
+    { platform: 1, accountId: 1, username: 1, displayName: 1, verified: 1, verifiedAt: 1, createdAt: 1, healthScore: 1, autoPaused: 1, totalPosts: 1, totalErrors: 1 },
   ).lean();
 
   // Build a map: platform → cookie metadata
-  const cookieMap = new Map<string, { verified: boolean; verifiedAt?: string; username?: string; displayName?: string; accountId?: string; connectedAt?: string }>();
+  const cookieMap = new Map<string, { verified: boolean; verifiedAt?: string; username?: string; displayName?: string; accountId?: string; connectedAt?: string; healthScore?: number; autoPaused?: boolean; totalPosts?: number; totalErrors?: number }>();
   for (const c of allCookies) {
     cookieMap.set(c.platform, {
       verified: !!c.verified,
@@ -38,6 +38,10 @@ export async function GET() {
       displayName: c.displayName || '',
       accountId: c.accountId || '',
       connectedAt: c.createdAt ? new Date(c.createdAt).toISOString() : undefined,
+      healthScore: c.healthScore ?? 100,
+      autoPaused: c.autoPaused ?? false,
+      totalPosts: c.totalPosts ?? 0,
+      totalErrors: c.totalErrors ?? 0,
     });
   }
 
@@ -53,6 +57,10 @@ export async function GET() {
       acc.verifiedAt = cookie.verifiedAt;
       if (!acc.username && cookie.username) acc.username = cookie.username;
       if (!acc.displayName && cookie.displayName) acc.displayName = cookie.displayName;
+      (acc as SocialAccount & { healthScore?: number; autoPaused?: boolean; totalPosts?: number; totalErrors?: number }).healthScore = cookie.healthScore ?? 100;
+      (acc as SocialAccount & { healthScore?: number; autoPaused?: boolean; totalPosts?: number; totalErrors?: number }).autoPaused = cookie.autoPaused ?? false;
+      (acc as SocialAccount & { healthScore?: number; autoPaused?: boolean; totalPosts?: number; totalErrors?: number }).totalPosts = cookie.totalPosts ?? 0;
+      (acc as SocialAccount & { healthScore?: number; autoPaused?: boolean; totalPosts?: number; totalErrors?: number }).totalErrors = cookie.totalErrors ?? 0;
       (acc as SocialAccount & { warmup?: ReturnType<typeof getWarmupStatus> }).warmup =
         getWarmupStatus(cookie.connectedAt ? new Date(cookie.connectedAt) : null);
       validAccounts.push(acc);

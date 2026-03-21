@@ -22,6 +22,17 @@ const BrowserCookieSchema = new Schema(
     backoffUntil: { type: Date,   default: null },
     // Timestamp of the most recent error, for audit purposes.
     lastErrorAt:  { type: Date,   default: null },
+
+    // ── Account health scoring ────────────────────────────────────────────────
+    // Lifetime post counters — updated on every post attempt.
+    totalPosts:    { type: Number, default: 0 },
+    totalErrors:   { type: Number, default: 0 },
+    // Computed health score 0–100. Recalculated after every post.
+    healthScore:   { type: Number, default: 100 },
+    // When health < AUTO_PAUSE_THRESHOLD the account is auto-paused.
+    autoPaused:    { type: Boolean, default: false },
+    // Timestamp of most recent successful post.
+    lastPostedAt:  { type: Date,   default: null },
   },
   { timestamps: true }
 );

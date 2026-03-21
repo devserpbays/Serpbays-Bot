@@ -223,6 +223,27 @@ function AccountPill({
                 </div>
             )}
 
+            {/* Health score badge */}
+            {(() => {
+                const health = (acc as SocialAccount & { healthScore?: number; autoPaused?: boolean }).healthScore ?? 100;
+                const paused = (acc as SocialAccount & { healthScore?: number; autoPaused?: boolean }).autoPaused ?? false;
+                if (paused) return (
+                    <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 10,
+                        background: 'rgba(239,68,68,0.12)', color: '#f87171',
+                        border: '1px solid rgba(239,68,68,0.25)', letterSpacing: '0.05em',
+                        textTransform: 'uppercase', flexShrink: 0 }}>Auto-Paused</span>
+                );
+                if (health < 50) return (
+                    <span title={`Health score: ${health}/100`} style={{ fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 10,
+                        background: health < 25 ? 'rgba(239,68,68,0.12)' : 'rgba(251,191,36,0.12)',
+                        color: health < 25 ? '#f87171' : '#fbbf24',
+                        border: `1px solid ${health < 25 ? 'rgba(239,68,68,0.25)' : 'rgba(251,191,36,0.25)'}`,
+                        letterSpacing: '0.05em', textTransform: 'uppercase', flexShrink: 0,
+                    }}>Health {health}</span>
+                );
+                return null;
+            })()}
+
             {/* Disconnect button */}
             <button
                 onClick={() => onRemove(acc.id)}
