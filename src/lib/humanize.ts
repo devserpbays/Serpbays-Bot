@@ -5,7 +5,7 @@
  * backoff calculation, and hard per-platform safety limits.
  */
 
-import type { Page } from 'playwright';
+import type { Page, BrowserContext } from 'playwright';
 
 // ─── Platform hard daily safety limits ────────────────────────────────────────
 // These are absolute maximums — no plan or user setting can exceed them.
@@ -18,6 +18,118 @@ export const PLATFORM_SAFE_LIMITS: Record<string, number> = {
   youtube:   25,
   pinterest: 20,
 };
+
+// ─── Realistic timezones (match common English-speaking user pools) ───────────
+const TIMEZONES = [
+  'America/New_York',
+  'America/Chicago',
+  'America/Denver',
+  'America/Los_Angeles',
+  'America/Toronto',
+  'Europe/London',
+  'Australia/Sydney',
+];
+
+export function randomTimezone(): string {
+  return pick(TIMEZONES);
+}
+
+// ─── Hardened Chromium launch args ────────────────────────────────────────────
+/**
+ * Returns the recommended Chromium launch args for anti-detection.
+ * Removes automation flags, disables telemetry, and adds realistic Chrome hints.
+ */
+export function buildLaunchArgs(): string[] {
+  return [
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-blink-features=AutomationControlled',
+    '--disable-infobars',
+    '--disable-dev-shm-usage',
+    '--no-first-run',
+    '--no-default-browser-check',
+    '--disable-default-apps',
+    '--disable-extensions-except',
+    '--password-store=basic',
+    '--use-mock-keychain',
+    '--disable-background-networking',
+    '--disable-sync',
+    '--metrics-recording-only',
+    '--disable-translate',
+    '--hide-scrollbars',
+    '--mute-audio',
+  ];
+}
+
+// ─── Stealth page script ──────────────────────────────────────────────────────
+/**
+ * The JS injected into every page via addInitScript.
+ * Patches common browser automation signals that platforms check for.
+ */
+const STEALTH_SCRIPT = `
+(function () {
+  // 1. Hide navigator.webdriver
+  Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+
+  // 2. Fake window.chrome (absent in headless)
+  if (!window.chrome) {
+    Object.defineProperty(window, 'chrome', {
+      value: { runtime: {}, loadTimes: function(){}, csi: function(){}, app: {} },
+      writable: true, configurable: true,
+    });
+  }
+
+  // 3. Override navigator.plugins with realistic values
+  const fakePdf  = { name: 'PDF Viewer',   filename: 'internal-pdf-viewer', description: 'Portable Document Format', length: 1 };
+  const fakeNaapi = { name: 'Native Client', filename: 'internal-nacl-plugin', description: '', length: 0 };
+  Object.defineProperty(navigator, 'plugins', {
+    get: () => Object.assign([fakePdf, fakeNaapi], { item: (i) => [fakePdf, fakeNaapi][i] || null, namedItem: () => null, length: 2 }),
+  });
+
+  // 4. Patch navigator.permissions to not reveal automation
+  if (navigator.permissions && navigator.permissions.query) {
+    const _query = navigator.permissions.query.bind(navigator.permissions);
+    navigator.permissions.query = (params) =>
+      params.name === 'notifications'
+        ? Promise.resolve({ state: 'default', onchange: null } as unknown as PermissionStatus)
+        : _query(params);
+  }
+
+  // 5. Realistic navigator.languages
+  Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+
+  // 6. Subtle canvas fingerprint noise (±1 on a few pixels)
+  const _toDataURL = HTMLCanvasElement.prototype.toDataURL;
+  HTMLCanvasElement.prototype.toDataURL = function (type, ...args) {
+    const ctx = this.getContext('2d');
+    if (ctx) {
+      const d = ctx.getImageData(0, 0, this.width, this.height);
+      for (let i = 0; i < 8; i++) {
+        const idx = Math.floor(Math.random() * (d.data.length / 4)) * 4;
+        d.data[idx] = Math.max(0, Math.min(255, d.data[idx] + (Math.random() < 0.5 ? 1 : -1)));
+      }
+      ctx.putImageData(d, 0, 0);
+    }
+    return _toDataURL.call(this, type, ...args);
+  };
+})();
+`;
+
+/**
+ * Apply stealth patches to a Playwright BrowserContext.
+ * Call this once after launchPersistentContext — it runs on every new page.
+ */
+export async function applyStealth(context: BrowserContext): Promise<void> {
+  await context.addInitScript(STEALTH_SCRIPT);
+  await context.setExtraHTTPHeaders({
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'none',
+  });
+}
 
 // ─── Realistic browser fingerprint pools ──────────────────────────────────────
 const VIEWPORTS = [

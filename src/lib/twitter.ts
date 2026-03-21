@@ -14,7 +14,7 @@ import { join } from 'path';
 import { unlinkSync, readFileSync, existsSync } from 'fs';
 import { execSync } from 'child_process';
 import { detectChromiumPath } from './browserPath';
-import { randomViewport, randomUserAgent, randomDelay, readingPause } from './humanize';
+import { randomViewport, randomUserAgent, randomDelay, readingPause, buildLaunchArgs, randomTimezone, applyStealth } from './humanize';
 
 const TWITTER_GRAPHQL_BASE = 'https://x.com/i/api/graphql';
 const BEARER =
@@ -87,15 +87,13 @@ async function getPage(): Promise<Page> {
   _context = await chromium.launchPersistentContext(profileDir, {
     ...(execPath && { executablePath: execPath }),
     headless: true,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-blink-features=AutomationControlled',
-    ],
+    args: buildLaunchArgs(),
     userAgent: randomUserAgent(),
     viewport: randomViewport(),
     locale: 'en-US',
+    timezoneId: randomTimezone(),
   });
+  await applyStealth(_context);
 
   // Inject cookies: prefer cookies.json from profile dir, fall back to env vars
   const cookiesJsonPath = join(profileDir, 'cookies.json');

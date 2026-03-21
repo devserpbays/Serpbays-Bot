@@ -10,7 +10,7 @@ import { join } from 'path';
 import { unlinkSync, existsSync, readFileSync } from 'fs';
 import { isValidComment } from './validateComment';
 import { debugScreenshot } from './debugScreenshot';
-import { randomViewport, randomUserAgent, randomDelay, readingPause } from './humanize';
+import { randomViewport, randomUserAgent, randomDelay, readingPause, buildLaunchArgs, randomTimezone, applyStealth } from './humanize';
 
 const DEFAULT_PROFILE_DIR = process.env.REDDIT_PROFILE_DIR
   ? join(process.cwd(), process.env.REDDIT_PROFILE_DIR)
@@ -58,16 +58,13 @@ async function getPage(): Promise<Page> {
 
   _context = await chromium.launchPersistentContext(profileDir, {
     headless: true,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-blink-features=AutomationControlled',
-    ],
+    args: buildLaunchArgs(),
     userAgent: randomUserAgent(),
     viewport: randomViewport(),
     locale: 'en-US',
-    timezoneId: 'America/New_York',
+    timezoneId: randomTimezone(),
   });
+  await applyStealth(_context);
 
   // Inject cookies from cookies.json if available
   const cookiesJsonPath = join(profileDir, 'cookies.json');
