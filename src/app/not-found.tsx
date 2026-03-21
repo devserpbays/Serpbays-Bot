@@ -36,7 +36,7 @@ export default function NotFound() {
             href="/dashboard"
             style={{
               padding: '10px 24px',
-              background: 'linear-gradient(135deg, #0ea5e9, #0ea5e9)',
+              background: 'linear-gradient(135deg, #0ea5e9, #2563eb)',
               border: 'none', borderRadius: 10,
               color: 'white', fontSize: 14, fontWeight: 600,
               textDecoration: 'none',

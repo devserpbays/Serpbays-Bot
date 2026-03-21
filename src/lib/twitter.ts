@@ -14,6 +14,7 @@ import { join } from 'path';
 import { unlinkSync, readFileSync, existsSync } from 'fs';
 import { execSync } from 'child_process';
 import { detectChromiumPath } from './browserPath';
+import { randomViewport, randomUserAgent, randomDelay, readingPause } from './humanize';
 
 const TWITTER_GRAPHQL_BASE = 'https://x.com/i/api/graphql';
 const BEARER =
@@ -91,9 +92,8 @@ async function getPage(): Promise<Page> {
       '--disable-setuid-sandbox',
       '--disable-blink-features=AutomationControlled',
     ],
-    userAgent:
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    viewport: { width: 1280, height: 900 },
+    userAgent: randomUserAgent(),
+    viewport: randomViewport(),
     locale: 'en-US',
   });
 
@@ -492,8 +492,13 @@ async function createTweet(variables: Record<string, unknown>): Promise<TweetRes
   const currentUrl = page.url();
   if (!currentUrl.includes('x.com')) {
     await page.goto('https://x.com/home', { waitUntil: 'domcontentloaded', timeout: NAVIGATION_TIMEOUT });
-    await new Promise(r => setTimeout(r, 2000));
+    await randomDelay(2000, 4000);
   }
+
+  // Simulate human reading time before acting
+  await readingPause(page);
+  // Small pre-action pause
+  await randomDelay(800, 2200);
 
   // Dynamically resolve query IDs from loaded JS bundles
   await fetchQueryIds(page);

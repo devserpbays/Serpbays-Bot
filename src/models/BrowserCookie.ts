@@ -14,6 +14,14 @@ const BrowserCookieSchema = new Schema(
     expiresAt:      { type: Date, default: null },
     // Audit trail — updated every time cookies are loaded for use
     lastAccessedAt: { type: Date, default: null },
+
+    // ── Anti-detection: error tracking & backoff ──────────────────────────────
+    // Incremented on each posting failure; reset to 0 on success.
+    errorCount:   { type: Number, default: 0 },
+    // When set and in the future, the account must not post until this time.
+    backoffUntil: { type: Date,   default: null },
+    // Timestamp of the most recent error, for audit purposes.
+    lastErrorAt:  { type: Date,   default: null },
   },
   { timestamps: true }
 );

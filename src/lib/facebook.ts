@@ -12,6 +12,7 @@ import { join } from 'path';
 import { unlinkSync, existsSync, readFileSync } from 'fs';
 import { isValidComment } from './validateComment';
 import { debugScreenshot } from './debugScreenshot';
+import { randomViewport, randomUserAgent, randomDelay, readingPause } from './humanize';
 
 const PROFILE_DIR = process.env.FACEBOOK_PROFILE_DIR
   ? join(process.cwd(), process.env.FACEBOOK_PROFILE_DIR)
@@ -62,9 +63,8 @@ async function getPage(): Promise<Page> {
       '--disable-setuid-sandbox',
       '--disable-blink-features=AutomationControlled',
     ],
-    userAgent:
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-    viewport: { width: 1366, height: 768 },
+    userAgent: randomUserAgent(),
+    viewport: randomViewport(),
     locale: 'en-US',
     timezoneId: 'America/New_York',
   });
@@ -475,8 +475,9 @@ export async function postComment(
 
     // Navigate with a longer wait for group post permalinks (Facebook SPA is slow)
     await page.goto(postUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
-    // Extra wait — let React render the comment section
-    await sleep(6000);
+    // Human-like: variable wait + simulate reading the post before commenting
+    await randomDelay(4000, 7000);
+    await readingPause(page);
 
     // Check if the page redirected to login or a "join group" gate
     const currentUrl = page.url();
@@ -551,60 +552,63 @@ export async function postComment(
       'form div[contenteditable="true"]',
     ];
 
-    let commentBox = null;
-    for (const sel of commentSelectors) {
-      const elements = await page.$$(sel);
-      for (const el of elements) {
-        if (await el.isVisible().catch(() => false)) {
-          commentBox = el;
-          break;
-        }
-      }
-      if (commentBox) break;
-    }
-
-    // If not found, try clicking comment/action buttons to reveal the comment box
-    if (!commentBox) {
-      // Try multiple button patterns
-      const buttonTexts = ['Comment', 'comment', 'Write a comment'];
-      const allButtons = await page.$$('[role="button"], button, span[role="button"]');
-      for (const btn of allButtons) {
-        const text = (await btn.textContent().catch(() => ''))?.trim() || '';
-        if (buttonTexts.some(t => text.includes(t))) {
-          await btn.click({ force: true });
-          await humanDelay(2000, 4000);
-          break;
-        }
-      }
-
-      // Also try clicking the comment icon (SVG near like/share buttons)
-      const commentIcons = await page.$$('[aria-label*="comment" i], [aria-label*="Comment" i]');
-      for (const icon of commentIcons) {
-        const tag = await icon.evaluate(el => el.tagName.toLowerCase()).catch(() => '');
-        if (tag === 'div' || tag === 'span' || tag === 'i') {
-          await icon.click({ force: true }).catch(() => {});
-          await humanDelay(1500, 3000);
-          break;
-        }
-      }
-
-      // Retry finding comment box with all selectors
+    async function findCommentBox() {
+      let cb = null;
       for (const sel of commentSelectors) {
         const elements = await page.$$(sel);
         for (const el of elements) {
           if (await el.isVisible().catch(() => false)) {
-            // Exclude the post editor (not a comment box)
-            const parentRole = await el.evaluate((e: Element) => {
-              const p = e.closest('[data-pagelet="FeedUnit"], [data-pagelet="ProfileTimeline"]');
-              return p ? 'post-feed' : '';
-            }).catch(() => '');
-            if (parentRole === 'post-feed') continue;
-            return el;
+            cb = el;
+            break;
           }
         }
+        if (cb) break;
       }
-      return null;
+
+      if (!cb) {
+        // Try multiple button patterns
+        const buttonTexts = ['Comment', 'comment', 'Write a comment'];
+        const allButtons = await page.$$('[role="button"], button, span[role="button"]');
+        for (const btn of allButtons) {
+          const text = (await btn.textContent().catch(() => ''))?.trim() || '';
+          if (buttonTexts.some(t => text.includes(t))) {
+            await btn.click({ force: true });
+            await humanDelay(2000, 4000);
+            break;
+          }
+        }
+
+        // Also try clicking the comment icon (SVG near like/share buttons)
+        const commentIcons = await page.$$('[aria-label*="comment" i], [aria-label*="Comment" i]');
+        for (const icon of commentIcons) {
+          const tag = await icon.evaluate(el => el.tagName.toLowerCase()).catch(() => '');
+          if (tag === 'div' || tag === 'span' || tag === 'i') {
+            await icon.click({ force: true }).catch(() => {});
+            await humanDelay(1500, 3000);
+            break;
+          }
+        }
+
+        // Retry finding comment box with all selectors
+        for (const sel of commentSelectors) {
+          const elements = await page.$$(sel);
+          for (const el of elements) {
+            if (await el.isVisible().catch(() => false)) {
+              const parentRole = await el.evaluate((e: Element) => {
+                const p = e.closest('[data-pagelet="FeedUnit"], [data-pagelet="ProfileTimeline"]');
+                return p ? 'post-feed' : '';
+              }).catch(() => '');
+              if (parentRole === 'post-feed') continue;
+              return el;
+            }
+          }
+        }
+        return null;
+      }
+      return cb;
     }
+
+    let commentBox = null;
 
     // Helper: click the Comment action button using multiple approaches
     async function clickCommentButton(): Promise<boolean> {
@@ -639,7 +643,7 @@ export async function postComment(
       }).catch(() => false);
     }
 
-    let commentBox = await findCommentBox();
+    commentBox = await findCommentBox();
 
     // Strategy A: click the Comment action button then wait for editor to appear
     if (!commentBox) {

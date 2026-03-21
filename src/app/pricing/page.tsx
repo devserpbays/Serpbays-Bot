@@ -71,7 +71,7 @@ const faqs = [
   {
     question: 'Which social platforms are supported?',
     answer:
-      'GetMention supports Twitter, Reddit, Facebook, Quora, YouTube, and Pinterest. The Starter plan includes 1 platform, Pro includes 3, and Business gives you access to all 6.',
+      'GetMention supports Twitter, Reddit, Facebook, Quora, YouTube, and Pinterest. The Starter plan includes 2 platforms, Pro includes 4, and Business gives you access to all 6.',
   },
   {
     question: 'How does AI-powered reply generation work?',

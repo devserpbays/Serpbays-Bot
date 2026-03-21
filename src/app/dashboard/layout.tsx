@@ -171,12 +171,12 @@ function NotificationBell() {
         style={{
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           width: 38, height: 38, position: 'relative',
-          background: open ? 'rgba(168, 85, 247, 0.14)' : 'rgba(168, 85, 247, 0.07)',
-          border: `1px solid ${open ? 'rgba(168,85,247,0.38)' : 'var(--border-default)'}`,
+          background: open ? 'rgba(14, 165, 233, 0.14)' : 'rgba(14, 165, 233, 0.07)',
+          border: `1px solid ${open ? 'rgba(14,165,233,0.38)' : 'var(--border-default)'}`,
           borderRadius: 10,
           color: open ? 'var(--accent-light)' : 'var(--text-secondary)',
           cursor: 'pointer', transition: 'all 180ms',
-          boxShadow: open ? '0 0 14px rgba(168,85,247,0.18)' : 'none',
+          boxShadow: open ? '0 0 14px rgba(14,165,233,0.18)' : 'none',
         }}
         onMouseEnter={(e) => {
           e.currentTarget.style.background = 'rgba(14, 165, 233, 0.1)';
@@ -185,7 +185,7 @@ function NotificationBell() {
         }}
         onMouseLeave={(e) => {
           if (!open) {
-            e.currentTarget.style.background = 'rgba(168, 85, 247, 0.07)';
+            e.currentTarget.style.background = 'rgba(14, 165, 233, 0.07)';
             e.currentTarget.style.borderColor = 'var(--border-default)';
             e.currentTarget.style.color = 'var(--text-secondary)';
           }
@@ -199,12 +199,12 @@ function NotificationBell() {
           <span style={{
             position: 'absolute', top: -5, right: -5,
             minWidth: 18, height: 18, borderRadius: 9,
-            background: 'linear-gradient(135deg, #a855f7, #7c3aed)',
+            background: 'linear-gradient(135deg, #0ea5e9, #2563eb)',
             color: '#fff',
             fontSize: 10, fontWeight: 700,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             padding: '0 5px',
-            boxShadow: '0 0 8px rgba(168,85,247,0.5)',
+            boxShadow: '0 0 8px rgba(14,165,233,0.5)',
             border: '1.5px solid rgba(13,9,20,0.8)',
           }}>
             {unreadCount > 9 ? '9+' : unreadCount}
@@ -220,43 +220,43 @@ function NotificationBell() {
           right: 0,
           marginTop: 10,
           width: 368, maxHeight: 460,
-          background: 'rgba(19, 10, 30, 0.96)',
+          background: 'rgba(10, 15, 25, 0.96)',
           backdropFilter: 'blur(20px)',
           WebkitBackdropFilter: 'blur(20px)',
-          border: '1px solid rgba(139, 92, 246, 0.25)',
+          border: '1px solid rgba(14, 165, 233, 0.25)',
           borderRadius: 14,
-          boxShadow: '0 16px 48px rgba(0,0,0,0.6), 0 0 0 1px rgba(168,85,247,0.08), 0 0 40px rgba(168,85,247,0.1)',
+          boxShadow: '0 16px 48px rgba(0,0,0,0.6), 0 0 0 1px rgba(14,165,233,0.08), 0 0 40px rgba(14,165,233,0.08)',
           zIndex: 1000,
           overflow: 'hidden',
           display: 'flex', flexDirection: 'column',
           animation: 'fadeIn 150ms ease-out',
         }}>
-          {/* Purple top line */}
+          {/* Top accent line */}
           <div style={{
             height: 2,
-            background: 'linear-gradient(90deg, transparent, #a855f7, #7c3aed, transparent)',
+            background: 'linear-gradient(90deg, transparent, #0ea5e9, #2563eb, transparent)',
             flexShrink: 0,
           }} />
           {/* Header */}
           <div style={{
             padding: '14px 18px',
-            borderBottom: '1px solid rgba(139, 92, 246, 0.14)',
+            borderBottom: '1px solid rgba(14, 165, 233, 0.14)',
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
             flexShrink: 0,
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 14, fontWeight: 700, color: '#f0eaff' }}>
+              <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
                 Notifications
               </span>
               {unreadCount > 0 && (
                 <span style={{
                   minWidth: 20, height: 20, borderRadius: 10,
-                  background: 'linear-gradient(135deg, #a855f7, #7c3aed)',
+                  background: 'linear-gradient(135deg, #0ea5e9, #2563eb)',
                   color: '#fff',
                   fontSize: 10, fontWeight: 700,
                   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                   padding: '0 6px',
-                  boxShadow: '0 0 8px rgba(168,85,247,0.4)',
+                  boxShadow: '0 0 8px rgba(14,165,233,0.4)',
                 }}>
                   {unreadCount}
                 </span>
@@ -556,7 +556,7 @@ function BlockedScreen({ blockedUntil, onSignOut }: { blockedUntil: string | nul
           {/* Contact box */}
           <div style={{
             padding: '16px', borderRadius: 10, marginBottom: 28,
-            background: 'rgba(168,85,247,0.06)', border: '1px solid rgba(168,85,247,0.2)',
+            background: 'rgba(14,165,233,0.06)', border: '1px solid rgba(14,165,233,0.2)',
           }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
               Think this is a mistake?
@@ -570,12 +570,12 @@ function BlockedScreen({ blockedUntil, onSignOut }: { blockedUntil: string | nul
               style={{
                 display: 'inline-flex', alignItems: 'center', gap: 7,
                 padding: '8px 16px', borderRadius: 8,
-                background: 'rgba(168,85,247,0.12)', border: '1px solid rgba(168,85,247,0.3)',
-                color: '#c084fc', fontSize: 13, fontWeight: 600,
+                background: 'rgba(14,165,233,0.12)', border: '1px solid rgba(14,165,233,0.3)',
+                color: '#38bdf8', fontSize: 13, fontWeight: 600,
                 textDecoration: 'none', transition: 'all 150ms',
               }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(168,85,247,0.2)'; e.currentTarget.style.color = '#d8b4fe'; }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(168,85,247,0.12)'; e.currentTarget.style.color = '#c084fc'; }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(14,165,233,0.2)'; e.currentTarget.style.color = '#7dd3fc'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(14,165,233,0.12)'; e.currentTarget.style.color = '#38bdf8'; }}
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} width={14} height={14}>
                 <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
@@ -623,8 +623,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [isAdmin, setIsAdmin] = useState(false);
   const [isBlocked, setIsBlocked] = useState(false);
   const [blockedUntil, setBlockedUntil] = useState<string | null>(null);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const { user } = useUser();
   const { signOut } = useClerk();
+
+  const handleSignOut = () => setShowLogoutConfirm(true);
+  const confirmSignOut = () => signOut(() => { window.location.href = '/login'; });
   const userName = user?.fullName || user?.firstName || '';
   const userEmail = user?.emailAddresses?.[0]?.emailAddress ?? '';
   const userInitial = (userName || userEmail || '?')[0].toUpperCase();
@@ -671,7 +675,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return (
       <BlockedScreen
         blockedUntil={blockedUntil}
-        onSignOut={() => signOut(() => { window.location.href = '/'; })}
+        onSignOut={handleSignOut}
       />
     );
   }
@@ -822,7 +826,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 </div>
               </div>
               <button
-                onClick={() => signOut(() => { window.location.href = '/login'; })}
+                onClick={handleSignOut}
                 title="Sign out"
                 style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -848,7 +852,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           )}
           {collapsed && userEmail && (
             <button
-              onClick={() => signOut(() => { window.location.href = '/login'; })}
+              onClick={handleSignOut}
               title="Sign out"
               style={{
                 width: '100%', padding: '8px',
@@ -898,6 +902,73 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
         {children}
       </main>
+
+      {/* ── Logout confirmation modal ── */}
+      {showLogoutConfirm && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, zIndex: 9999,
+            background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            animation: 'fadeIn 150ms ease',
+          }}
+          onClick={() => setShowLogoutConfirm(false)}
+        >
+          <div
+            style={{
+              background: 'var(--bg-card)', border: '1px solid var(--border-default)',
+              borderRadius: 'var(--radius-lg)', padding: '32px 28px',
+              maxWidth: 380, width: '90%',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+              textAlign: 'center',
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{
+              width: 52, height: 52, borderRadius: '50%', margin: '0 auto 18px',
+              background: 'rgba(239,68,68,0.1)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth={2} width={24} height={24}>
+                <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/>
+                <polyline points="16,17 21,12 16,7"/>
+                <line x1="21" y1="12" x2="9" y2="12"/>
+              </svg>
+            </div>
+            <h3 style={{ fontSize: 17, fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 8px' }}>
+              Sign out?
+            </h3>
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, margin: '0 0 24px' }}>
+              You'll need to sign back in to access your dashboard.
+            </p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+              <button
+                onClick={() => setShowLogoutConfirm(false)}
+                style={{
+                  flex: 1, padding: '10px 0', borderRadius: 'var(--radius-sm)',
+                  fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                  border: '1px solid var(--border-default)',
+                  background: 'transparent', color: 'var(--text-secondary)',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmSignOut}
+                style={{
+                  flex: 1, padding: '10px 0', borderRadius: 'var(--radius-sm)',
+                  fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                  border: 'none',
+                  background: '#ef4444', color: '#fff',
+                  boxShadow: '0 2px 10px rgba(239,68,68,0.3)',
+                }}
+              >
+                Yes, Sign Out
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

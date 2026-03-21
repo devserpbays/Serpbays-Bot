@@ -10,6 +10,7 @@ import { join } from 'path';
 import { unlinkSync, existsSync, readFileSync } from 'fs';
 import { isValidComment } from './validateComment';
 import { debugScreenshot } from './debugScreenshot';
+import { randomViewport, randomUserAgent, randomDelay, readingPause } from './humanize';
 
 const DEFAULT_PROFILE_DIR = process.env.REDDIT_PROFILE_DIR
   ? join(process.cwd(), process.env.REDDIT_PROFILE_DIR)
@@ -62,9 +63,8 @@ async function getPage(): Promise<Page> {
       '--disable-setuid-sandbox',
       '--disable-blink-features=AutomationControlled',
     ],
-    userAgent:
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-    viewport: { width: 1366, height: 768 },
+    userAgent: randomUserAgent(),
+    viewport: randomViewport(),
     locale: 'en-US',
     timezoneId: 'America/New_York',
   });
@@ -461,7 +461,10 @@ export async function postRedditComment(
     // Use new Reddit for commenting
     const newRedditUrl = postUrl.replace('old.reddit.com', 'www.reddit.com');
     await page.goto(newRedditUrl, { waitUntil: 'domcontentloaded' });
-    await sleep(SLOW_WAIT);
+    // Human-like: variable wait after page load
+    await randomDelay(3000, 6000);
+    // Simulate reading the post before commenting
+    await readingPause(page);
 
     // Scroll down progressively to trigger lazy-loading of comment composer
     for (let i = 0; i < 3; i++) {

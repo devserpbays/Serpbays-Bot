@@ -13,6 +13,9 @@ const isPublicRoute = createRouteMatcher([
   '/api/health',
 ])
 
+const isAuthRoute = createRouteMatcher(['/login(.*)', '/signup(.*)'])
+const isLegacyAuthRoute = createRouteMatcher(['/sign-in(.*)', '/sign-up(.*)', '/register(.*)'])
+
 const isDashboardRoute = createRouteMatcher(['/dashboard(.*)'])
 const isOnboardingRoute = createRouteMatcher(['/onboarding'])
 const isApiRoute = createRouteMatcher(['/api(.*)'])
@@ -36,8 +39,25 @@ export default clerkMiddleware(async (auth, req) => {
     return res
   }
 
+  // Legacy auth URL aliases → redirect to canonical routes
+  if (isLegacyAuthRoute(req)) {
+    const pathname = req.nextUrl.pathname
+    const dest = pathname.startsWith('/sign-up') || pathname.startsWith('/register') ? '/signup' : '/login'
+    return addSecurityHeaders(NextResponse.redirect(new URL(dest, origin)))
+  }
+
+  // Already logged in and visiting login/signup → redirect to dashboard
+  // (Dashboard middleware will bounce to /onboarding if onboarding isn't done yet)
+  if (userId && isAuthRoute(req)) {
+    return addSecurityHeaders(NextResponse.redirect(new URL('/dashboard', origin)))
+  }
+
   // Public routes — no auth required
+  // Exception: logged-in users on the home page → send to dashboard
   if (isPublicRoute(req)) {
+    if (userId && req.nextUrl.pathname === '/') {
+      return addSecurityHeaders(NextResponse.redirect(new URL('/dashboard', origin)))
+    }
     return addSecurityHeaders(NextResponse.next())
   }
 

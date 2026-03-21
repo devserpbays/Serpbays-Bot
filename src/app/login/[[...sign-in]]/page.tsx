@@ -1,7 +1,13 @@
 import { SignIn } from '@clerk/nextjs';
 import Link from 'next/link';
+import { auth } from '@clerk/nextjs/server';
+import { redirect } from 'next/navigation';
 
-export default function LoginPage() {
+export const dynamic = 'force-dynamic';
+
+export default async function LoginPage() {
+  const { userId } = await auth();
+  if (userId) redirect('/dashboard');
   return (
     <div className="relative min-h-screen flex items-center justify-center bg-[#09090b] overflow-hidden">
 

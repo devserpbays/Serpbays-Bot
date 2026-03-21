@@ -46,9 +46,9 @@ interface UserDetail {
 
 /* ── Constants ─────────────────────────────────────────────────── */
 const PLAN_COLORS: Record<string, { bg: string; color: string; border: string }> = {
-  free: { bg: 'rgba(156,163,175,0.1)', color: '#9ca3af', border: 'rgba(156,163,175,0.2)' },
-  pro: { bg: 'rgba(139,92,246,0.1)', color: '#38bdf8', border: 'rgba(139,92,246,0.2)' },
-  business: { bg: 'rgba(236,72,153,0.1)', color: '#f472b6', border: 'rgba(236,72,153,0.2)' },
+  free:     { bg: 'rgba(148,163,184,0.1)', color: '#94a3b8', border: 'rgba(148,163,184,0.2)' },
+  pro:      { bg: 'rgba(168,85,247,0.12)', color: '#c084fc', border: 'rgba(168,85,247,0.25)' },
+  business: { bg: 'rgba(251,191,36,0.1)',  color: '#fbbf24', border: 'rgba(251,191,36,0.2)' },
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -397,117 +397,53 @@ export default function AdminPage() {
 
       <div className="page-body" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
-        {/* ── Stats Cards ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
-          {[
-            {
-              label: 'Total Users',
-              value: stats?.totalUsers ?? 0,
-              sub: `+${stats?.newUsersThisWeek ?? 0} this week`,
-              color: '#38bdf8',
-              icon: (
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} width={20} height={20}>
-                  <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
-                  <circle cx="9" cy="7" r="4" />
-                  <path d="M23 21v-2a4 4 0 00-3-3.87" />
-                  <path d="M16 3.13a4 4 0 010 7.75" />
-                </svg>
-              ),
-            },
-            {
-              label: 'Total Posts',
-              value: stats?.totalPosts ?? 0,
-              sub: `${stats?.postsToday ?? 0} posted today`,
-              color: '#3b82f6',
-              icon: (
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} width={20} height={20}>
-                  <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
-                </svg>
-              ),
-            },
-            {
-              label: 'Active Today',
-              value: stats?.activeUsersToday ?? 0,
-              sub: `of ${stats?.totalUsers ?? 0} users`,
-              color: '#10b981',
-              icon: (
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} width={20} height={20}>
-                  <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
-                </svg>
-              ),
-            },
-            {
-              label: 'Est. MRR',
-              value: `$${totalRevenue.toLocaleString()}`,
-              sub: `${(stats?.subscriptionBreakdown?.pro ?? 0) + (stats?.subscriptionBreakdown?.business ?? 0)} paid users`,
-              color: '#f59e0b',
-              icon: (
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} width={20} height={20}>
-                  <line x1="12" y1="1" x2="12" y2="23" />
-                  <path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" />
-                </svg>
-              ),
-            },
-          ].map((card) => (
-            <div
-              key={card.label}
-              style={{
-                background: 'var(--bg-card)',
-                border: '1px solid var(--border-subtle)',
-                borderRadius: 'var(--radius-lg)',
-                padding: '20px',
-                backdropFilter: 'blur(12px)',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-                <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-muted)' }}>{card.label}</span>
-                <div style={{ color: card.color, opacity: 0.7 }}>{card.icon}</div>
-              </div>
-              <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.04em', lineHeight: 1 }}>
-                {card.value}
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>{card.sub}</div>
-            </div>
-          ))}
-        </div>
-
-        {/* ── Plan Distribution ── */}
-        {stats && (
-          <div style={{
-            background: 'var(--bg-card)',
-            border: '1px solid var(--border-subtle)',
-            borderRadius: 'var(--radius-lg)',
-            padding: '20px',
-            backdropFilter: 'blur(12px)',
-          }}>
-            <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 16px', letterSpacing: '-0.02em' }}>
-              Plan Distribution
-            </h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {['free', 'pro', 'business'].map((plan) => {
-                const count = stats.subscriptionBreakdown[plan] || 0;
-                const pct = totalSubUsers > 0 ? Math.round((count / totalSubUsers) * 100) : 0;
-                const colors = PLAN_COLORS[plan];
-                return (
-                  <div key={plan}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{
-                          fontSize: 12, fontWeight: 700, textTransform: 'uppercase',
-                          color: colors.color,
-                          background: colors.bg,
-                          border: `1px solid ${colors.border}`,
-                          borderRadius: 6,
-                          padding: '2px 10px',
-                          letterSpacing: '0.04em',
-                        }}>
-                          {plan}
-                        </span>
-                        <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-                          {count} user{count !== 1 ? 's' : ''}
-                        </span>
-                      </div>
-                      <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 600 }}>{pct}%</span>
+        {/* ══════════════ OVERVIEW TAB ══════════════ */}
+        {activeTab === 'overview' && (
+          <>
+            {/* Metric cards */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14 }}>
+              {[
+                {
+                  label: 'Total Users', value: stats?.totalUsers ?? 0,
+                  sub: `+${stats?.newUsersThisWeek ?? 0} this week`,
+                  color: '#a855f7', bg: 'rgba(168,85,247,0.1)',
+                  icon: <><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></>,
+                },
+                {
+                  label: 'Est. MRR', value: `$${totalRevenue.toLocaleString()}`,
+                  sub: `${(stats?.subscriptionBreakdown?.pro ?? 0) + (stats?.subscriptionBreakdown?.business ?? 0)} paying`,
+                  color: '#10b981', bg: 'rgba(16,185,129,0.1)',
+                  icon: <><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></>,
+                },
+                {
+                  label: 'Active Today', value: stats?.activeUsersToday ?? 0,
+                  sub: `of ${stats?.totalUsers ?? 0} total users`,
+                  color: '#3b82f6', bg: 'rgba(59,130,246,0.1)',
+                  icon: <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>,
+                },
+                {
+                  label: 'Comments Today', value: stats?.postsToday ?? 0,
+                  sub: `${stats?.postsThisWeek ?? 0} this week`,
+                  color: '#f59e0b', bg: 'rgba(245,158,11,0.1)',
+                  icon: <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>,
+                },
+              ].map(card => (
+                <div key={card.label} style={{
+                  background: 'var(--bg-card)',
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: 'var(--radius-lg)',
+                  padding: 20,
+                  position: 'relative', overflow: 'hidden',
+                }}>
+                  <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: `linear-gradient(90deg, transparent, ${card.color}, transparent)`, opacity: 0.6 }} />
+                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      {card.label}
+                    </span>
+                    <div style={{ width: 32, height: 32, borderRadius: 8, background: card.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', color: card.color }}>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={16} height={16}>
+                        {card.icon}
+                      </svg>
                     </div>
                   </div>
                   <div style={{ fontSize: 30, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.04em', lineHeight: 1 }}>
@@ -947,65 +883,19 @@ export default function AdminPage() {
                           cursor: blocking ? 'wait' : 'pointer', opacity: blocking ? 0.6 : 1,
                           color: '#10b981', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)',
                         }}>
-                          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                            Change Plan
-                          </div>
-                          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                            {['free', 'pro', 'business'].map((plan) => {
-                              const colors = PLAN_COLORS[plan];
-                              const isCurrentEdit = editingPlan?.userId === user.userId && editingPlan?.plan === plan;
-                              const isCurrent = !editingPlan && userDetail.subscription.plan === plan;
-                              return (
-                                <button
-                                  key={plan}
-                                  onClick={() => setEditingPlan({ userId: user.userId, plan })}
-                                  style={{
-                                    fontSize: 12, fontWeight: 700, textTransform: 'uppercase',
-                                    color: colors.color,
-                                    background: isCurrentEdit || isCurrent ? colors.bg : 'transparent',
-                                    border: `1px solid ${isCurrentEdit || isCurrent ? colors.border : 'var(--border-subtle)'}`,
-                                    borderRadius: 6,
-                                    padding: '6px 14px',
-                                    cursor: 'pointer',
-                                    transition: 'all 150ms',
-                                    letterSpacing: '0.04em',
-                                    outline: isCurrentEdit ? `2px solid ${colors.color}` : 'none',
-                                    outlineOffset: 1,
-                                  }}
-                                >
-                                  {plan}
-                                  {isCurrent && ' (current)'}
-                                </button>
-                              );
-                            })}
-                            {editingPlan?.userId === user.userId && editingPlan.plan !== userDetail.subscription.plan && (
-                              <button
-                                onClick={savePlanChange}
-                                disabled={saving}
-                                style={{
-                                  fontSize: 12, fontWeight: 700,
-                                  color: '#fff',
-                                  background: 'linear-gradient(135deg, #0ea5e9, #2563eb)',
-                                  border: 'none',
-                                  borderRadius: 6,
-                                  padding: '6px 16px',
-                                  cursor: saving ? 'wait' : 'pointer',
-                                  opacity: saving ? 0.6 : 1,
-                                  transition: 'all 150ms',
-                                }}
-                              >
-                                {saving ? 'Saving...' : 'Save'}
-                              </button>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Admin role toggle */}
-                        <div style={{
-                          background: 'rgba(255,255,255,0.02)',
-                          border: '1px solid var(--border-subtle)',
-                          borderRadius: 'var(--radius-md)',
-                          padding: '14px 16px',
+                          {blocking ? '…' : 'Unblock'}
+                        </button>
+                      ) : blockConfirm ? (
+                        <>
+                          <button onClick={() => setBlockConfirm(false)} style={{ padding: '5px 9px', fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: 'pointer', background: 'transparent', color: 'var(--text-muted)', border: '1px solid var(--border-subtle)' }}>Cancel</button>
+                          <button onClick={() => blockUser(30)} disabled={blocking} style={{ padding: '5px 12px', fontSize: 11, fontWeight: 700, borderRadius: 6, cursor: blocking ? 'wait' : 'pointer', opacity: blocking ? 0.6 : 1, color: '#fff', background: '#f59e0b', border: 'none' }}>
+                            {blocking ? '…' : 'Block 30d'}
+                          </button>
+                        </>
+                      ) : (
+                        <button onClick={() => setBlockConfirm(true)} style={{
+                          padding: '5px 12px', fontSize: 11, fontWeight: 700, borderRadius: 6,
+                          cursor: 'pointer', color: '#f59e0b', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)',
                         }}>
                           Block
                         </button>

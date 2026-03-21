@@ -1,7 +1,13 @@
 import { SignUp } from '@clerk/nextjs';
 import Link from 'next/link';
+import { auth } from '@clerk/nextjs/server';
+import { redirect } from 'next/navigation';
 
-export default function SignupPage() {
+export const dynamic = 'force-dynamic';
+
+export default async function SignupPage() {
+  const { userId } = await auth();
+  if (userId) redirect('/dashboard');
   return (
     <div className="relative min-h-screen flex items-center justify-center bg-[#09090b] overflow-hidden">
 
@@ -68,7 +74,8 @@ export default function SignupPage() {
             routing="path"
             path="/signup"
             signInUrl="/login"
-            forceRedirectUrl="/onboarding"
+            forceRedirectUrl="/dashboard"
+            signInForceRedirectUrl="/dashboard"
           />
         </div>
 

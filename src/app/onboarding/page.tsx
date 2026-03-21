@@ -389,8 +389,8 @@ export default function OnboardingPage() {
 
                 {/* ── Website URL auto-fill ── */}
                 <div style={{
-                  background: extractedOk ? 'rgba(52,211,153,0.05)' : 'rgba(168,85,247,0.04)',
-                  border: `1px solid ${extractedOk ? 'rgba(52,211,153,0.2)' : 'rgba(168,85,247,0.15)'}`,
+                  background: extractedOk ? 'rgba(52,211,153,0.05)' : 'rgba(14,165,233,0.04)',
+                  border: `1px solid ${extractedOk ? 'rgba(52,211,153,0.2)' : 'rgba(14,165,233,0.15)'}`,
                   borderRadius: 12, padding: '14px 16px',
                 }}>
                   <label style={{ display: 'block', color: 'var(--text-secondary)', fontSize: 12, fontWeight: 600, letterSpacing: '0.4px', textTransform: 'uppercase', marginBottom: 7 }}>
@@ -419,7 +419,7 @@ export default function OnboardingPage() {
                       disabled={extracting || !websiteUrl.trim()}
                       style={{
                         padding: '0 18px',
-                        background: extracting ? 'rgba(168,85,247,0.15)' : 'var(--accent)',
+                        background: extracting ? 'rgba(14,165,233,0.3)' : 'var(--accent)',
                         color: 'white', border: 'none', borderRadius: 10,
                         fontSize: 13, fontWeight: 600, cursor: extracting || !websiteUrl.trim() ? 'not-allowed' : 'pointer',
                         opacity: !websiteUrl.trim() ? 0.5 : 1,

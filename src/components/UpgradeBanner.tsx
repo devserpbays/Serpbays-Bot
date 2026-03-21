@@ -64,7 +64,7 @@ export default function UpgradeBanner({
       </div>
       <Link href="/dashboard/billing" style={{
         padding: '8px 20px',
-        background: 'linear-gradient(135deg, #0ea5e9, #0ea5e9)',
+        background: 'linear-gradient(135deg, #0ea5e9, #2563eb)',
         borderRadius: 8,
         color: 'white',
         fontSize: 13,

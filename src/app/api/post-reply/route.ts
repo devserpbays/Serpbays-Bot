@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { connectDB } from '@/lib/mongodb';
 import Post from '@/models/Post';
+import BrowserCookie from '@/models/BrowserCookie';
 import { replyToTweet, postTweet, extractTweetId, isTwitterConfigured } from '@/lib/twitter';
 import { getAuthUserId } from '@/lib/apiAuth';
 import { checkDailyPostLimit } from '@/lib/featureGate';
 import { checkRateLimit } from '@/lib/rateLimit';
+import { PLATFORM_SAFE_LIMITS, checkBackoff, getBackoffMs } from '@/lib/humanize';
 
 export async function POST(req: NextRequest) {
   const userId = await getAuthUserId();
@@ -41,9 +43,33 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'This endpoint only supports Twitter/X posts' }, { status: 400 });
   }
 
-  // Enforce daily post limit
+  // Load account for backoff + safety limit checks
+  const account = await BrowserCookie.findOne({ userId, platform: 'twitter' });
+
+  // Backoff check — account may be in a cooldown window after repeated errors
+  if (account) {
+    const backoff = checkBackoff(account.backoffUntil);
+    if (backoff.blocked) {
+      const retryIn = Math.ceil((backoff.retryAt.getTime() - Date.now()) / 60000);
+      return NextResponse.json(
+        { error: `Account is in cooldown after repeated errors. Retry in ${retryIn} minute(s).` },
+        { status: 429 }
+      );
+    }
+  }
+
+  // Hard platform safety cap — overrides plan limits
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
   const todayCount = await Post.countDocuments({ userId, platform: 'twitter', status: 'posted', postedAt: { $gte: todayStart } });
+  const safeLimit = PLATFORM_SAFE_LIMITS['twitter'] ?? 20;
+  if (todayCount >= safeLimit) {
+    return NextResponse.json(
+      { error: `Daily safety limit of ${safeLimit} posts reached for Twitter. Resumes tomorrow.` },
+      { status: 429 }
+    );
+  }
+
+  // Plan-level daily limit
   const limitBlocked = await checkDailyPostLimit(userId, todayCount);
   if (limitBlocked) return limitBlocked;
 
@@ -64,10 +90,15 @@ export async function POST(req: NextRequest) {
       tweetResult = await postTweet(tweetText);
     }
 
-    await Post.findByIdAndUpdate(id, {
-      status: 'posted',
-      postedAt: new Date(),
-    });
+    await Post.findByIdAndUpdate(id, { status: 'posted', postedAt: new Date() });
+
+    // Success — reset error counter
+    if (account) {
+      await BrowserCookie.updateOne(
+        { _id: account._id },
+        { $set: { errorCount: 0, backoffUntil: null } }
+      );
+    }
 
     return NextResponse.json({
       success: true,
@@ -78,6 +109,17 @@ export async function POST(req: NextRequest) {
     });
   } catch (err) {
     console.error('Failed to post to Twitter:', err);
+
+    // Failure — increment error count and set backoff window
+    if (account) {
+      const newCount = (account.errorCount ?? 0) + 1;
+      const backoffUntil = new Date(Date.now() + getBackoffMs(newCount));
+      await BrowserCookie.updateOne(
+        { _id: account._id },
+        { $set: { errorCount: newCount, backoffUntil, lastErrorAt: new Date() } }
+      );
+    }
+
     return NextResponse.json(
       { error: 'Failed to post to Twitter. Please try again or check your account connection.' },
       { status: 500 }

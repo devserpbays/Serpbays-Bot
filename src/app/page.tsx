@@ -1,4 +1,8 @@
 import Link from 'next/link';
+import { auth } from '@clerk/nextjs/server';
+import { redirect } from 'next/navigation';
+
+export const dynamic = 'force-dynamic';
 
 const PLATFORMS = [
   { name: 'Twitter / X', color: '#1d9bf0', icon: <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.73-8.835L1.254 2.25H8.08l4.258 5.63 5.906-5.63zm-1.161 17.52h1.833L7.084 4.126H5.117z" /></svg> },
@@ -46,7 +50,7 @@ const STEPS = [
   {
     num: '01',
     title: 'Connect Your Accounts',
-    description: 'Securely link your social media accounts by importing cookies. Your credentials stay on your server.',
+    description: 'Log into your social accounts in Chrome, export your session with one click, and paste it in. No passwords stored.',
   },
   {
     num: '02',
@@ -75,7 +79,9 @@ const PLANS = [
   },
 ];
 
-export default function LandingPage() {
+export default async function LandingPage() {
+  const { userId } = await auth();
+  if (userId) redirect('/dashboard');
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#09090b', color: '#fafafa', fontFamily: 'var(--font-sans)' }}>
 
@@ -177,23 +183,28 @@ export default function LandingPage() {
           while you sleep.
         </p>
 
-        <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap', position: 'relative' }}>
-          <Link href="/signup" style={{
-            padding: '14px 32px', borderRadius: 4,
-            background: '#0ea5e9', color: '#fff',
-            textDecoration: 'none', fontSize: 16, fontWeight: 600,
-            transition: 'background 0.15s, transform 0.15s',
-          }}>
-            Start Free
-          </Link>
-          <Link href="#how-it-works" style={{
-            padding: '14px 32px', borderRadius: 4,
-            background: 'rgba(255,255,255,0.06)', color: '#fafafa',
-            textDecoration: 'none', fontSize: 16, fontWeight: 600,
-            transition: 'background 0.15s',
-          }}>
-            How It Works
-          </Link>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, position: 'relative' }}>
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
+            <Link href="/signup" style={{
+              padding: '14px 32px', borderRadius: 4,
+              background: '#0ea5e9', color: '#fff',
+              textDecoration: 'none', fontSize: 16, fontWeight: 600,
+              transition: 'background 0.15s, transform 0.15s',
+            }}>
+              Start Free
+            </Link>
+            <Link href="#how-it-works" style={{
+              padding: '14px 32px', borderRadius: 4,
+              background: 'rgba(255,255,255,0.06)', color: '#fafafa',
+              textDecoration: 'none', fontSize: 16, fontWeight: 600,
+              transition: 'background 0.15s',
+            }}>
+              How It Works
+            </Link>
+          </div>
+          <p style={{ color: '#52525b', fontSize: 13, margin: 0 }}>
+            No credit card required &nbsp;&middot;&nbsp; Free plan available &nbsp;&middot;&nbsp; Cancel anytime
+          </p>
         </div>
 
         {/* Platform row */}

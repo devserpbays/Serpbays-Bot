@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { connectDB } from '@/lib/mongodb';
 import Post from '@/models/Post';
 import Settings from '@/models/Settings';
+import BrowserCookie from '@/models/BrowserCookie';
 import { postRedditComment, closeBrowser, setProfileDir } from '@/lib/reddit';
 import { getAuthUserId } from '@/lib/apiAuth';
 import { checkDailyPostLimit } from '@/lib/featureGate';
 import { checkRateLimit } from '@/lib/rateLimit';
+import { PLATFORM_SAFE_LIMITS, checkBackoff, getBackoffMs } from '@/lib/humanize';
 
 export async function POST(req: NextRequest) {
   const userId = await getAuthUserId();
@@ -38,9 +40,33 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Enforce daily post limit
+  // Load account for backoff + safety limit checks
+  const account = await BrowserCookie.findOne({ userId, platform: 'reddit' });
+
+  // Backoff check
+  if (account) {
+    const backoff = checkBackoff(account.backoffUntil);
+    if (backoff.blocked) {
+      const retryIn = Math.ceil((backoff.retryAt.getTime() - Date.now()) / 60000);
+      return NextResponse.json(
+        { error: `Account is in cooldown after repeated errors. Retry in ${retryIn} minute(s).` },
+        { status: 429 }
+      );
+    }
+  }
+
+  // Hard platform safety cap
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
   const todayCount = await Post.countDocuments({ userId, platform: 'reddit', status: 'posted', postedAt: { $gte: todayStart } });
+  const safeLimit = PLATFORM_SAFE_LIMITS['reddit'] ?? 10;
+  if (todayCount >= safeLimit) {
+    return NextResponse.json(
+      { error: `Daily safety limit of ${safeLimit} posts reached for Reddit. Resumes tomorrow.` },
+      { status: 429 }
+    );
+  }
+
+  // Plan-level daily limit
   const limitBlocked = await checkDailyPostLimit(userId, todayCount);
   if (limitBlocked) return limitBlocked;
 
@@ -61,16 +87,30 @@ export async function POST(req: NextRequest) {
     const result = await postRedditComment(post.url, replyText);
 
     if (!result.success) {
+      // Count as a soft error for backoff tracking
+      if (account) {
+        const newCount = (account.errorCount ?? 0) + 1;
+        const backoffUntil = new Date(Date.now() + getBackoffMs(newCount));
+        await BrowserCookie.updateOne(
+          { _id: account._id },
+          { $set: { errorCount: newCount, backoffUntil, lastErrorAt: new Date() } }
+        );
+      }
       return NextResponse.json(
         { error: result.error || 'Failed to post comment on Reddit. Check browser login status.' },
         { status: 500 }
       );
     }
 
-    await Post.findByIdAndUpdate(id, {
-      status: 'posted',
-      postedAt: new Date(),
-    });
+    await Post.findByIdAndUpdate(id, { status: 'posted', postedAt: new Date() });
+
+    // Success — reset error counter
+    if (account) {
+      await BrowserCookie.updateOne(
+        { _id: account._id },
+        { $set: { errorCount: 0, backoffUntil: null } }
+      );
+    }
 
     return NextResponse.json({
       success: true,
@@ -79,6 +119,17 @@ export async function POST(req: NextRequest) {
     });
   } catch (err) {
     console.error('Failed to post Reddit comment:', err);
+
+    // Exception — increment error count and set backoff
+    if (account) {
+      const newCount = (account.errorCount ?? 0) + 1;
+      const backoffUntil = new Date(Date.now() + getBackoffMs(newCount));
+      await BrowserCookie.updateOne(
+        { _id: account._id },
+        { $set: { errorCount: newCount, backoffUntil, lastErrorAt: new Date() } }
+      );
+    }
+
     return NextResponse.json(
       { error: 'Failed to post Reddit comment. Please try again or check your account connection.' },
       { status: 500 }

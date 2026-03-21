@@ -284,11 +284,11 @@ function PlatformCard({
     return (
         <div style={{
             background: 'var(--bg-card)',
-            border: `1px solid ${isConnected ? `${platform.color}30` : 'rgba(239,68,68,0.35)'}`,
+            border: `1px solid ${isConnected ? `${platform.color}30` : 'var(--border-default)'}`,
             borderRadius: 'var(--radius-lg)',
             overflow: 'hidden',
             transition: 'border-color var(--transition-default), box-shadow var(--transition-default)',
-            boxShadow: isConnected ? `0 0 0 1px ${platform.color}15, 0 4px 24px rgba(0,0,0,0.2)` : '0 0 0 1px rgba(239,68,68,0.15), 0 4px 24px rgba(0,0,0,0.2)',
+            boxShadow: isConnected ? `0 0 0 1px ${platform.color}15, 0 4px 24px rgba(0,0,0,0.2)` : '0 4px 24px rgba(0,0,0,0.2)',
         }}>
             {/* Card header */}
             <div style={{
@@ -299,9 +299,9 @@ function PlatformCard({
                 {/* Icon */}
                 <div style={{
                     width: 44, height: 44, borderRadius: 'var(--radius-md)', flexShrink: 0,
-                    background: isConnected ? `${platform.color}18` : 'rgba(239,68,68,0.12)',
+                    background: isConnected ? `${platform.color}18` : 'rgba(255,255,255,0.05)',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    color: isConnected ? platform.color : '#ef4444',
+                    color: isConnected ? platform.color : 'var(--text-muted)',
                 }}>
                     {platform.icon}
                 </div>
@@ -321,8 +321,8 @@ function PlatformCard({
                         ) : (
                             <span style={{
                                 fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
-                                background: 'rgba(239,68,68,0.12)', color: '#ef4444',
-                                border: '1px solid rgba(239,68,68,0.25)',
+                                background: 'rgba(255,255,255,0.06)', color: 'var(--text-muted)',
+                                border: '1px solid rgba(255,255,255,0.1)',
                                 letterSpacing: '0.3px',
                             }}>
                                 Not connected
@@ -331,7 +331,7 @@ function PlatformCard({
                         {isEnabled && !isConnected && (
                             <span style={{
                                 fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
-                                background: 'rgba(129,140,248,0.12)', color: 'var(--accent)',
+                                background: 'rgba(14,165,233,0.12)', color: '#38bdf8',
                                 letterSpacing: '0.3px',
                             }}>
                                 Enabled
@@ -354,25 +354,25 @@ function PlatformCard({
                         fontSize: 12, fontWeight: 600, cursor: 'pointer',
                         border: isOpen
                             ? '1px solid var(--border-default)'
-                            : isConnected ? `1px solid ${platform.color}40` : '1px solid rgba(239,68,68,0.4)',
+                            : isConnected ? `1px solid ${platform.color}40` : '1px solid rgba(14,165,233,0.35)',
                         background: isOpen
                             ? 'rgba(255,255,255,0.04)'
-                            : isConnected ? `${platform.color}15` : 'rgba(239,68,68,0.12)',
-                        color: isOpen ? 'var(--text-secondary)' : isConnected ? platform.color : '#ef4444',
+                            : isConnected ? `${platform.color}15` : 'rgba(14,165,233,0.1)',
+                        color: isOpen ? 'var(--text-secondary)' : isConnected ? platform.color : '#38bdf8',
                         transition: 'all var(--transition-fast)',
                     }}
                     onMouseEnter={(e) => {
                         if (!isOpen) {
-                            const c = isConnected ? platform.color : '#ef4444';
-                            e.currentTarget.style.background = isConnected ? `${c}25` : 'rgba(239,68,68,0.22)';
-                            e.currentTarget.style.borderColor = isConnected ? `${c}70` : 'rgba(239,68,68,0.6)';
+                            const c = isConnected ? platform.color : '#0ea5e9';
+                            e.currentTarget.style.background = isConnected ? `${c}25` : 'rgba(14,165,233,0.18)';
+                            e.currentTarget.style.borderColor = isConnected ? `${c}70` : 'rgba(14,165,233,0.55)';
                         }
                     }}
                     onMouseLeave={(e) => {
                         if (!isOpen) {
-                            const c = isConnected ? platform.color : '#ef4444';
-                            e.currentTarget.style.background = isConnected ? `${c}15` : 'rgba(239,68,68,0.12)';
-                            e.currentTarget.style.borderColor = isConnected ? `${c}40` : 'rgba(239,68,68,0.4)';
+                            const c = isConnected ? platform.color : '#0ea5e9';
+                            e.currentTarget.style.background = isConnected ? `${c}15` : 'rgba(14,165,233,0.1)';
+                            e.currentTarget.style.borderColor = isConnected ? `${c}40` : 'rgba(14,165,233,0.35)';
                         }
                     }}
                 >
@@ -409,7 +409,7 @@ function PlatformCard({
                     {/* How-to tip */}
                     <div style={{
                         display: 'flex', alignItems: 'flex-start', gap: 10,
-                        background: 'rgba(129,140,248,0.06)', border: '1px solid rgba(129,140,248,0.15)',
+                        background: 'rgba(14,165,233,0.06)', border: '1px solid rgba(14,165,233,0.15)',
                         borderRadius: 'var(--radius-sm)', padding: '10px 14px', marginBottom: 18,
                     }}>
                         <svg viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth={2} width={15} height={15} style={{ flexShrink: 0, marginTop: 1 }}>
@@ -418,7 +418,7 @@ function PlatformCard({
                             <line x1="12" y1="16" x2="12.01" y2="16" />
                         </svg>
                         <span style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                            Open {platform.label} in your browser, open DevTools &rarr; Application &rarr; Cookies, then copy all cookies as JSON and paste below.
+                            Log into {platform.label} in Chrome, then install the <strong style={{ color: 'var(--text-primary)' }}>Cookie-Editor</strong> extension (free). Click it and choose <strong style={{ color: 'var(--text-primary)' }}>Export → JSON</strong>, then paste the result below.
                         </span>
                     </div>
 
@@ -652,8 +652,8 @@ export default function AccountsPage() {
                 {isSetup && accounts.length === 0 && (
                     <div style={{
                         position: 'relative', overflow: 'hidden',
-                        background: 'linear-gradient(135deg, rgba(99,102,241,0.12) 0%, rgba(167,139,250,0.06) 100%)',
-                        border: '1px solid rgba(129,140,248,0.25)',
+                        background: 'linear-gradient(135deg, rgba(14,165,233,0.1) 0%, rgba(37,99,235,0.06) 100%)',
+                        border: '1px solid rgba(14,165,233,0.25)',
                         borderRadius: 'var(--radius-lg)', padding: '20px 24px',
                     }}>
                         {/* Glow */}
@@ -666,7 +666,7 @@ export default function AccountsPage() {
                         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, position: 'relative' }}>
                             <div style={{
                                 width: 44, height: 44, borderRadius: 'var(--radius-md)', flexShrink: 0,
-                                background: 'rgba(129,140,248,0.15)',
+                                background: 'rgba(14,165,233,0.15)',
                                 display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22,
                             }}>
                                 <svg viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth={2} width={22} height={22}>
@@ -679,8 +679,8 @@ export default function AccountsPage() {
                                     Setup complete — now connect your social accounts
                                 </div>
                                 <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0 }}>
-                                    Click <strong style={{ color: 'var(--accent)' }}>Connect</strong> on any platform below.
-                                    Paste your browser cookies and the bot will start scraping and commenting using that account.
+                                    Click <strong style={{ color: 'var(--accent)' }}>Connect</strong> on any platform below and follow the on-screen steps.
+                                    Once connected, the bot will automatically find and reply to posts matching your keywords.
                                 </p>
                             </div>
                         </div>
