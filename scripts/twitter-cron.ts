@@ -301,7 +301,7 @@ async function scrapePhase(settings: any, keywords: string[]): Promise<{ totalFo
 // === POST PHASE: reply to evaluated tweets via HTTP (no browser) ===
 // Posts a batch of up to MAX_BATCH replies per cron run to get closer to daily limit.
 const MAX_BATCH_PER_RUN = 3; // max replies in one cron run (with delays between each)
-const INTER_REPLY_DELAY_MS = 45_000; // 45s between replies within a batch
+const INTER_REPLY_DELAY_MS = 20_000; // 20s between replies within a batch
 
 async function postOneTweet(
   candidate: any,
