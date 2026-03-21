@@ -112,6 +112,8 @@ export default function SettingsPage() {
         twitterAutoPostThreshold: 70,
         twitterBrandMentionRate: 25,
         twitterCooldownMinutes: 60,
+        twitterOriginalTweetsEnabled: false,
+        twitterOriginalTweetDailyLimit: 2,
         redditKeywords: [],
         redditDailyLimit: 5,
         redditAutoPostThreshold: 70,
@@ -764,6 +766,47 @@ export default function SettingsPage() {
                                                         <span style={{ fontSize: 10, color: '#ef4444' }}>100% — Always mention brand</span>
                                                     </div>
                                                 </div>
+
+                                                {/* Original Tweets — Twitter only */}
+                                                {p.id === 'twitter' && (
+                                                    <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 16 }}>
+                                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                                                            <div>
+                                                                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>Post Original Tweets</span>
+                                                                <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 6 }}>— AI-generated tweets from your keywords each cron run</span>
+                                                            </div>
+                                                            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={!!(settings as any).twitterOriginalTweetsEnabled}
+                                                                    onChange={e => setSettings(prev => ({ ...prev, twitterOriginalTweetsEnabled: e.target.checked }))}
+                                                                    style={{ width: 16, height: 16, accentColor: '#1d9bf0', cursor: 'pointer' }}
+                                                                />
+                                                                <span style={{ fontSize: 12, fontWeight: 600, color: (settings as any).twitterOriginalTweetsEnabled ? '#1d9bf0' : 'var(--text-muted)' }}>
+                                                                    {(settings as any).twitterOriginalTweetsEnabled ? 'Enabled' : 'Disabled'}
+                                                                </span>
+                                                            </label>
+                                                        </div>
+                                                        {(settings as any).twitterOriginalTweetsEnabled && (
+                                                            <div>
+                                                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                                                                    <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Max original tweets per day</span>
+                                                                    <span style={{ fontSize: 13, fontWeight: 700, color: '#1d9bf0', fontFamily: 'var(--font-mono)' }}>{(settings as any).twitterOriginalTweetDailyLimit ?? 2}</span>
+                                                                </div>
+                                                                <input
+                                                                    type="range" min={1} max={5} step={1}
+                                                                    value={(settings as any).twitterOriginalTweetDailyLimit ?? 2}
+                                                                    onChange={e => setSettings(prev => ({ ...prev, twitterOriginalTweetDailyLimit: Number(e.target.value) }))}
+                                                                    style={{ width: '100%', accentColor: '#1d9bf0' }}
+                                                                />
+                                                                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 2 }}>
+                                                                    <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>1/day</span>
+                                                                    <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>5/day</span>
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
 
                                                 {/* Cooldown between posts */}
                                                 <div>

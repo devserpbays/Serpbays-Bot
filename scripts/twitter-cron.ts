@@ -30,6 +30,7 @@ import { buildSuccessPatch, buildFailurePatch } from '../src/lib/accountHealth';
 import {
   replyToTweetHttp,
   likeTweetHttp,
+  postTweetHttp,
   retweetHttp,
   bookmarkHttp,
   followUserHttp,
@@ -168,6 +169,69 @@ Write the reply now:`;
     return reply;
   } catch (err) {
     console.error('Failed to generate tweet reply:', (err as Error).message);
+    return '';
+  }
+}
+
+async function generateOriginalTweet(
+  keyword: string,
+  companyName: string,
+  companyDescription: string,
+  brandMentionRate = 25,
+): Promise<string> {
+  const randomSeed = Math.floor(Math.random() * 1000);
+  const mentionBrand = Math.random() < (brandMentionRate / 100);
+
+  const brandRule = mentionBrand
+    ? `- Mention "${companyName}" once, naturally — e.g. as a tool you use or recommend`
+    : `- Do NOT mention any brand or company name — just share the insight`;
+
+  const prompt = `You are an SEO practitioner who posts regularly on Twitter/X. Write a single original tweet about the topic below.
+
+TOPIC: "${keyword}"
+CONTEXT about ${companyName}: ${companyDescription}
+
+RULES:
+- Write ONLY the tweet text — no quotes, no labels, no explanation
+- Under 240 characters
+- Sound like a real person sharing a genuine tip, insight, or question about the topic
+${brandRule}
+- No URLs
+- 0–2 relevant hashtags, only if they fit naturally
+- Vary format: sometimes a tip, sometimes a question, sometimes a quick stat or observation
+- Never use marketing phrases like "game-changer", "seamless", "leverage", "robust"
+- Never start with "Hey", "Hi", or "Absolutely"
+- Random variety seed: ${randomSeed}
+
+Write the tweet now:`;
+
+  try {
+    const raw = await askOpenClaw(prompt);
+    let tweet = raw;
+
+    if (tweet.trimStart().startsWith('{')) {
+      try {
+        const parsed = JSON.parse(tweet);
+        tweet = parsed?.payloads?.[0]?.text || parsed?.result?.content || parsed?.content || parsed?.message || '';
+      } catch {
+        const m = tweet.match(/"text"\s*:\s*"([^"]+)"/);
+        if (m) tweet = m[1];
+      }
+    }
+
+    tweet = tweet
+      .replace(/^["'`]+|["'`]+$/g, '')
+      .replace(/^(Tweet|Post|Here'?s?\s*(the|my|a)?\s*(tweet|post)?:?\s*)/i, '')
+      .replace(/\n/g, ' ')
+      .replace(/https?:\/\/\S+/gi, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+
+    if (tweet.length > 260) tweet = tweet.slice(0, 257) + '...';
+
+    return tweet;
+  } catch (err) {
+    console.error('Failed to generate original tweet:', (err as Error).message);
     return '';
   }
 }
@@ -555,6 +619,68 @@ async function postPhase(settings: any, accountId: string, dailyLimit: number, a
 
   if (postedThisRun > 0) {
     console.log(`Batch complete: posted ${postedThisRun} repl${postedThisRun === 1 ? 'y' : 'ies'} this run`);
+  }
+
+  // ── Original tweet posting ─────────────────────────────────────────────────
+  // If enabled, post one original tweet per cron run based on configured keywords + prompts.
+  if (settings.twitterOriginalTweetsEnabled) {
+    const originalDailyLimit = settings.twitterOriginalTweetDailyLimit ?? 2;
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+    const todayOriginalCount = await Post.countDocuments({
+      platform: 'twitter', isOriginalTweet: true, postedAt: { $gte: todayStart },
+      ...(CRON_USER_ID && { userId: CRON_USER_ID }),
+    });
+
+    if (todayOriginalCount >= originalDailyLimit) {
+      console.log(`Original tweet daily limit reached (${todayOriginalCount}/${originalDailyLimit}), skipping`);
+    } else {
+      const keywords: string[] = settings.twitterKeywords?.length
+        ? settings.twitterKeywords
+        : settings.keywords ?? [];
+
+      if (keywords.length === 0) {
+        console.log('No keywords configured for original tweet generation, skipping');
+      } else {
+        const keyword = keywords[Math.floor(Math.random() * keywords.length)];
+        console.log(`Generating original tweet about: "${keyword}"`);
+
+        const tweetText = await generateOriginalTweet(
+          keyword,
+          settings.companyName,
+          settings.companyDescription,
+          settings.twitterBrandMentionRate ?? 25,
+        );
+
+        if (!tweetText || tweetText.length < 5) {
+          console.error('Generated original tweet failed safety check, skipping');
+        } else {
+          console.log(`Original tweet: "${tweetText}"`);
+          try {
+            const result = await postTweetHttp(PROFILE_DIR, tweetText);
+            const tweetId = result?.data?.create_tweet?.tweet_results?.result?.rest_id;
+            const tweetUrl = tweetId ? `https://x.com/i/status/${tweetId}` : `https://x.com/${accountId}`;
+
+            await Post.create({
+              url: tweetUrl,
+              platform: 'twitter',
+              ...(CRON_USER_ID && { userId: CRON_USER_ID }),
+              author: accountId,
+              content: tweetText,
+              keywordsMatched: [keyword],
+              isOriginalTweet: true,
+              status: 'posted',
+              postedAt: new Date(),
+              postedByAccount: accountId,
+            });
+
+            console.log(`Original tweet posted: ${tweetUrl}`);
+            if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'original_tweet', `Posted original tweet about "${keyword}"`, { keyword, tweetUrl });
+          } catch (err) {
+            console.error('Failed to post original tweet:', (err as Error).message);
+          }
+        }
+      }
+    }
   }
 
   // Close browser if it was opened for fallback

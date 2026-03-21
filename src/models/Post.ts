@@ -50,6 +50,7 @@ const PostSchema = new Schema({
   followUpText: String,
   followUpPostedAt: Date,
   monitorUntil: Date,
+  isOriginalTweet: { type: Boolean, default: false },
   postAttempts: { type: Number, default: 0 },
   // TTL: auto-delete terminal posts after expiry
   ttlExpireAt: { type: Date, default: null },

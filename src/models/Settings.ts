@@ -32,6 +32,8 @@ const SettingsSchema = new Schema({
   twitterAutoPostThreshold: { type: Number, default: 70 },
   twitterBrandMentionRate: { type: Number, default: 25, min: 0, max: 100 },
   twitterCooldownMinutes: { type: Number, default: 60, min: 15 },
+  twitterOriginalTweetsEnabled: { type: Boolean, default: false },
+  twitterOriginalTweetDailyLimit: { type: Number, default: 2 },
   redditKeywords: [{ type: String }],
   redditDailyLimit: { type: Number, default: 5 },
   redditAutoPostThreshold: { type: Number, default: 70 },
