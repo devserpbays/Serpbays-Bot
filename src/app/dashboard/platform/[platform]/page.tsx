@@ -95,7 +95,8 @@ export default function PlatformPage() {
     const [communityPosts, setCommunityPosts] = useState<IPost[]>([]);
     const [communityTotal, setCommunityTotal] = useState(0);
     const [communityPage, setCommunityPage] = useState(1);
-    const [viewMode, setViewMode] = useState<'keyword' | 'community'>('keyword');
+    type ActiveTab = 'keyword' | 'community' | 'liked' | 'retweeted' | 'bookmarked' | 'followed';
+    const [activeTab, setActiveTab] = useState<ActiveTab>('keyword');
     const [timeFilter, setTimeFilter] = useState('today');
     const [expandedId, setExpandedId] = useState<string | null>(null);
     const [accounts, setAccounts] = useState<SocialAccount[]>([]);
@@ -123,8 +124,6 @@ export default function PlatformPage() {
 
     // Engagement list browser (liked / retweeted / bookmarked / followed)
     type EngageTab = 'liked' | 'retweeted' | 'bookmarked' | 'followed';
-    const [showEngageList, setShowEngageList] = useState(false);
-    const [engageTab, setEngageTab] = useState<EngageTab>('liked');
     const [engageTimeFilter, setEngageTimeFilter] = useState('today');
     const [engageListPage, setEngageListPage] = useState(1);
     const [engageListData, setEngageListData] = useState<{
@@ -197,8 +196,9 @@ export default function PlatformPage() {
     useEffect(() => { setCommunityLoading(true); fetchCommunityPosts(); }, [fetchCommunityPosts]);
     useEffect(() => { fetchEngageStats(); }, [fetchEngageStats]);
     useEffect(() => {
-        if (showEngageList) fetchEngageList(engageTab, engageListPage, engageTimeFilter);
-    }, [showEngageList, engageTab, engageListPage, engageTimeFilter, fetchEngageList]);
+        const isEngage = (['liked', 'retweeted', 'bookmarked', 'followed'] as const).includes(activeTab as EngageTab);
+        if (isEngage) fetchEngageList(activeTab as EngageTab, engageListPage, engageTimeFilter);
+    }, [activeTab, engageListPage, engageTimeFilter, fetchEngageList]);
     useEffect(() => {
         pollRef.current = setInterval(() => { fetchPosts(); fetchCommunityPosts(); fetchEngageStats(); }, POLL_MS);
         return () => { if (pollRef.current) clearInterval(pollRef.current); };
@@ -208,7 +208,9 @@ export default function PlatformPage() {
 
     const { label, color, icon } = meta;
     const replyLabel = REPLY_LABEL[platformId] || 'Comment';
-    const isCommunityView = platformId === 'twitter' && viewMode === 'community';
+    const showEngageList = (['liked', 'retweeted', 'bookmarked', 'followed'] as const).includes(activeTab as EngageTab);
+    const engageTab = activeTab as EngageTab;
+    const isCommunityView = platformId === 'twitter' && activeTab === 'community';
     const activePosts = isCommunityView ? communityPosts : posts;
     const activeTotal = isCommunityView ? communityTotal : total;
     const activePage = isCommunityView ? communityPage : page;
@@ -396,77 +398,56 @@ export default function PlatformPage() {
             {/* ══ Body ════════════════════════════════════════════════ */}
             <div style={{ padding: '20px 28px', display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-                {/* ── Toolbar: source toggle (Twitter) + time filters + result count ── */}
+                {/* ── Twitter tab bar ── */}
+                {platformId === 'twitter' && (
+                    <div style={{
+                        display: 'flex', gap: 0,
+                        borderBottom: '1px solid var(--border-subtle)',
+                        marginBottom: 4, overflowX: 'auto',
+                    }}>
+                        {([
+                            { key: 'keyword' as const, label: 'Replies', count: total, tc: color },
+                            { key: 'community' as const, label: 'Communities', count: communityTotal, tc: '#1d9bf0' },
+                            { key: 'liked' as const, label: 'Liked', count: engageStats?.totalLiked ?? 0, tc: '#f43f5e' },
+                            { key: 'retweeted' as const, label: 'Retweeted', count: engageStats?.totalRetweeted ?? 0, tc: '#34d399' },
+                            { key: 'bookmarked' as const, label: 'Bookmarked', count: engageStats?.totalBookmarked ?? 0, tc: '#fbbf24' },
+                            { key: 'followed' as const, label: 'Following', count: engageStats?.currentlyFollowing ?? 0, tc: '#818cf8' },
+                        ]).map(({ key, label: lbl, count, tc }) => {
+                            const isActive = activeTab === key;
+                            return (
+                                <button key={key} onClick={() => {
+                                    setActiveTab(key);
+                                    setExpandedId(null);
+                                    setEngageListPage(1);
+                                    setEngageListData(null);
+                                }} style={{
+                                    display: 'flex', alignItems: 'center', gap: 6,
+                                    padding: '10px 18px', border: 'none',
+                                    borderBottom: isActive ? `2px solid ${tc}` : '2px solid transparent',
+                                    background: 'none', cursor: 'pointer',
+                                    fontSize: 13, fontWeight: isActive ? 700 : 500,
+                                    color: isActive ? tc : 'var(--text-muted)',
+                                    transition: 'all 150ms', whiteSpace: 'nowrap',
+                                    marginBottom: -1,
+                                }}>
+                                    {lbl}
+                                    {count > 0 && (
+                                        <span style={{
+                                            fontSize: 10, fontWeight: 700,
+                                            padding: '1px 6px', borderRadius: 8,
+                                            background: isActive ? `${tc}18` : 'var(--bg-input)',
+                                            color: isActive ? tc : 'var(--text-muted)',
+                                        }}>{count}</span>
+                                    )}
+                                </button>
+                            );
+                        })}
+                    </div>
+                )}
+
+                {/* ── Toolbar: time filters + result count ── */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                        {/* Source toggle — Twitter only */}
-                        {platformId === 'twitter' && (
-                            <div style={{
-                                display: 'flex', gap: 2, alignItems: 'center',
-                                background: 'var(--bg-card)',
-                                border: '1px solid var(--border-subtle)',
-                                borderRadius: 10, padding: 3,
-                            }}>
-                                {([
-                                    { value: 'keyword', label: 'Keyword Replies' },
-                                    { value: 'community', label: 'Communities' },
-                                ] as const).map(({ value, label: lbl }) => (
-                                    <button key={value} onClick={() => { setViewMode(value); setExpandedId(null); setShowEngageList(false); }} style={{
-                                        padding: '6px 14px', borderRadius: 8, border: 'none',
-                                        fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                                        background: viewMode === value ? (value === 'community' ? '#1d9bf0' : color) : 'transparent',
-                                        color: viewMode === value ? '#fff' : 'var(--text-muted)',
-                                        transition: 'all 150ms',
-                                        display: 'flex', alignItems: 'center', gap: 6,
-                                    }}>
-                                        {value === 'community' && (
-                                            <svg viewBox="0 0 24 24" fill="currentColor" width="11" height="11">
-                                                <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm0 3a3 3 0 110 6 3 3 0 010-6zm0 14.2a7.2 7.2 0 01-6-3.22c.03-1.99 4-3.08 6-3.08s5.97 1.09 6 3.08a7.2 7.2 0 01-6 3.22z" />
-                                            </svg>
-                                        )}
-                                        {lbl}
-                                        {value === 'community' && communityTotal > 0 && (
-                                            <span style={{
-                                                fontSize: 10, fontWeight: 700, lineHeight: 1,
-                                                padding: '2px 6px', borderRadius: 10,
-                                                background: viewMode === 'community' ? 'rgba(255,255,255,0.25)' : 'rgba(29,155,240,0.15)',
-                                                color: viewMode === 'community' ? '#fff' : '#1d9bf0',
-                                            }}>{communityTotal}</span>
-                                        )}
-                                    </button>
-                                ))}
-
-                                {/* Divider */}
-                                {engageStats && <span style={{ width: 1, height: 18, background: 'var(--border-subtle)', flexShrink: 0 }} />}
-
-                                {/* Engagement stats — inside the same pill, clickable */}
-                                {engageStats && ([
-                                    { tab: 'liked' as const, icon: <svg viewBox="0 0 24 24" fill="#f43f5e" width="11" height="11"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" /></svg>, label: 'Liked', value: engageStats.totalLiked, c: '#f43f5e' },
-                                    { tab: 'retweeted' as const, icon: <svg viewBox="0 0 24 24" fill="none" stroke="#34d399" strokeWidth={2.2} width="11" height="11"><path d="M17 1l4 4-4 4" /><path d="M3 11V9a4 4 0 0 1 4-4h14" /><path d="M7 23l-4-4 4-4" /><path d="M21 13v2a4 4 0 0 1-4 4H3" /></svg>, label: 'Retweeted', value: engageStats.totalRetweeted, c: '#34d399' },
-                                    { tab: 'bookmarked' as const, icon: <svg viewBox="0 0 24 24" fill="#fbbf24" width="11" height="11"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" /></svg>, label: 'Bookmarked', value: engageStats.totalBookmarked, c: '#fbbf24' },
-                                    { tab: 'followed' as const, icon: <svg viewBox="0 0 24 24" fill="none" stroke="#818cf8" strokeWidth={2} width="11" height="11"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><line x1="19" y1="8" x2="19" y2="14" /><line x1="22" y1="11" x2="16" y2="11" /></svg>, label: 'Following', value: engageStats.currentlyFollowing, c: '#818cf8' },
-                                ] as const).map(({ tab, icon, label, value, c }) => {
-                                    const active = showEngageList && engageTab === tab;
-                                    return (
-                                        <button key={label} onClick={() => {
-                                            if (active) { setShowEngageList(false); }
-                                            else { setEngageTab(tab); setEngageListPage(1); setEngageListData(null); setShowEngageList(true); }
-                                        }} style={{
-                                            display: 'flex', alignItems: 'center', gap: 4,
-                                            padding: '5px 10px', borderRadius: 7, border: 'none',
-                                            fontSize: 11, cursor: 'pointer',
-                                            background: active ? `${c}18` : 'transparent',
-                                            outline: active ? `1px solid ${c}40` : 'none',
-                                            transition: 'all 150ms',
-                                        }}>
-                                            {icon}
-                                            <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>{label}:</span>
-                                            <span style={{ color: c, fontWeight: 800 }}>{value}</span>
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                        )}
 
                         {/* Tab-style time filters */}
                         <div style={{
