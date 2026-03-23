@@ -415,6 +415,25 @@ export async function scrapeCommentEngagement(
   }
 }
 
+// --- Visit home news feed (simulates real user checking their feed) ---
+export async function visitNewsFeed(): Promise<void> {
+  try {
+    const page = await getPage();
+    await page.goto('https://www.facebook.com/', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await humanDelay(3000, 6000);
+    // Scroll through feed naturally — real users skim before acting
+    const scrolls = 2 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < scrolls; i++) {
+      await page.mouse.wheel(0, 600 + Math.random() * 400);
+      await humanDelay(1500, 3500);
+    }
+    console.log('[FB] Visited news feed');
+  } catch (err) {
+    console.warn('[FB] visitNewsFeed failed:', (err as Error).message);
+  }
+}
+
+
 // --- Like a Facebook post (warm-up engagement) ---
 export async function likeFacebookPost(postUrl: string): Promise<boolean> {
   try {
@@ -848,7 +867,7 @@ const REACTION_WEIGHTS: Array<{ reaction: FbReaction; weight: number }> = [
   { reaction: 'Angry', weight:  1 },
 ];
 
-function pickReaction(): FbReaction {
+export function pickReaction(): FbReaction {
   const total = REACTION_WEIGHTS.reduce((s, r) => s + r.weight, 0);
   let rand = Math.random() * total;
   for (const { reaction, weight } of REACTION_WEIGHTS) {

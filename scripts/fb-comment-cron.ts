@@ -24,9 +24,13 @@ import {
   getJoinedGroups,
   scrapeGroupPosts,
   postComment,
-  likeFacebookPost,
+  reactToPost,
+  pickReaction,
+  browseFeedAndReact,
+  visitNewsFeed,
   closeBrowser,
 } from '../src/lib/facebook';
+import { getWarmupLimit, getAccountAge, shouldRandomlySkip } from '../src/lib/antiBan';
 import { isWithinSchedule } from '../src/lib/schedule';
 import { logActivity, notifyAuthError } from '../src/lib/activityLog';
 import Post from '../src/models/Post';
@@ -36,6 +40,48 @@ import { buildSuccessPatch, buildFailurePatch } from '../src/lib/accountHealth';
 
 const DEFAULT_DAILY_LIMIT = 3;  // Facebook flags accounts posting too many group comments/day
 const DEFAULT_AUTO_POST_THRESHOLD = 10;
+
+// --- Time-of-day activity multiplier (same pattern as Twitter) ---
+// Returns 0.0–1.0 — 1.0 = peak hours, lower = off-peak
+function getTimeOfDayMultiplier(): number {
+  const hour = new Date().getUTCHours() + 5.5; // rough IST offset
+  const h = Math.floor(hour) % 24;
+  // Minimal activity 1–5am, ramp up morning, peak 9am–6pm, taper evening
+  if (h >= 1 && h < 5) return 0.2;
+  if (h >= 5 && h < 8) return 0.5;
+  if (h >= 8 && h < 9) return 0.8;
+  if (h >= 9 && h < 18) return 1.0;
+  if (h >= 18 && h < 21) return 0.7;
+  if (h >= 21 || h < 1) return 0.4;
+  return 1.0;
+}
+
+// Weighted item picker
+function pickWeighted<T>(items: Array<{ value: T; weight: number }>): T {
+  const total = items.reduce((s, i) => s + i.weight, 0);
+  let rand = Math.random() * total;
+  for (const item of items) {
+    rand -= item.weight;
+    if (rand <= 0) return item.value;
+  }
+  return items[0].value;
+}
+
+// Comment length targets (words)
+const COMMENT_LENGTHS = [
+  { value: 'short',  weight: 40 }, // 1-2 sentences
+  { value: 'medium', weight: 40 }, // 2-3 sentences
+  { value: 'long',   weight: 20 }, // 3-4 sentences with detail
+];
+
+// Comment style pool
+const COMMENT_STYLES = [
+  { value: 'helpful_tip',    weight: 25 },
+  { value: 'question',       weight: 20 },
+  { value: 'personal_story', weight: 20 },
+  { value: 'practical_advice', weight: 20 },
+  { value: 'observation',    weight: 15 },
+];
 
 if (CRON_USER_ID && !process.env.FACEBOOK_PROFILE_DIR) {
   console.log('No Facebook account connected for this user, skipping.');
@@ -81,28 +127,46 @@ async function getTodayCommentCount(accountId: string): Promise<number> {
 }
 
 // --- Generate a unique, natural comment mentioning the company ---
+// brandMentionRate: 0-100. Default 80 (social media manager strategy — mention brand most of the time).
+// When post is highly brand-relevant, may mention brand up to 2 times.
 async function generateVariedComment(
   postContent: string,
   companyName: string,
   companyDescription: string,
-  brandMentionRate = 25
+  brandMentionRate = 80
 ): Promise<string> {
   const randomSeed = Math.floor(Math.random() * 1000);
   const mentionBrand = Math.random() < (brandMentionRate / 100);
 
-  const genericStyles = [
-    'share a genuine helpful tip related to the post topic',
-    'ask a thoughtful follow-up question about something in the post',
-    'share a personal experience or lesson relevant to the discussion',
-    'give practical advice that adds real value to the conversation',
-    'share an observation or insight that builds on the post',
-  ];
-  const brandStyles = [
-    `give a helpful tip; only if it fits completely naturally, mention ${companyName} briefly — do NOT force it`,
-    `share a genuine insight; if organic, mention you've found ${companyName} useful — otherwise leave it out`,
-  ];
-  const stylePool = mentionBrand ? brandStyles : genericStyles;
-  const style = stylePool[randomSeed % stylePool.length];
+  // Detect if post is highly brand-relevant (allows a second natural mention)
+  const brandKeywords = companyName.toLowerCase().split(/\s+/);
+  const postLower = postContent.toLowerCase();
+  const isBrandRelated = brandKeywords.some(kw => kw.length > 3 && postLower.includes(kw))
+    || (companyDescription || '').toLowerCase().split(/\s+/).filter(w => w.length > 4).some(w => postLower.includes(w));
+  const allowDoubleMention = mentionBrand && isBrandRelated && Math.random() < 0.5;
+
+  const style = pickWeighted(COMMENT_STYLES);
+  const length = pickWeighted(COMMENT_LENGTHS);
+
+  const styleInstructions: Record<string, string> = {
+    helpful_tip: 'share a genuine, actionable tip related to the post topic',
+    question: 'ask a thoughtful, curious follow-up question about something in the post',
+    personal_story: 'share a brief personal experience or lesson relevant to the discussion',
+    practical_advice: 'give practical, specific advice that genuinely helps the reader',
+    observation: 'share an insightful observation or perspective that builds on the post',
+  };
+
+  const lengthInstructions: Record<string, string> = {
+    short: '1-2 concise sentences',
+    medium: '2-3 natural sentences',
+    long: '3-4 sentences with a bit of detail',
+  };
+
+  const brandInstruction = mentionBrand
+    ? allowDoubleMention
+      ? `As a social media manager for ${companyName} (${companyDescription}), weave in the brand naturally up to 2 times — once early and once at the end if it fits. Never force it.`
+      : `If it fits organically, mention ${companyName} once — naturally, the way a social media manager would. Context: ${companyDescription}`
+    : '';
 
   const prompt = `You are a real member of a Facebook group leaving a genuine comment.
 
@@ -111,17 +175,17 @@ POST:
 ${postContent.slice(0, 500)}
 """
 
-YOUR TASK: Write a 1-2 sentence comment that ${style}.
+YOUR TASK: Write a comment (${lengthInstructions[length]}) that ${styleInstructions[style]}.
+${brandInstruction}
 
 STRICT RULES:
 - Write ONLY the comment text, nothing else
-- Sound like a genuine group member, NOT a marketer or advertiser
-- NEVER use phrases like "check out X", "X is amazing for", "I recommend X", "highly suggest X"
+- Sound like a genuine group member, NOT a spam bot or sales rep
+- NEVER use phrases like "check out X", "X is amazing for", "I highly recommend X"
 - NEVER include website URLs, domains, or hashtags
 - The comment must genuinely add value to the discussion
-- Use natural, conversational language
+- Use warm, conversational language — like a knowledgeable friend
 - Do NOT include any code, errors, JSON, or technical output
-${mentionBrand ? `- Company context if it fits naturally: ${companyDescription}` : ''}
 - Seed: ${randomSeed}
 
 Write the comment now:`;
@@ -214,11 +278,33 @@ async function main() {
     if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'facebook', 'warn', 'config_error', 'No Facebook keywords configured');
     process.exit(0);
   }
-  const dailyLimit: number = settings.facebookDailyLimit ?? DEFAULT_DAILY_LIMIT;
+  const configuredDailyLimit: number = settings.facebookDailyLimit ?? DEFAULT_DAILY_LIMIT;
   const autoPostThreshold: number =
     settings.facebookAutoPostThreshold ?? DEFAULT_AUTO_POST_THRESHOLD;
-  const brandMentionRate: number = (settings as any).facebookBrandMentionRate ?? 25;
+  const brandMentionRate: number = (settings as any).facebookBrandMentionRate ?? 80;
   const cooldownMinutes: number = (settings as any).facebookCooldownMinutes ?? 90;
+
+  // Warmup ramp: limit daily posts based on account age to avoid detection
+  const fbAddedAt = getAccountAge(settings, 'facebook');
+  const dailyLimit = getWarmupLimit(configuredDailyLimit, fbAddedAt);
+  if (dailyLimit < configuredDailyLimit) {
+    console.log(`Warmup mode: daily limit capped at ${dailyLimit}/${configuredDailyLimit} (account age < 30 days)`);
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'facebook', 'info', 'warmup', `Warmup limit: ${dailyLimit}/${configuredDailyLimit}`);
+  }
+
+  // Time-of-day gate: low-activity hours → probabilistic skip
+  const todMultiplier = getTimeOfDayMultiplier();
+  if (!process.env.CRON_MANUAL && Math.random() > todMultiplier) {
+    console.log(`Time-of-day multiplier ${todMultiplier.toFixed(2)} → skipping this run`);
+    process.exit(0);
+  }
+
+  // Passive session gate: 40% of the time, browse only without commenting
+  const passiveSession = !process.env.CRON_MANUAL && Math.random() < 0.40;
+  if (passiveSession) {
+    console.log('Passive session: will browse groups without commenting this run');
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'facebook', 'info', 'passive_session', 'Passive session — browsing without commenting');
+  }
 
   // Step 2b: Read current account identity
   const accountId = getCurrentAccountId();
@@ -268,6 +354,11 @@ async function main() {
   }
   console.log('Facebook login confirmed');
 
+  // Visit news feed — simulates real user checking their feed before acting
+  try {
+    await visitNewsFeed();
+  } catch (e) { console.warn('visitNewsFeed error:', (e as Error).message); }
+
   // Re-write .verified with loggedIn: true; scrape identity if missing
   try {
     const existing = getVerifiedData();
@@ -297,6 +388,24 @@ async function main() {
     process.exit(0);
   }
   console.log(`Scraping ${groupUrls.length} groups`);
+
+  // Passive session: browse and react without commenting, then exit
+  if (passiveSession) {
+    try {
+      const result = await browseFeedAndReact(groupUrls.slice(0, 3), 2 + Math.floor(Math.random() * 2));
+      console.log(`Passive session complete: reacted ${result.reacted} times (${result.reactions.join(', ')})`);
+      if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'facebook', 'info', 'passive_session', `Passive session done — reacted ${result.reacted} times`);
+    } catch (e) { console.warn('Passive session error:', (e as Error).message); }
+    await closeBrowser();
+    process.exit(0);
+  }
+
+  // Random 15% skip — makes posting patterns less predictable
+  if (!process.env.CRON_MANUAL && shouldRandomlySkip(0.15)) {
+    console.log('Random skip (15% chance) — skipping this run');
+    await closeBrowser();
+    process.exit(0);
+  }
 
   // Step 6: Scrape posts from each group
   let allPosts: Array<{
@@ -431,14 +540,17 @@ async function main() {
       );
       console.log(`Comment: "${replyText}"`);
 
-      // Warm-up: like post before commenting (builds rapport)
+      // Warm-up: react to post before commenting (social media manager style — varied reactions)
       if (!autoPostCandidate.likedByBot) {
         try {
-          await likeFacebookPost(autoPostCandidate.url);
-          await Post.findByIdAndUpdate(autoPostCandidate._id, { likedByBot: true });
-          console.log('  Liked post');
-          await new Promise((r) => setTimeout(r, 2000 + Math.random() * 2000));
-        } catch (e) { console.warn('Like failed, continuing:', (e as Error).message); }
+          const chosenReaction = pickReaction();
+          const reactionResult = await reactToPost(autoPostCandidate.url, chosenReaction);
+          if (reactionResult.success) {
+            await Post.findByIdAndUpdate(autoPostCandidate._id, { likedByBot: true });
+            console.log(`  Reacted with ${reactionResult.reaction}`);
+          }
+          await new Promise((r) => setTimeout(r, 2000 + Math.random() * 3000));
+        } catch (e) { console.warn('React failed, continuing:', (e as Error).message); }
       }
 
       const result = await postComment(autoPostCandidate.url, replyText);
