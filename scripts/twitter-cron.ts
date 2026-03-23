@@ -869,11 +869,17 @@ async function executeLikeAction(): Promise<void> {
       if (/404|385|not found|deleted/i.test(msg)) {
         await Post.findByIdAndUpdate(post._id, { likedByBot: true });
         console.log('[Like] Tweet appears deleted — marked to skip on future runs');
+        if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'warn', 'engage', `Like skipped — tweet deleted or not found (${tweetId})`);
+      } else {
+        if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'warn', 'engage', `Like failed: ${msg}`);
       }
     }
   }
 
-  if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'engage', `Liked ${liked} tweet${liked !== 1 ? 's' : ''}`);
+  if (liked > 0 && CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'engage',
+    `Liked ${liked} tweet${liked !== 1 ? 's' : ''}`,
+    { tweetIds: shuffled.slice(0, liked).map(p => extractTweetId(p.url)).filter(Boolean) },
+  );
 }
 
 async function executeRetweetAction(): Promise<void> {
@@ -897,10 +903,12 @@ async function executeRetweetAction(): Promise<void> {
   } catch (err) {
     const msg = (err as Error).message;
     console.warn('[Retweet] Failed:', msg);
-    // If tweet is gone (404/385/deleted), mark as retweeted so we never retry it
     if (/404|385|not found|deleted/i.test(msg)) {
       await Post.findByIdAndUpdate(candidate._id, { retweetedByBot: true });
       console.log('[Retweet] Tweet appears deleted — marked to skip on future runs');
+      if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'warn', 'engage', `Retweet skipped — tweet deleted or not found (${tweetId})`);
+    } else {
+      if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'warn', 'engage', `Retweet failed: ${msg}`);
     }
   }
 }
@@ -930,6 +938,9 @@ async function executeBookmarkAction(): Promise<void> {
       if (/404|385|not found|deleted/i.test(msg)) {
         await Post.findByIdAndUpdate(post._id, { bookmarkedByBot: true });
         console.log('[Bookmark] Tweet appears deleted — marked to skip on future runs');
+        if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'warn', 'engage', `Bookmark skipped — tweet deleted or not found (${tweetId})`);
+      } else {
+        if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'warn', 'engage', `Bookmark failed: ${msg}`);
       }
     }
   }
@@ -1020,13 +1031,18 @@ function getTimeOfDayMultiplier(): number {
 }
 
 async function socialPhase(settings: any, accountId: string, dailyLimit: number, autoPostThreshold: number): Promise<void> {
+  // ── Time-of-day multiplier ──
+  const todMult = getTimeOfDayMultiplier();
+  const hour = new Date().getHours();
+  console.log(`[Social] Time-of-day multiplier: ${todMult.toFixed(2)} (hour ${hour})`);
+
   // ── Session opener: visit notifications (every real user does this first) ──
   console.log('[Social] Session start — checking notifications...');
   await visitNotificationsFeed(PROFILE_DIR);
-
-  // ── Time-of-day multiplier ──
-  const todMult = getTimeOfDayMultiplier();
-  console.log(`[Social] Time-of-day multiplier: ${todMult.toFixed(2)} (hour ${new Date().getHours()})`);
+  if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'session',
+    `Session opened — notifications checked · activity level ${Math.round(todMult * 100)}% (${hour}:00)`,
+    { hour, activityMultiplier: todMult },
+  );
 
   // ── Passive session check ──────────────────────────────────────────────────
   // 50–75% of runs are passive (browse + notifications only — no posting/engaging).
@@ -1035,7 +1051,10 @@ async function socialPhase(settings: any, accountId: string, dailyLimit: number,
   if (Math.random() < passiveThreshold && !process.env.CRON_MANUAL) {
     console.log(`[Social] Passive session (threshold ${(passiveThreshold * 100).toFixed(0)}%) — browsing feed only`);
     await executeBrowseAction();
-    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'social', 'Passive browse session');
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'session',
+      `Passive session — scrolled feed, no actions (${Math.round(passiveThreshold * 100)}% passive threshold at ${hour}:00)`,
+      { passive: true, hour, passiveThreshold: +passiveThreshold.toFixed(2) },
+    );
     return;
   }
 
@@ -1064,6 +1083,10 @@ async function socialPhase(settings: any, accountId: string, dailyLimit: number,
       if (elapsed < MIN_COMMENT_GAP_MS) {
         const remainMin = Math.ceil((MIN_COMMENT_GAP_MS - elapsed) / 60000);
         console.log(`[Social] Reply cooldown: ${remainMin}m remaining — excluded`);
+        if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'cooldown',
+          `Reply on cooldown — ${remainMin}m until next reply allowed`,
+          { remainingMinutes: remainMin },
+        );
         delete weights.reply;
       }
     }
@@ -1109,7 +1132,10 @@ async function socialPhase(settings: any, accountId: string, dailyLimit: number,
   }
 
   console.log(`[Social] Plan: ${actions.join(' → ')}`);
-  if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'social', `Run plan: ${actions.join(' → ')}`);
+  if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'social',
+    `Active session — plan: ${actions.join(' → ')}`,
+    { actions, count: actions.length, hour, activityMultiplier: todMult },
+  );
 
   for (let i = 0; i < actions.length; i++) {
     const action = actions[i];

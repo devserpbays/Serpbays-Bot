@@ -34,16 +34,26 @@ const LEVEL_CONFIG: Record<string, { label: string; color: string; bg: string; i
 };
 
 const ACTION_LABELS: Record<string, string> = {
-    cron_start: 'Cron Started',
-    cron_end: 'Cron Finished',
-    config_error: 'Config Issue',
-    auth_error: 'Auth Failed',
-    scrape: 'Scraping',
-    evaluate: 'AI Evaluation',
-    post: 'Comment Posted',
-    post_failed: 'Post Failed',
-    limit: 'Limit Reached',
-    skip: 'Skipped',
+    cron_start:        'Cron Started',
+    cron_end:          'Cron Finished',
+    config_error:      'Config Issue',
+    auth_error:        'Auth Failed',
+    scrape:            'Scraping',
+    evaluate:          'AI Evaluation',
+    post:              'Reply Posted',
+    post_failed:       'Post Failed',
+    limit:             'Limit Reached',
+    skip:              'Skipped',
+    social:            'Session Plan',
+    session:           'Session',
+    engage:            'Engagement',
+    original_tweet:    'Original Tweet',
+    automation_block:  'Automation Block',
+    account_suspended: 'Account Suspended',
+    rate_limit:        'Rate Limited',
+    duplicate:         'Duplicate Skipped',
+    cooldown:          'Cooldown Active',
+    warmup:            'Warmup Active',
 };
 
 export default function LogsPage() {
