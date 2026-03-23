@@ -42,7 +42,7 @@ import {
 } from '../src/lib/twitterHttp';
 
 // Browser-based scraping + fallback posting (needs Chromium)
-import { searchTweets, searchCommunityTweets, closeBrowser, scrollHomeFeed, replyToTweet, likeTweet } from '../src/lib/twitter';
+import { searchTweets, searchCommunityTweets, closeBrowser, scrollHomeFeed, replyToTweet, likeTweet, type CommunitySearchResult } from '../src/lib/twitter';
 
 import TwitterFollowed from '../src/models/TwitterFollowed';
 
@@ -62,6 +62,9 @@ import {
 const DEFAULT_DAILY_LIMIT = 4;
 const DEFAULT_AUTO_POST_THRESHOLD = 70;
 const MIN_ENGAGEMENT_SCORE = 1;
+
+// In-memory cache of community metadata (populated during scrape phase, used during reply phase)
+const communityCache = new Map<string, { name: string; rules: string[] }>();
 
 // Resolve profile dir for this user — require env var in multi-user mode
 if (CRON_USER_ID && !process.env.TWITTER_PROFILE_DIR) {
@@ -141,7 +144,8 @@ async function generateTweetReply(
   postContent: string,
   companyName: string,
   companyDescription: string,
-  brandMentionRate = 25
+  brandMentionRate = 25,
+  communityContext?: { name: string; rules: string[] }
 ): Promise<string> {
   const randomSeed = Math.floor(Math.random() * 9999);
   const mentionBrand = Math.random() < (brandMentionRate / 100);
@@ -152,6 +156,10 @@ async function generateTweetReply(
     ? `- Mention "${companyName}" once, naturally woven in (e.g. "been using ${companyName} for this")`
     : `- Do NOT mention any brand or company name — just share the insight`;
 
+  const communitySection = communityContext?.rules?.length
+    ? `\nCOMMUNITY: "${communityContext.name}"\nCOMMUNITY RULES — your reply MUST comply with all of these:\n${communityContext.rules.map((r, i) => `${i + 1}. ${r}`).join('\n')}\n`
+    : '';
+
   const prompt = `Reply to this tweet naturally, like a real person sharing experience.
 
 TWEET:
@@ -160,7 +168,7 @@ ${postContent.slice(0, 280)}
 """
 
 CONTEXT about ${companyName}: ${companyDescription}
-
+${communitySection}
 STYLE: ${style.instruction}
 LENGTH: ${length.instruction}
 
@@ -352,7 +360,11 @@ async function scrapePhase(settings: any, keywords: string[]): Promise<{ totalFo
   for (const communityId of communityIds) {
     try {
       console.log(`Scraping Twitter Community: ${communityId}`);
-      const tweets = await searchCommunityTweets(communityId, 25);
+      const { tweets, communityName, communityRules } = await searchCommunityTweets(communityId, 25);
+
+      // Cache community metadata for use during reply phase
+      communityCache.set(communityId, { name: communityName || communityId, rules: communityRules });
+
       totalFound += tweets.length;
 
       for (const tweet of tweets) {
@@ -381,7 +393,7 @@ async function scrapePhase(settings: any, keywords: string[]): Promise<{ totalFo
           console.log(`  Saved community tweet ${tweet.id} (engagement: ${engagementScore})`);
         }
       }
-      console.log(`  Community ${communityId}: ${tweets.length} found, ${newPostCount} new saved`);
+      console.log(`  Community ${communityId}: ${tweets.length} found, ${newPostCount} new saved${communityRules.length ? `, ${communityRules.length} rules cached` : ''}`);
       await new Promise((r) => setTimeout(r, 3000));
     } catch (err) {
       console.error(`Error scraping community ${communityId}:`, (err as Error).message, (err as Error).stack?.split('\n')[1]);
@@ -442,6 +454,16 @@ async function postOneTweet(
   settings: any,
   accountId: string,
 ): Promise<'posted' | 'daily_limit' | 'auth_error' | 'skip' | 'error'> {
+  // Detect if this post came from a community (keywordsMatched contains 'community:<id>')
+  const communityTag: string | undefined = (candidate.keywordsMatched as string[] | undefined)
+    ?.find(k => k.startsWith('community:'));
+  const communityId: string | undefined = communityTag?.split(':')[1];
+  const communityContext = communityId ? communityCache.get(communityId) : undefined;
+
+  if (communityId) {
+    console.log(`[Reply] Community post detected — community: ${communityId}${communityContext?.rules?.length ? ` (${communityContext.rules.length} rules)` : ' (no cached rules)'}`);
+  }
+
   let replyText = candidate.editedReply || '';
 
   if (!replyText) {
@@ -449,7 +471,8 @@ async function postOneTweet(
       candidate.content,
       settings.companyName,
       settings.companyDescription,
-      settings.twitterBrandMentionRate ?? 25
+      settings.twitterBrandMentionRate ?? 25,
+      communityContext,
     );
   }
 
@@ -556,10 +579,10 @@ async function postOneTweet(
 
         case 'reply':
           try {
-            const result = await replyToTweetHttp(PROFILE_DIR, tweetText, tweetId);
+            const result = await replyToTweetHttp(PROFILE_DIR, tweetText, tweetId, communityId);
             replyId = result.data.id;
             didReply = true;
-            console.log('  Reply posted via HTTP');
+            console.log(`  Reply posted via HTTP${communityId ? ` (community: ${communityId})` : ''}`);
           } catch (httpErr) {
             const msg = (httpErr as Error).message;
             if (msg.includes('226') || msg.includes('403') || msg.includes('automated')) {

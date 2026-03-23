@@ -312,10 +312,16 @@ export async function getJoinedCommunities(): Promise<Array<{ id: string; name: 
 }
 
 // --- Search tweets within a specific Twitter Community ---
+export interface CommunitySearchResult {
+  tweets: SearchTweet[];
+  communityName: string;
+  communityRules: string[];
+}
+
 export async function searchCommunityTweets(
   communityId: string,
   count: number = 20
-): Promise<SearchTweet[]> {
+): Promise<CommunitySearchResult> {
   const page = await getPage();
   const communityUrl = `https://x.com/i/communities/${communityId}`;
 
@@ -346,6 +352,8 @@ export async function searchCommunityTweets(
   console.log(`  Community ${communityId}: captured ${capturedResponses.length} graphql responses`);
 
   const tweets: SearchTweet[] = [];
+  let communityName = '';
+  const communityRules: string[] = [];
 
   for (const data of capturedResponses) {
     // Try every known community response shape Twitter has used
@@ -353,6 +361,17 @@ export async function searchCommunityTweets(
       data?.data?.communityResults?.result ||
       data?.data?.community_results?.result ||
       {};
+
+    // Extract community name and rules (present in some responses)
+    if (communityResult.name && !communityName) {
+      communityName = communityResult.name;
+    }
+    if (Array.isArray(communityResult.rules)) {
+      for (const rule of communityResult.rules) {
+        const desc: string = rule.description || rule.name || '';
+        if (desc && !communityRules.includes(desc)) communityRules.push(desc);
+      }
+    }
 
     const instructions: any[] =
       communityResult?.ranked_community_timeline?.timeline?.instructions ||
@@ -392,13 +411,15 @@ export async function searchCommunityTweets(
           bookmarkCount: legacy.bookmark_count || 0,
           viewCount: parseInt(views.count || '0', 10) || 0,
         });
-
-        if (tweets.length >= count) return tweets;
       }
     }
   }
 
-  return tweets;
+  if (communityRules.length > 0) {
+    console.log(`  Community "${communityName || communityId}": ${communityRules.length} rules found`);
+  }
+
+  return { tweets: tweets.slice(0, count), communityName, communityRules };
 }
 
 // --- Shared features flags for CreateTweet ---

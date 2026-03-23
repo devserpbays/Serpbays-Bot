@@ -326,7 +326,14 @@ export async function postTweetHttp(profileDir: string, text: string): Promise<T
 }
 
 // --- Reply to a tweet (HTTP) ---
-export async function replyToTweetHttp(profileDir: string, text: string, inReplyToTweetId: string): Promise<TweetResponse> {
+// Pass communityId when replying to a community tweet — required by Twitter's API
+// to post the reply within the community context (otherwise it's invisible to members).
+export async function replyToTweetHttp(
+  profileDir: string,
+  text: string,
+  inReplyToTweetId: string,
+  communityId?: string
+): Promise<TweetResponse> {
   return createTweetHttp(profileDir, {
     tweet_text: text,
     reply: {
@@ -336,6 +343,7 @@ export async function replyToTweetHttp(profileDir: string, text: string, inReply
     dark_request: false,
     media: { media_entities: [], possibly_sensitive: false },
     semantic_annotation_ids: [],
+    ...(communityId ? { community_id: communityId } : {}),
   });
 }
 
