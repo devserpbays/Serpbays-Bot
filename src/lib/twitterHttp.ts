@@ -19,11 +19,15 @@ const BEARER =
 // Mutable query IDs — updated by browser-based twitter.ts when it resolves fresh IDs
 let _httpCreateTweetQueryId = 'a1p9RWpkYKBjWv_I3WzS-A';
 let _httpFavoriteTweetQueryId = 'lI07N6Otwv1PhnEgXILM7A';
+let _httpCreateRetweetQueryId = 'ojPdsZsimiJrUGLR1sjUtA';
+let _httpCreateBookmarkQueryId = 'aoDbu3RHznuiSkQ9aNM67Q';
 
 /** Update HTTP query IDs from browser-resolved values */
-export function setHttpQueryIds(createTweet?: string, favoriteTweet?: string) {
+export function setHttpQueryIds(createTweet?: string, favoriteTweet?: string, createRetweet?: string, createBookmark?: string) {
   if (createTweet) _httpCreateTweetQueryId = createTweet;
   if (favoriteTweet) _httpFavoriteTweetQueryId = favoriteTweet;
+  if (createRetweet) _httpCreateRetweetQueryId = createRetweet;
+  if (createBookmark) _httpCreateBookmarkQueryId = createBookmark;
 }
 
 interface TweetResponse {
@@ -310,7 +314,6 @@ export async function likeTweetHttp(profileDir: string, tweetId: string): Promis
 }
 
 // --- Retweet a tweet (HTTP) ---
-const RETWEET_QUERY_ID = 'ojPdsZsimiJrUGLR1sjUtA';
 export async function retweetHttp(profileDir: string, tweetId: string): Promise<void> {
   const cookies = loadCookies(profileDir);
   const ct0 = getCt0(cookies);
@@ -319,12 +322,12 @@ export async function retweetHttp(profileDir: string, tweetId: string): Promise<
 
   await jitter(1500, 4000);
 
-  const res = await fetch(`${TWITTER_GRAPHQL_BASE}/${RETWEET_QUERY_ID}/CreateRetweet`, {
+  const res = await fetch(`${TWITTER_GRAPHQL_BASE}/${_httpCreateRetweetQueryId}/CreateRetweet`, {
     method: 'POST',
     headers: getHeaders(ct0, cookieHeader),
     body: JSON.stringify({
       variables: { tweet_id: tweetId, dark_request: false },
-      queryId: RETWEET_QUERY_ID,
+      queryId: _httpCreateRetweetQueryId,
     }),
   });
 
@@ -335,7 +338,6 @@ export async function retweetHttp(profileDir: string, tweetId: string): Promise<
 }
 
 // --- Bookmark a tweet (HTTP) ---
-const BOOKMARK_QUERY_ID = 'aoDbu3RHznuiSkQ9aaC-wg';
 export async function bookmarkHttp(profileDir: string, tweetId: string): Promise<void> {
   const cookies = loadCookies(profileDir);
   const ct0 = getCt0(cookies);
@@ -344,12 +346,12 @@ export async function bookmarkHttp(profileDir: string, tweetId: string): Promise
 
   await jitter(800, 2500);
 
-  const res = await fetch(`${TWITTER_GRAPHQL_BASE}/${BOOKMARK_QUERY_ID}/CreateBookmark`, {
+  const res = await fetch(`${TWITTER_GRAPHQL_BASE}/${_httpCreateBookmarkQueryId}/CreateBookmark`, {
     method: 'POST',
     headers: getHeaders(ct0, cookieHeader),
     body: JSON.stringify({
       variables: { tweet_id: tweetId },
-      queryId: BOOKMARK_QUERY_ID,
+      queryId: _httpCreateBookmarkQueryId,
     }),
   });
 
@@ -379,8 +381,7 @@ export async function followUserHttp(profileDir: string, screenName: string): Pr
 
   if (!res.ok) {
     const body = await res.text();
-    const msg = parseTwitterError(body);
-    throw new Error(`Twitter follow error ${res.status}: ${msg}`);
+    throw new Error(`Twitter follow error ${res.status}: ${parseTwitterError(body)}`);
   }
 }
 

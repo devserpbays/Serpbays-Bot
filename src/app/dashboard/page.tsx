@@ -91,6 +91,13 @@ export default function OverviewPage() {
     const [accounts, setAccounts] = useState<SocialAccount[]>([]);
     const [cronStatus, setCronStatus] = useState<CronStatusResponse | null>(null);
     const [stoppingPlatforms, setStoppingPlatforms] = useState<Set<string>>(new Set());
+    const [showWelcome, setShowWelcome] = useState(false);
+
+    useEffect(() => {
+        if (typeof window !== 'undefined' && !localStorage.getItem('gm_welcomed') && onboardingDone) {
+            setShowWelcome(true);
+        }
+    }, [onboardingDone]);
 
     const fetchStats = useCallback(async () => {
         try {
@@ -192,6 +199,48 @@ export default function OverviewPage() {
             </div>
 
             <div className="page-body" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+                {/* ── Welcome Banner ── */}
+                {showWelcome && (
+                    <div style={{
+                        background: 'linear-gradient(135deg, rgba(14,165,233,0.1) 0%, rgba(139,92,246,0.06) 100%)',
+                        border: '1px solid rgba(14,165,233,0.2)',
+                        borderRadius: 'var(--radius-xl)',
+                        padding: '20px 24px',
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16,
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                            <div style={{
+                                width: 40, height: 40, borderRadius: '50%',
+                                background: 'rgba(14,165,233,0.15)', border: '1.5px solid rgba(14,165,233,0.3)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                            }}>
+                                <svg viewBox="0 0 24 24" fill="none" stroke="#0ea5e9" strokeWidth={2} width={20} height={20}>
+                                    <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+                                </svg>
+                            </div>
+                            <div>
+                                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
+                                    Welcome to GetMention!
+                                </div>
+                                <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }}>
+                                    Follow the steps below to connect your accounts and start auto-commenting.
+                                </div>
+                            </div>
+                        </div>
+                        <button
+                            onClick={() => { setShowWelcome(false); localStorage.setItem('gm_welcomed', '1'); }}
+                            style={{
+                                background: 'transparent', border: 'none', cursor: 'pointer',
+                                color: 'var(--text-muted)', padding: 4, flexShrink: 0,
+                            }}
+                        >
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={18} height={18}>
+                                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                            </svg>
+                        </button>
+                    </div>
+                )}
 
                 {/* ── Getting Started Guide ── */}
                 {!allDone && (

@@ -400,53 +400,73 @@ export default function AdminPage() {
         {/* ══════════════ OVERVIEW TAB ══════════════ */}
         {activeTab === 'overview' && (
           <>
-            {/* Metric cards */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14 }}>
+            {/* ── Stats Cards ── */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
               {[
                 {
-                  label: 'Total Users', value: stats?.totalUsers ?? 0,
+                  label: 'Total Users',
+                  value: stats?.totalUsers ?? 0,
                   sub: `+${stats?.newUsersThisWeek ?? 0} this week`,
-                  color: '#38bdf8', bg: 'rgba(14,165,233,0.1)',
-                  icon: <><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></>,
+                  color: '#38bdf8',
+                  icon: (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} width={20} height={20}>
+                      <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
+                      <circle cx="9" cy="7" r="4" />
+                      <path d="M23 21v-2a4 4 0 00-3-3.87" />
+                      <path d="M16 3.13a4 4 0 010 7.75" />
+                    </svg>
+                  ),
                 },
                 {
-                  label: 'Est. MRR', value: `$${totalRevenue.toLocaleString()}`,
-                  sub: `${(stats?.subscriptionBreakdown?.pro ?? 0) + (stats?.subscriptionBreakdown?.business ?? 0)} paying`,
-                  color: '#10b981', bg: 'rgba(16,185,129,0.1)',
-                  icon: <><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></>,
+                  label: 'Total Posts',
+                  value: stats?.totalPosts ?? 0,
+                  sub: `${stats?.postsToday ?? 0} posted today`,
+                  color: '#3b82f6',
+                  icon: (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} width={20} height={20}>
+                      <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
+                    </svg>
+                  ),
                 },
                 {
-                  label: 'Active Today', value: stats?.activeUsersToday ?? 0,
-                  sub: `of ${stats?.totalUsers ?? 0} total users`,
-                  color: '#3b82f6', bg: 'rgba(59,130,246,0.1)',
-                  icon: <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>,
+                  label: 'Active Today',
+                  value: stats?.activeUsersToday ?? 0,
+                  sub: `of ${stats?.totalUsers ?? 0} users`,
+                  color: '#10b981',
+                  icon: (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} width={20} height={20}>
+                      <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+                    </svg>
+                  ),
                 },
                 {
-                  label: 'Comments Today', value: stats?.postsToday ?? 0,
-                  sub: `${stats?.postsThisWeek ?? 0} this week`,
-                  color: '#f59e0b', bg: 'rgba(245,158,11,0.1)',
-                  icon: <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>,
+                  label: 'Est. MRR',
+                  value: `$${totalRevenue.toLocaleString()}`,
+                  sub: `${(stats?.subscriptionBreakdown?.pro ?? 0) + (stats?.subscriptionBreakdown?.business ?? 0)} paid users`,
+                  color: '#f59e0b',
+                  icon: (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} width={20} height={20}>
+                      <line x1="12" y1="1" x2="12" y2="23" />
+                      <path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" />
+                    </svg>
+                  ),
                 },
-              ].map(card => (
-                <div key={card.label} style={{
-                  background: 'var(--bg-card)',
-                  border: '1px solid var(--border-subtle)',
-                  borderRadius: 'var(--radius-lg)',
-                  padding: 20,
-                  position: 'relative', overflow: 'hidden',
-                }}>
-                  <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: `linear-gradient(90deg, transparent, ${card.color}, transparent)`, opacity: 0.6 }} />
-                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 }}>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                      {card.label}
-                    </span>
-                    <div style={{ width: 32, height: 32, borderRadius: 8, background: card.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', color: card.color }}>
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={16} height={16}>
-                        {card.icon}
-                      </svg>
-                    </div>
+              ].map((card) => (
+                <div
+                  key={card.label}
+                  style={{
+                    background: 'var(--bg-card)',
+                    border: '1px solid var(--border-subtle)',
+                    borderRadius: 'var(--radius-lg)',
+                    padding: '20px',
+                    backdropFilter: 'blur(12px)',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                    <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-muted)' }}>{card.label}</span>
+                    <div style={{ color: card.color, opacity: 0.7 }}>{card.icon}</div>
                   </div>
-                  <div style={{ fontSize: 30, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.04em', lineHeight: 1 }}>
+                  <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.04em', lineHeight: 1 }}>
                     {card.value}
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>{card.sub}</div>
@@ -885,20 +905,19 @@ export default function AdminPage() {
                         }}>
                           {blocking ? '…' : 'Unblock'}
                         </button>
-                      ) : blockConfirm ? (
-                        <>
-                          <button onClick={() => setBlockConfirm(false)} style={{ padding: '5px 9px', fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: 'pointer', background: 'transparent', color: 'var(--text-muted)', border: '1px solid var(--border-subtle)' }}>Cancel</button>
-                          <button onClick={() => blockUser(30)} disabled={blocking} style={{ padding: '5px 12px', fontSize: 11, fontWeight: 700, borderRadius: 6, cursor: blocking ? 'wait' : 'pointer', opacity: blocking ? 0.6 : 1, color: '#fff', background: '#f59e0b', border: 'none' }}>
-                            {blocking ? '…' : 'Block 30d'}
-                          </button>
-                        </>
                       ) : (
-                        <button onClick={() => setBlockConfirm(true)} style={{
-                          padding: '5px 12px', fontSize: 11, fontWeight: 700, borderRadius: 6,
-                          cursor: 'pointer', color: '#f59e0b', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)',
-                        }}>
-                          Block
-                        </button>
+                        blockConfirm ? (
+                          <>
+                            <button onClick={() => setBlockConfirm(false)} style={{ padding: '5px 9px', fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: 'pointer', background: 'transparent', color: 'var(--text-muted)', border: '1px solid var(--border-subtle)' }}>Cancel</button>
+                            <button onClick={() => blockUser(30)} disabled={blocking} style={{ padding: '5px 12px', fontSize: 11, fontWeight: 700, borderRadius: 6, cursor: blocking ? 'wait' : 'pointer', opacity: blocking ? 0.6 : 1, color: '#fff', background: '#f59e0b', border: 'none' }}>
+                              {blocking ? '…' : 'Block 30d'}
+                            </button>
+                          </>
+                        ) : (
+                          <button onClick={() => setBlockConfirm(true)} style={{ padding: '5px 12px', fontSize: 11, fontWeight: 700, borderRadius: 6, cursor: 'pointer', color: '#f59e0b', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)' }}>
+                            Block
+                          </button>
+                        )
                       )}
                     </div>
                   </div>
