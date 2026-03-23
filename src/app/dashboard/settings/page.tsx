@@ -114,6 +114,9 @@ export default function SettingsPage() {
         twitterCooldownMinutes: 60,
         twitterOriginalTweetsEnabled: false,
         twitterOriginalTweetDailyLimit: 2,
+        twitterTweetTopics: [],
+        twitterTweetPersona: '',
+        twitterTweetStyles: [],
         redditKeywords: [],
         redditDailyLimit: 5,
         redditAutoPostThreshold: 70,
@@ -153,6 +156,7 @@ export default function SettingsPage() {
     const [newPlatformKeyword, setNewPlatformKeyword] = useState<Record<string, string>>({});
     const [newCommunityId, setNewCommunityId] = useState('');
     const [syncingCommunities, setSyncingCommunities] = useState(false);
+    const [newTweetTopic, setNewTweetTopic] = useState('');
     const [newSubreddit, setNewSubreddit] = useState('');
     const [newFbGroup, setNewFbGroup] = useState('');
     const [expandedPlatform, setExpandedPlatform] = useState<string | null>(null);
@@ -773,7 +777,7 @@ export default function SettingsPage() {
                                                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                                                             <div>
                                                                 <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>Post Original Tweets</span>
-                                                                <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 6 }}>— AI-generated tweets from your keywords each cron run</span>
+                                                                <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 6 }}>— AI posts original tweets from your content profile during cron runs</span>
                                                             </div>
                                                             <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
                                                                 <input
@@ -788,20 +792,130 @@ export default function SettingsPage() {
                                                             </label>
                                                         </div>
                                                         {(settings as any).twitterOriginalTweetsEnabled && (
-                                                            <div>
-                                                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-                                                                    <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Max original tweets per day</span>
-                                                                    <span style={{ fontSize: 13, fontWeight: 700, color: '#1d9bf0', fontFamily: 'var(--font-mono)' }}>{(settings as any).twitterOriginalTweetDailyLimit ?? 2}</span>
+                                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                                                                {/* Daily limit */}
+                                                                <div>
+                                                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                                                                        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Max original tweets per day</span>
+                                                                        <span style={{ fontSize: 13, fontWeight: 700, color: '#1d9bf0', fontFamily: 'var(--font-mono)' }}>{(settings as any).twitterOriginalTweetDailyLimit ?? 2}</span>
+                                                                    </div>
+                                                                    <input
+                                                                        type="range" min={1} max={5} step={1}
+                                                                        value={(settings as any).twitterOriginalTweetDailyLimit ?? 2}
+                                                                        onChange={e => setSettings(prev => ({ ...prev, twitterOriginalTweetDailyLimit: Number(e.target.value) }))}
+                                                                        style={{ width: '100%', accentColor: '#1d9bf0' }}
+                                                                    />
+                                                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 2 }}>
+                                                                        <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>1/day</span>
+                                                                        <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>5/day</span>
+                                                                    </div>
                                                                 </div>
-                                                                <input
-                                                                    type="range" min={1} max={5} step={1}
-                                                                    value={(settings as any).twitterOriginalTweetDailyLimit ?? 2}
-                                                                    onChange={e => setSettings(prev => ({ ...prev, twitterOriginalTweetDailyLimit: Number(e.target.value) }))}
-                                                                    style={{ width: '100%', accentColor: '#1d9bf0' }}
-                                                                />
-                                                                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 2 }}>
-                                                                    <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>1/day</span>
-                                                                    <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>5/day</span>
+
+                                                                {/* Tweet Topics */}
+                                                                <div>
+                                                                    <div style={{ marginBottom: 6 }}>
+                                                                        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>Tweet Topics</span>
+                                                                        <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 6 }}>— what to post about (uses keywords if empty)</span>
+                                                                    </div>
+                                                                    <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                                                                        <input
+                                                                            className="input"
+                                                                            style={{ fontSize: 13 }}
+                                                                            placeholder="e.g. link building tips, SEO for startups..."
+                                                                            value={newTweetTopic}
+                                                                            onChange={e => setNewTweetTopic(e.target.value)}
+                                                                            onKeyDown={e => {
+                                                                                if (e.key === 'Enter' && newTweetTopic.trim()) {
+                                                                                    addToList('twitterTweetTopics' as keyof ISettings, newTweetTopic.trim(), () => setNewTweetTopic(''));
+                                                                                }
+                                                                            }}
+                                                                        />
+                                                                        <button
+                                                                            className="btn btn-secondary"
+                                                                            style={{ fontSize: 12, padding: '6px 12px' }}
+                                                                            onClick={() => {
+                                                                                if (newTweetTopic.trim()) addToList('twitterTweetTopics' as keyof ISettings, newTweetTopic.trim(), () => setNewTweetTopic(''));
+                                                                            }}
+                                                                        >Add</button>
+                                                                    </div>
+                                                                    {((settings as any).twitterTweetTopics?.length > 0) ? (
+                                                                        <div className="tag-list" style={{ gap: 6 }}>
+                                                                            {((settings as any).twitterTweetTopics as string[]).map((t: string) => (
+                                                                                <span key={t} className="tag" style={{ background: '#1d9bf022', color: '#1d9bf0', fontSize: 11, padding: '3px 8px' }}>
+                                                                                    {t}
+                                                                                    <button className="tag-remove" onClick={() => removeFromList('twitterTweetTopics' as keyof ISettings, t)}>×</button>
+                                                                                </span>
+                                                                            ))}
+                                                                        </div>
+                                                                    ) : (
+                                                                        <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: 0 }}>No topics added — will use your Twitter keywords</p>
+                                                                    )}
+                                                                </div>
+
+                                                                {/* Content Styles */}
+                                                                <div>
+                                                                    <div style={{ marginBottom: 8 }}>
+                                                                        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>Content Styles</span>
+                                                                        <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 6 }}>— formats the AI will randomly pick from</span>
+                                                                    </div>
+                                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                                                                        {[
+                                                                            { id: 'tip', label: '💡 Tip', desc: 'Practical advice' },
+                                                                            { id: 'question', label: '❓ Question', desc: 'Engage audience' },
+                                                                            { id: 'hot_take', label: '🔥 Hot Take', desc: 'Contrarian opinion' },
+                                                                            { id: 'observation', label: '🔍 Observation', desc: 'Noticed something' },
+                                                                            { id: 'stat', label: '📊 Stat', desc: 'Data-backed insight' },
+                                                                            { id: 'story', label: '📖 Story', desc: 'Personal experience' },
+                                                                        ].map(style => {
+                                                                            const selected = ((settings as any).twitterTweetStyles as string[] ?? []).includes(style.id);
+                                                                            return (
+                                                                                <button
+                                                                                    key={style.id}
+                                                                                    onClick={() => {
+                                                                                        const current: string[] = (settings as any).twitterTweetStyles ?? [];
+                                                                                        setSettings(prev => ({
+                                                                                            ...prev,
+                                                                                            twitterTweetStyles: selected
+                                                                                                ? current.filter(s => s !== style.id)
+                                                                                                : [...current, style.id],
+                                                                                        }));
+                                                                                    }}
+                                                                                    style={{
+                                                                                        padding: '6px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                                                                                        border: selected ? '1px solid #1d9bf066' : '1px solid var(--border-subtle)',
+                                                                                        background: selected ? '#1d9bf018' : 'transparent',
+                                                                                        color: selected ? '#1d9bf0' : 'var(--text-muted)',
+                                                                                        transition: 'all 0.15s',
+                                                                                    }}
+                                                                                    title={style.desc}
+                                                                                >{style.label}</button>
+                                                                            );
+                                                                        })}
+                                                                    </div>
+                                                                    <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6, marginBottom: 0 }}>
+                                                                        {((settings as any).twitterTweetStyles?.length ?? 0) === 0
+                                                                            ? 'None selected — AI will vary formats automatically'
+                                                                            : `AI will randomly use: ${((settings as any).twitterTweetStyles as string[]).join(', ')}`}
+                                                                    </p>
+                                                                </div>
+
+                                                                {/* Writing Persona */}
+                                                                <div>
+                                                                    <div style={{ marginBottom: 6 }}>
+                                                                        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>Writing Persona</span>
+                                                                        <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 6 }}>— describe the voice and expertise (optional)</span>
+                                                                    </div>
+                                                                    <textarea
+                                                                        className="input"
+                                                                        rows={3}
+                                                                        placeholder="e.g. Senior SEO consultant with 8 years experience. Shares practical, no-fluff tips. Speaks conversationally, uses real examples, occasionally self-deprecating."
+                                                                        value={(settings as any).twitterTweetPersona ?? ''}
+                                                                        onChange={e => setSettings(prev => ({ ...prev, twitterTweetPersona: e.target.value }))}
+                                                                        style={{ fontSize: 13, resize: 'vertical', width: '100%', boxSizing: 'border-box' }}
+                                                                    />
+                                                                    <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, marginBottom: 0 }}>
+                                                                        The more specific, the more consistent the voice across tweets.
+                                                                    </p>
                                                                 </div>
                                                             </div>
                                                         )}

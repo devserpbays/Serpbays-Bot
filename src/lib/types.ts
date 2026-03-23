@@ -57,6 +57,9 @@ export interface ISettings {
   twitterCooldownMinutes?: number;
   twitterOriginalTweetsEnabled?: boolean;
   twitterOriginalTweetDailyLimit?: number;
+  twitterTweetTopics?: string[];
+  twitterTweetPersona?: string;
+  twitterTweetStyles?: string[];
   redditKeywords?: string[];
   redditDailyLimit?: number;
   redditAutoPostThreshold?: number;

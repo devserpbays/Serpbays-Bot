@@ -187,10 +187,12 @@ Write the reply now:`;
 }
 
 async function generateOriginalTweet(
-  keyword: string,
+  topic: string,
   companyName: string,
   companyDescription: string,
   brandMentionRate = 25,
+  persona?: string,
+  styles?: string[],
 ): Promise<string> {
   const randomSeed = Math.floor(Math.random() * 1000);
   const mentionBrand = Math.random() < (brandMentionRate / 100);
@@ -199,21 +201,42 @@ async function generateOriginalTweet(
     ? `- Mention "${companyName}" once, naturally — e.g. as a tool you use or recommend`
     : `- Do NOT mention any brand or company name — just share the insight`;
 
-  const prompt = `You are an SEO practitioner who posts regularly on Twitter/X. Write a single original tweet about the topic below.
+  // Pick a content style if the user configured some
+  const STYLE_INSTRUCTIONS: Record<string, string> = {
+    tip:         'Write a practical tip or actionable advice',
+    question:    'Write a genuine question to spark conversation',
+    hot_take:    'Write a confident contrarian opinion or unpopular take',
+    observation: 'Share an interesting observation or pattern you noticed',
+    stat:        'Build a tweet around a number, data point, or concrete fact',
+    story:       'Share a brief personal experience or lesson learned',
+  };
+  let styleInstruction = 'Vary format: tip, question, observation, opinion, or data — pick naturally';
+  if (styles && styles.length > 0) {
+    const picked = styles[Math.floor(Math.random() * styles.length)];
+    styleInstruction = STYLE_INSTRUCTIONS[picked] ?? styleInstruction;
+  }
 
-TOPIC: "${keyword}"
+  const personaLine = persona?.trim()
+    ? `PERSONA: ${persona.trim()}`
+    : `PERSONA: An experienced practitioner who shares genuine insights, not marketing fluff`;
+
+  const prompt = `You are writing a tweet for someone with this profile:
+${personaLine}
+
+TOPIC: "${topic}"
 CONTEXT about ${companyName}: ${companyDescription}
+
+TASK: ${styleInstruction}
 
 RULES:
 - Write ONLY the tweet text — no quotes, no labels, no explanation
 - Under 240 characters
-- Sound like a real person sharing a genuine tip, insight, or question about the topic
+- Sound like a real person, not a brand account
 ${brandRule}
 - No URLs
-- 0–2 relevant hashtags, only if they fit naturally
-- Vary format: sometimes a tip, sometimes a question, sometimes a quick stat or observation
-- Never use marketing phrases like "game-changer", "seamless", "leverage", "robust"
-- Never start with "Hey", "Hi", or "Absolutely"
+- 0–2 hashtags only if they fit naturally — skip if forced
+- Never use: "game-changer", "seamless", "leverage", "robust", "delighted", "excited to share"
+- Never start with "Hey", "Hi", "Absolutely", or "Great question"
 - Random variety seed: ${randomSeed}
 
 Write the tweet now:`;
@@ -726,23 +749,31 @@ async function executeReplyAction(settings: any, accountId: string, dailyLimit: 
 }
 
 async function executeOriginalTweetAction(settings: any, accountId: string): Promise<void> {
-  const keywords: string[] = settings.twitterKeywords?.length
-    ? settings.twitterKeywords
-    : settings.keywords ?? [];
+  // Tweet Topics takes priority; fall back to Twitter keywords, then global keywords
+  const topics: string[] = settings.twitterTweetTopics?.length
+    ? settings.twitterTweetTopics
+    : settings.twitterKeywords?.length
+      ? settings.twitterKeywords
+      : settings.keywords ?? [];
 
-  if (keywords.length === 0) {
-    console.log('[OriginalTweet] No keywords configured, skipping');
+  if (topics.length === 0) {
+    console.log('[OriginalTweet] No topics or keywords configured, skipping');
     return;
   }
 
-  const keyword = keywords[Math.floor(Math.random() * keywords.length)];
-  console.log(`[OriginalTweet] Generating tweet about: "${keyword}"`);
+  const topic = topics[Math.floor(Math.random() * topics.length)];
+  const persona: string | undefined = settings.twitterTweetPersona || undefined;
+  const styles: string[] | undefined = settings.twitterTweetStyles?.length ? settings.twitterTweetStyles : undefined;
+
+  console.log(`[OriginalTweet] Topic: "${topic}"${styles ? ` | Style pool: [${styles.join(', ')}]` : ''}`);
 
   const tweetText = await generateOriginalTweet(
-    keyword,
+    topic,
     settings.companyName,
     settings.companyDescription,
     settings.twitterBrandMentionRate ?? 25,
+    persona,
+    styles,
   );
 
   if (!tweetText || tweetText.length < 5) {
