@@ -947,9 +947,9 @@ export default function PlatformPage() {
                                                 onMouseLeave={e => { if (!expanded) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
                                             >
                                                 <div style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, background: expanded ? '#f43f5e' : 'transparent', flexShrink: 0, minHeight: 20 }} />
-                                                {/* Reaction icon */}
-                                                <div style={{ width: 34, height: 34, borderRadius: '50%', flexShrink: 0, background: 'rgba(244,63,94,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 1 }}>
-                                                    <svg viewBox="0 0 24 24" fill="#f43f5e" width="16" height="16"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" /></svg>
+                                                {/* Reaction icon — emoji matches the actual reaction used */}
+                                                <div style={{ width: 34, height: 34, borderRadius: '50%', flexShrink: 0, background: 'rgba(244,63,94,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 1, fontSize: 16 }}>
+                                                    {post.botReaction === 'Love' ? '❤️' : post.botReaction === 'Care' ? '🤗' : post.botReaction === 'Haha' ? '😆' : post.botReaction === 'Wow' ? '😮' : post.botReaction === 'Sad' ? '😢' : post.botReaction === 'Angry' ? '😡' : '👍'}
                                                 </div>
                                                 <div style={{ flex: 1, minWidth: 0 }}>
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
@@ -957,7 +957,9 @@ export default function PlatformPage() {
                                                         {post.keywordsMatched?.filter(k => !k.startsWith('community:')).slice(0, 1).map(kw => (
                                                             <span key={kw} style={{ fontSize: 10, padding: '1px 7px', borderRadius: 6, fontWeight: 600, background: 'var(--accent-bg)', color: 'var(--accent)' }}>{kw}</span>
                                                         ))}
-                                                        <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 6, fontWeight: 600, background: 'rgba(244,63,94,0.1)', color: '#f43f5e', marginLeft: 'auto', flexShrink: 0 }}>Reacted</span>
+                                                        <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 6, fontWeight: 600, background: 'rgba(244,63,94,0.1)', color: '#f43f5e', marginLeft: 'auto', flexShrink: 0 }}>
+                                                            {post.botReaction || 'Like'} reaction
+                                                        </span>
                                                     </div>
                                                     <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 4px', lineHeight: 1.55, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{post.content}</p>
                                                 </div>
@@ -994,7 +996,9 @@ export default function PlatformPage() {
                                                         {postedAt && <span style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, background: 'var(--bg-input)', color: 'var(--text-muted)', border: '1px solid var(--border-subtle)' }}>{postedAt.toLocaleString()}</span>}
                                                         {score != null && <span style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, background: `${scoreColor(score)}14`, color: scoreColor(score), border: `1px solid ${scoreColor(score)}30` }}>Score: {score}%</span>}
                                                         {post.aiTone && <span style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, background: 'var(--bg-input)', color: 'var(--text-muted)', border: '1px solid var(--border-subtle)', textTransform: 'capitalize' }}>Tone: {post.aiTone}</span>}
-                                                        <span style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, background: 'rgba(244,63,94,0.1)', color: '#f43f5e', border: '1px solid rgba(244,63,94,0.2)' }}>Bot reacted ✓</span>
+                                                        <span style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, background: 'rgba(244,63,94,0.1)', color: '#f43f5e', border: '1px solid rgba(244,63,94,0.2)' }}>
+                                                            {post.botReaction === 'Love' ? '❤️' : post.botReaction === 'Care' ? '🤗' : post.botReaction === 'Haha' ? '😆' : post.botReaction === 'Wow' ? '😮' : '👍'} {post.botReaction || 'Like'} reaction
+                                                        </span>
                                                     </div>
                                                 </div>
                                             )}

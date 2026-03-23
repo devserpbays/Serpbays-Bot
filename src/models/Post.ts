@@ -23,6 +23,7 @@ const PostSchema = new Schema({
   bookmarkCount: { type: Number, default: 0 },
   viewCount: { type: Number, default: 0 },
   likedByBot: { type: Boolean, default: false },
+  botReaction: { type: String, default: '' }, // 'Like' | 'Love' | 'Care' | 'Haha' | 'Wow' | 'Sad' | 'Angry'
   retweetedByBot: { type: Boolean, default: false },
   bookmarkedByBot: { type: Boolean, default: false },
   editedReply: String,

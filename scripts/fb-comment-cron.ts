@@ -546,7 +546,7 @@ async function main() {
           const chosenReaction = pickReaction();
           const reactionResult = await reactToPost(autoPostCandidate.url, chosenReaction);
           if (reactionResult.success) {
-            await Post.findByIdAndUpdate(autoPostCandidate._id, { likedByBot: true });
+            await Post.findByIdAndUpdate(autoPostCandidate._id, { likedByBot: true, botReaction: reactionResult.reaction });
             console.log(`  Reacted with ${reactionResult.reaction}`);
           }
           await new Promise((r) => setTimeout(r, 2000 + Math.random() * 3000));

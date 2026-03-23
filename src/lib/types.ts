@@ -13,6 +13,8 @@ export interface IPost {
   aiTone?: string;
   aiReasoning?: string;
   keywordsMatched?: string[];
+  likedByBot?: boolean;
+  botReaction?: string;
   editedReply?: string;
   replyUrl?: string;
   evaluatedAt?: Date;
