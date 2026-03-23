@@ -105,6 +105,7 @@ export default function PlatformPage() {
     const [expandedId, setExpandedId] = useState<string | null>(null);
     const [accounts, setAccounts] = useState<SocialAccount[]>([]);
     const [loading, setLoading] = useState(true);
+    const [cookieStatus, setCookieStatus] = useState<{ checked: boolean; expired: boolean; error?: string }>({ checked: false, expired: false });
     const [communityLoading, setCommunityLoading] = useState(true);
     const [platformSettings, setPlatformSettings] = useState<Record<string, any>>({});
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -151,15 +152,25 @@ export default function PlatformPage() {
 
     const fetchAccounts = useCallback(async () => {
         try {
-            const [accRes, setRes] = await Promise.all([
+            const requests: Promise<Response>[] = [
                 fetch(`${API_BASE}/api/social-accounts`),
                 fetch(`${API_BASE}/api/settings`),
-            ]);
+            ];
+            if (platformId === 'twitter') requests.push(fetch(`${API_BASE}/api/twitter-status`));
+            const [accRes, setRes, statusRes] = await Promise.all(requests);
             const accData = await accRes.json();
             setAccounts((accData.accounts ?? []).filter((a: SocialAccount) => a.platform === platformId));
             if (setRes.ok) {
                 const setData = await setRes.json();
                 setPlatformSettings(setData.settings ?? {});
+            }
+            if (statusRes) {
+                const statusData = await statusRes.json();
+                setCookieStatus({
+                    checked: true,
+                    expired: statusData.configured === false || statusData.loggedIn === false,
+                    error: statusData.error || statusData.message || undefined,
+                });
             }
         } catch { /* silent */ }
     }, [platformId]);
@@ -295,10 +306,15 @@ export default function PlatformPage() {
                         </div>
                     </div>
 
-                    {/* Live indicator */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
-                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#34d399', display: 'inline-block', boxShadow: '0 0 6px #34d399' }} />
-                        Live
+                    {/* Live / Expired indicator */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, marginTop: 4,
+                        color: cookieStatus.checked && cookieStatus.expired ? '#ef4444' : 'var(--text-muted)' }}>
+                        <span style={{
+                            width: 6, height: 6, borderRadius: '50%', display: 'inline-block',
+                            background: cookieStatus.checked && cookieStatus.expired ? '#ef4444' : '#34d399',
+                            boxShadow: cookieStatus.checked && cookieStatus.expired ? '0 0 6px #ef4444' : '0 0 6px #34d399',
+                        }} />
+                        {cookieStatus.checked && cookieStatus.expired ? 'Cookies expired' : 'Live'}
                     </div>
                 </div>
 
@@ -375,6 +391,46 @@ export default function PlatformPage() {
                             <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
                         </svg>
                         No account connected — go to <strong style={{ marginLeft: 4 }}>Social Accounts</strong> to add cookies.
+                    </div>
+                )}
+
+                {/* ── Cookies expired banner ── */}
+                {cookieStatus.checked && cookieStatus.expired && accounts.length > 0 && (
+                    <div style={{
+                        marginTop: 14,
+                        padding: '12px 16px',
+                        background: 'rgba(239,68,68,0.08)',
+                        border: '1px solid rgba(239,68,68,0.35)',
+                        borderRadius: 12,
+                        display: 'flex', alignItems: 'center', gap: 12,
+                    }}>
+                        <div style={{
+                            width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
+                            background: 'rgba(239,68,68,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth={2} width={16} height={16}>
+                                <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                                <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                            </svg>
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: '#ef4444' }}>
+                                {label} cookies expired — bot cannot post
+                            </div>
+                            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                                {cookieStatus.error && !cookieStatus.error.includes('active')
+                                    ? cookieStatus.error
+                                    : 'Your session has expired. Re-upload fresh cookies to resume automation.'}
+                            </div>
+                        </div>
+                        <a href="/dashboard/accounts" style={{
+                            flexShrink: 0, padding: '6px 14px', borderRadius: 8,
+                            background: '#ef4444', color: '#fff',
+                            fontSize: 12, fontWeight: 700, textDecoration: 'none',
+                            whiteSpace: 'nowrap',
+                        }}>
+                            Re-upload cookies
+                        </a>
                     </div>
                 )}
 
