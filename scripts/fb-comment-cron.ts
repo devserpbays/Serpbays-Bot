@@ -31,6 +31,8 @@ import {
   visitNotifications,
   visitAuthorProfile,
   likeCommentsInThread,
+  viewStories,
+  checkForWarningOverlay,
   closeBrowser,
 } from '../src/lib/facebook';
 import { getWarmupLimit, getAccountAge, shouldRandomlySkip, jitterCooldown, getReadingDelay, getActionGap } from '../src/lib/antiBan';
@@ -414,6 +416,12 @@ async function main() {
     await visitNotifications();
   } catch (e) { console.warn('visitNotifications error:', (e as Error).message); }
 
+  // View a few stories — real users check stories at session start
+  try {
+    const storyResult = await viewStories();
+    if (storyResult.viewed > 0) console.log(`Viewed ${storyResult.viewed} stories`);
+  } catch (e) { console.warn('viewStories error:', (e as Error).message); }
+
   // Re-write .verified with loggedIn: true; scrape identity if missing
   try {
     const existing = getVerifiedData();
@@ -621,7 +629,21 @@ async function main() {
     console.log(`Per-group cap: already commented in group(s) ${[...commentedGroupIds].join(', ')} today`);
   }
 
+  // Author deduplication: skip authors who received a comment in the last 7 days
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const recentlyCommentedPosts = await Post.find({
+    platform: 'facebook',
+    status: 'posted',
+    postedAt: { $gte: sevenDaysAgo },
+    ...(CRON_USER_ID && { userId: CRON_USER_ID }),
+  }).select('author');
+  const recentAuthors = new Set(recentlyCommentedPosts.map(p => p.author as string).filter(Boolean));
+  if (recentAuthors.size > 0) {
+    console.log(`Author dedup: skipping ${recentAuthors.size} author(s) commented on in the last 7 days`);
+  }
+
   // Find candidates and pick first one not in an already-commented group today
+  // and not from a recently-commented author
   const candidates = await Post.find({
     platform: 'facebook',
     status: 'evaluated',
@@ -633,8 +655,18 @@ async function main() {
 
   const autoPostCandidate = candidates.find(c => {
     const gid = extractGroupId(c.url as string);
-    return !gid || !commentedGroupIds.has(gid); // prefer unvisited groups
+    if (gid && commentedGroupIds.has(gid)) return false; // already commented in this group today
+    if (c.author && recentAuthors.has(c.author as string)) return false; // same author within 7 days
+    return true;
   }) || null;
+
+  // Score-based skip: 5% idle cycle even when a candidate is found — breaks mechanical patterns
+  if (autoPostCandidate && Math.random() < 0.05) {
+    console.log('Score-based skip (5% idle cycle) — skipping candidate this run');
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'facebook', 'info', 'skip', 'Score-based idle cycle skip');
+    await closeBrowser();
+    process.exit(0);
+  }
 
   if (autoPostCandidate) {
     // Generate a unique, varied comment using AI
@@ -701,6 +733,15 @@ async function main() {
           }
           await new Promise(r => setTimeout(r, getActionGap()));
         } catch (e) { console.warn('React failed, continuing:', (e as Error).message); }
+      }
+
+      // Check for CAPTCHA / warning overlays before posting — back off if blocked
+      const overlayCheck = await checkForWarningOverlay().catch(() => ({ blocked: false }));
+      if (overlayCheck.blocked) {
+        console.warn(`Warning overlay detected (${overlayCheck.reason}) — aborting comment this run`);
+        if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'facebook', 'error', 'overlay_blocked', `Overlay blocked comment: ${overlayCheck.reason}`);
+        await closeBrowser();
+        process.exit(1);
       }
 
       const result = await postComment(autoPostCandidate.url, replyText);

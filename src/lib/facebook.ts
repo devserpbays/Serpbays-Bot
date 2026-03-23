@@ -433,6 +433,121 @@ export async function visitNewsFeed(): Promise<void> {
   }
 }
 
+// --- View 2–3 Facebook Stories at session start ---
+// Meta's trust scoring rewards accounts that interact with Stories.
+// Stories are a lightweight, zero-risk action that adds behavioral depth.
+export async function viewStories(): Promise<{ viewed: number }> {
+  let viewed = 0;
+  try {
+    const page = await getPage();
+    await page.goto('https://www.facebook.com/', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await humanDelay(2000, 4000);
+
+    // Find story cards in the stories tray (top of feed)
+    const storySelectors = [
+      '[aria-label*="story" i][role="button"]',
+      '[data-pagelet="Stories"] [role="button"]',
+      '[aria-label*="Story" i]',
+    ];
+
+    let storyBtns: import('playwright').ElementHandle<Element>[] = [];
+    for (const sel of storySelectors) {
+      storyBtns = await page.$$(sel);
+      if (storyBtns.length > 1) break; // skip first (usually "Create story")
+    }
+
+    const targetCount = 2 + Math.floor(Math.random() * 2); // 2–3 stories
+    const toView = storyBtns.slice(1, 1 + targetCount); // skip "Create story" (index 0)
+
+    for (const btn of toView) {
+      try {
+        const visible = await btn.isVisible().catch(() => false);
+        if (!visible) continue;
+
+        await btn.click({ force: true });
+        await humanDelay(1500, 3000);
+
+        // Watch the story for 3–7 seconds (like a human glancing at it)
+        const watchTime = 3000 + Math.random() * 4000;
+        await new Promise(r => setTimeout(r, watchTime));
+
+        // Advance to next story or close — press Escape or ArrowRight
+        if (Math.random() < 0.5) {
+          await page.keyboard.press('ArrowRight');
+        } else {
+          await page.keyboard.press('Escape');
+        }
+        await humanDelay(800, 1800);
+
+        viewed++;
+        console.log(`[FB] Viewed story ${viewed}`);
+      } catch { /* skip individual story failures silently */ }
+    }
+
+    // Close story viewer if still open
+    await page.keyboard.press('Escape').catch(() => {});
+    await humanDelay(1000, 2000);
+
+    console.log(`[FB] Story viewing complete: viewed ${viewed} stories`);
+  } catch (err) {
+    console.warn('[FB] viewStories failed:', (err as Error).message);
+  }
+  return { viewed };
+}
+
+// --- Check for CAPTCHA, warning overlays, or security checkpoints ---
+// Returns { blocked: true } if Facebook has detected suspicious behaviour.
+// The cron should back off significantly when this happens.
+export async function checkForWarningOverlay(): Promise<{ blocked: boolean; reason?: string }> {
+  try {
+    const page = await getPage();
+
+    const result = await page.evaluate(() => {
+      const body = document.body?.innerText || '';
+      const lowerBody = body.toLowerCase();
+
+      // CAPTCHA indicators
+      if (/i'm not a robot|verify you're human|security check|unusual activity/.test(lowerBody)) {
+        return { blocked: true, reason: 'CAPTCHA or security check detected' };
+      }
+
+      // "You're posting too fast" / spam warning
+      if (/posting too (fast|frequently)|you're temporarily blocked|comment.*too fast|action blocked/.test(lowerBody)) {
+        return { blocked: true, reason: 'Action blocked — posting too fast' };
+      }
+
+      // Identity confirmation checkpoint
+      if (/confirm your identity|verify your account|suspicious login/.test(lowerBody)) {
+        return { blocked: true, reason: 'Identity confirmation required' };
+      }
+
+      // Login/session expired mid-session
+      if (/log in to facebook|see more on facebook/.test(lowerBody)) {
+        return { blocked: true, reason: 'Session expired mid-session' };
+      }
+
+      // Modal dialogs with warning content
+      const dialogs = Array.from(document.querySelectorAll('[role="dialog"], [role="alertdialog"]'));
+      for (const d of dialogs) {
+        const t = (d.textContent || '').toLowerCase();
+        if (/blocked|captcha|robot|unusual|too fast|verify/.test(t)) {
+          return { blocked: true, reason: 'Warning dialog detected' };
+        }
+      }
+
+      return { blocked: false };
+    }).catch(() => ({ blocked: false }));
+
+    if (result.blocked) {
+      console.warn(`[FB] Warning overlay detected: ${'reason' in result ? result.reason : 'unknown'}`);
+    }
+    return result;
+  } catch (err) {
+    console.warn('[FB] checkForWarningOverlay failed:', (err as Error).message);
+    return { blocked: false };
+  }
+}
+
 // --- Visit notification inbox (part of every real user's session) ---
 export async function visitNotifications(): Promise<void> {
   try {
@@ -1075,3 +1190,4 @@ export async function browseFeedAndReact(
 
   return { reacted, reactions };
 }
+
