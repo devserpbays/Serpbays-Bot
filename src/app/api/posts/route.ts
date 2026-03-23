@@ -33,6 +33,8 @@ export async function GET(req: NextRequest) {
     filter.keywordsMatched = { $not: { $elemMatch: { $regex: '^community:' } } };
     filter.isOriginalTweet = { $ne: true };
   }
+  const likedByBot = searchParams.get('likedByBot');
+  if (likedByBot === 'true') filter.likedByBot = true;
   if (from || to) {
     const dateFilter: Record<string, Date> = {};
     if (from) dateFilter.$gte = new Date(from);

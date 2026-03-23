@@ -99,7 +99,7 @@ export default function PlatformPage() {
     const [originalTotal, setOriginalTotal] = useState(0);
     const [originalPage, setOriginalPage] = useState(1);
     const [originalLoading, setOriginalLoading] = useState(true);
-    type ActiveTab = 'keyword' | 'community' | 'original' | 'liked' | 'retweeted' | 'bookmarked' | 'followed';
+    type ActiveTab = 'keyword' | 'community' | 'original' | 'liked' | 'retweeted' | 'bookmarked' | 'followed' | 'reacted';
     const [activeTab, setActiveTab] = useState<ActiveTab>('keyword');
     const [timeFilter, setTimeFilter] = useState('today');
     const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -109,6 +109,50 @@ export default function PlatformPage() {
     const [communityLoading, setCommunityLoading] = useState(true);
     const [platformSettings, setPlatformSettings] = useState<Record<string, any>>({});
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+    // Facebook engagement stats
+    const [fbStats, setFbStats] = useState<{
+        totalComments: number; totalReacted: number; todayComments: number; groupsConfigured: number;
+    } | null>(null);
+    const [reactedPosts, setReactedPosts] = useState<IPost[]>([]);
+    const [reactedTotal, setReactedTotal] = useState(0);
+    const [reactedPage, setReactedPage] = useState(1);
+    const [reactedLoading, setReactedLoading] = useState(false);
+
+    const fetchFbStats = useCallback(async () => {
+        if (platformId !== 'facebook') return;
+        try {
+            const today = new Date(); today.setHours(0, 0, 0, 0);
+            const [totalRes, reactedRes, todayRes] = await Promise.all([
+                fetch(`${API_BASE}/api/posts?platform=facebook&status=posted&limit=1`),
+                fetch(`${API_BASE}/api/posts?platform=facebook&likedByBot=true&limit=1`),
+                fetch(`${API_BASE}/api/posts?platform=facebook&status=posted&limit=1&from=${today.toISOString()}`),
+            ]);
+            const [totalData, reactedData, todayData] = await Promise.all([totalRes.json(), reactedRes.json(), todayRes.json()]);
+            setFbStats({
+                totalComments: totalData.total ?? 0,
+                totalReacted: reactedData.total ?? 0,
+                todayComments: todayData.total ?? 0,
+                groupsConfigured: 0, // filled from platformSettings
+            });
+        } catch { /* silent */ }
+    }, [platformId]);
+
+    const fetchReactedPosts = useCallback(async () => {
+        if (platformId !== 'facebook') return;
+        setReactedLoading(true);
+        try {
+            const p = new URLSearchParams({ platform: 'facebook', likedByBot: 'true', limit: String(LIMIT), page: String(reactedPage) });
+            const { from, to } = getDateRange(timeFilter);
+            if (from) p.set('from', from.toISOString());
+            if (to) p.set('to', to.toISOString());
+            const res = await fetch(`${API_BASE}/api/posts?${p}`);
+            const data: PostsResponse = await res.json();
+            setReactedPosts(data.posts ?? []);
+            setReactedTotal(data.total ?? 0);
+        } catch { /* silent */ }
+        setReactedLoading(false);
+    }, [platformId, timeFilter, reactedPage]);
 
     // Twitter engagement stats (likes, retweets, bookmarks, follows)
     const [engageStats, setEngageStats] = useState<{
@@ -157,6 +201,7 @@ export default function PlatformPage() {
                 fetch(`${API_BASE}/api/settings`),
             ];
             if (platformId === 'twitter') requests.push(fetch(`${API_BASE}/api/twitter-status`));
+            else if (platformId === 'facebook') requests.push(fetch(`${API_BASE}/api/fb-status`));
             const [accRes, setRes, statusRes] = await Promise.all(requests);
             const accData = await accRes.json();
             setAccounts((accData.accounts ?? []).filter((a: SocialAccount) => a.platform === platformId));
@@ -166,10 +211,13 @@ export default function PlatformPage() {
             }
             if (statusRes) {
                 const statusData = await statusRes.json();
+                const expired = platformId === 'twitter'
+                    ? (statusData.configured === false || statusData.loggedIn === false)
+                    : (statusData.loggedIn === false);
                 setCookieStatus({
                     checked: true,
-                    expired: statusData.configured === false || statusData.loggedIn === false,
-                    error: statusData.error || statusData.message || undefined,
+                    expired,
+                    error: statusData.error || (!statusData.loggedIn ? statusData.message : undefined) || undefined,
                 });
             }
         } catch { /* silent */ }
@@ -226,6 +274,8 @@ export default function PlatformPage() {
     useEffect(() => { setCommunityLoading(true); fetchCommunityPosts(); }, [fetchCommunityPosts]);
     useEffect(() => { setOriginalLoading(true); fetchOriginalPosts(); }, [fetchOriginalPosts]);
     useEffect(() => { fetchEngageStats(); }, [fetchEngageStats]);
+    useEffect(() => { fetchFbStats(); }, [fetchFbStats]);
+    useEffect(() => { if (platformId === 'facebook' && activeTab === 'reacted') fetchReactedPosts(); }, [fetchReactedPosts, activeTab, platformId]);
     useEffect(() => {
         const isEngage = (['liked', 'retweeted', 'bookmarked', 'followed'] as const).includes(activeTab as EngageTab);
         if (isEngage) fetchEngageList(activeTab as EngageTab, engageListPage, engageTimeFilter);
@@ -240,6 +290,7 @@ export default function PlatformPage() {
     const { label, color, icon } = meta;
     const replyLabel = REPLY_LABEL[platformId] || 'Comment';
     const showEngageList = (['liked', 'retweeted', 'bookmarked', 'followed'] as const).includes(activeTab as EngageTab);
+    const showReactedList = platformId === 'facebook' && activeTab === 'reacted';
     const engageTab = activeTab as EngageTab;
     const isCommunityView = platformId === 'twitter' && activeTab === 'community';
     const isOriginalView = platformId === 'twitter' && activeTab === 'original';
@@ -300,7 +351,9 @@ export default function PlatformPage() {
                             <h2 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>{label}</h2>
                             <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '3px 0 0' }}>
                                 {accounts.length > 0
-                                    ? `${accounts.length} connected account${accounts.length > 1 ? 's' : ''} · ${total} comment${total !== 1 ? 's' : ''} published`
+                                    ? platformId === 'facebook'
+                                        ? `${accounts.length} connected account${accounts.length > 1 ? 's' : ''} · ${fbStats?.totalComments ?? total} comment${(fbStats?.totalComments ?? total) !== 1 ? 's' : ''} published · ${fbStats?.totalReacted ?? 0} reacted`
+                                        : `${accounts.length} connected account${accounts.length > 1 ? 's' : ''} · ${total} comment${total !== 1 ? 's' : ''} published`
                                     : 'No accounts connected'}
                             </p>
                         </div>
@@ -442,15 +495,26 @@ export default function PlatformPage() {
                     const dailyLimit = platformSettings[`${platformId}DailyLimit`];
                     const threshold = platformSettings[`${platformId}AutoPostThreshold`];
 
-                    const riskColor = brandRate <= 25 ? '#22c55e' : brandRate <= 50 ? '#f59e0b' : brandRate <= 75 ? '#f97316' : '#ef4444';
-                    const riskLabel = brandRate <= 25 ? 'Safe' : brandRate <= 50 ? 'Moderate' : brandRate <= 75 ? 'High Risk' : 'Ban Risk';
+                    const riskColor = platformId === 'facebook'
+                        ? (brandRate >= 70 ? '#818cf8' : brandRate <= 25 ? '#22c55e' : '#f59e0b')
+                        : (brandRate <= 25 ? '#22c55e' : brandRate <= 50 ? '#f59e0b' : brandRate <= 75 ? '#f97316' : '#ef4444');
+                    const riskLabel = platformId === 'facebook'
+                        ? (brandRate >= 70 ? 'Social Mgr' : brandRate <= 25 ? 'Low' : 'Moderate')
+                        : (brandRate <= 25 ? 'Safe' : brandRate <= 50 ? 'Moderate' : brandRate <= 75 ? 'High Risk' : 'Ban Risk');
 
+                    const fbGroups: string[] = platformSettings['facebookGroups'] ?? [];
                     const chips: { label: string; value: string; accent: string }[] = [
                         { label: 'Daily limit', value: dailyLimit != null ? `${dailyLimit}/day` : '—', accent: color },
                         { label: 'Auto-post', value: threshold != null ? `≥${threshold}%` : '—', accent: color },
                         { label: 'Brand rate', value: `${brandRate}% · ${riskLabel}`, accent: riskColor },
                         ...(cooldown != null ? [{ label: 'Cooldown', value: cooldown >= 60 ? `${Math.floor(cooldown / 60)}h${cooldown % 60 ? ` ${cooldown % 60}m` : ''}` : `${cooldown}m`, accent: color }] : []),
                         ...(platformId === 'twitter' && communities.length > 0 ? [{ label: 'Communities', value: `${communities.length} monitored`, accent: '#1d9bf0' }] : []),
+                        ...(platformId === 'facebook' && fbGroups.length > 0 ? [{ label: 'Groups', value: `${fbGroups.length} monitored`, accent: '#1877f2' }] : []),
+                        ...(platformId === 'facebook' ? [
+                            { label: 'Passive sessions', value: '40% browse-only', accent: '#34d399' },
+                            { label: 'Reactions', value: 'Love · Care · Haha · Wow', accent: '#f43f5e' },
+                            { label: 'Warmup', value: 'Active — auto-ramps to limit', accent: '#fbbf24' },
+                        ] : []),
                         ...(platformId === 'quora' ? [{ label: 'Mode', value: 'Answer → Brand Comment', accent: '#818cf8' }] : []),
                     ];
 
@@ -474,6 +538,44 @@ export default function PlatformPage() {
 
             {/* ══ Body ════════════════════════════════════════════════ */}
             <div style={{ padding: '20px 28px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+                {/* ── Facebook tab bar ── */}
+                {platformId === 'facebook' && (
+                    <div style={{
+                        display: 'flex', gap: 0,
+                        borderBottom: '1px solid var(--border-subtle)',
+                        marginBottom: 4, overflowX: 'auto',
+                    }}>
+                        {([
+                            { key: 'keyword' as const, label: 'Comments', count: fbStats?.totalComments ?? total, tc: '#1877f2' },
+                            { key: 'reacted' as const, label: 'Reacted', count: fbStats?.totalReacted ?? 0, tc: '#f43f5e' },
+                        ]).map(({ key, label: lbl, count, tc }) => {
+                            const isActive = activeTab === key;
+                            return (
+                                <button key={key} onClick={() => { setActiveTab(key); setExpandedId(null); }} style={{
+                                    display: 'flex', alignItems: 'center', gap: 6,
+                                    padding: '10px 18px', border: 'none',
+                                    borderBottom: isActive ? `2px solid ${tc}` : '2px solid transparent',
+                                    background: 'none', cursor: 'pointer',
+                                    fontSize: 13, fontWeight: isActive ? 700 : 500,
+                                    color: isActive ? tc : 'var(--text-muted)',
+                                    transition: 'all 150ms', whiteSpace: 'nowrap',
+                                    marginBottom: -1,
+                                }}>
+                                    {lbl}
+                                    {count > 0 && (
+                                        <span style={{
+                                            fontSize: 10, fontWeight: 700,
+                                            padding: '1px 6px', borderRadius: 8,
+                                            background: isActive ? `${tc}18` : 'var(--bg-input)',
+                                            color: isActive ? tc : 'var(--text-muted)',
+                                        }}>{count}</span>
+                                    )}
+                                </button>
+                            );
+                        })}
+                    </div>
+                )}
 
                 {/* ── Twitter tab bar ── */}
                 {platformId === 'twitter' && (
@@ -561,6 +663,12 @@ export default function PlatformPage() {
                                 Showing <strong style={{ color: 'var(--text-secondary)' }}>{(engageListData.page - 1) * 15 + 1}–{Math.min(engageListData.page * 15, engageListData.total)}</strong> of <strong style={{ color: 'var(--text-secondary)' }}>{engageListData.total}</strong> {engageTab}
                             </span>
                         )
+                    ) : showReactedList ? (
+                        reactedTotal > 0 && (
+                            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                                Showing <strong style={{ color: 'var(--text-secondary)' }}>{(reactedPage - 1) * LIMIT + 1}–{Math.min(reactedPage * LIMIT, reactedTotal)}</strong> of <strong style={{ color: 'var(--text-secondary)' }}>{reactedTotal}</strong> reacted posts
+                            </span>
+                        )
                     ) : (
                         activeTotal > 0 && (
                             <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
@@ -570,8 +678,8 @@ export default function PlatformPage() {
                     )}
                 </div>
 
-                {/* ── Post list (hidden when engage list is open) ── */}
-                {!showEngageList && (activeLoading ? (
+                {/* ── Post list (hidden when engage list or reacted list is open) ── */}
+                {!showEngageList && !showReactedList && (activeLoading ? (
                     <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--text-muted)', fontSize: 13 }}>
                         Loading…
                     </div>
@@ -811,8 +919,105 @@ export default function PlatformPage() {
                     </div>
                 ))}
 
+                {/* ── Reacted list (Facebook) ── */}
+                {showReactedList && (
+                    <div>
+                        {reactedLoading ? (
+                            <div style={{ padding: '40px 0', textAlign: 'center', fontSize: 13, color: 'var(--text-muted)' }}>Loading…</div>
+                        ) : reactedPosts.length === 0 ? (
+                            <div style={{ textAlign: 'center', padding: '64px 20px', background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 14 }}>
+                                <div style={{ width: 52, height: 52, borderRadius: '50%', background: 'rgba(244,63,94,0.1)', border: '1px solid rgba(244,63,94,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', color: '#f43f5e' }}>
+                                    <svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" /></svg>
+                                </div>
+                                <p style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-secondary)', margin: '0 0 6px' }}>No reacted posts yet</p>
+                                <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>The bot reacts to posts before commenting. Run the Facebook cron to see reactions here.</p>
+                            </div>
+                        ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 1, background: 'var(--bg-card)', border: '1px solid rgba(244,63,94,0.2)', borderRadius: 14, overflow: 'hidden' }}>
+                                {reactedPosts.map((post, idx) => {
+                                    const expanded = expandedId === post._id;
+                                    const postedAt = post.postedAt ? new Date(post.postedAt) : post.scrapedAt ? new Date(post.scrapedAt) : null;
+                                    const isLast = idx === reactedPosts.length - 1;
+                                    const score = post.aiRelevanceScore;
+                                    return (
+                                        <div key={post._id} style={{ borderBottom: isLast ? 'none' : '1px solid var(--border-subtle)' }}>
+                                            <div onClick={() => setExpandedId(expanded ? null : (post._id ?? null))}
+                                                style={{ display: 'flex', alignItems: 'flex-start', gap: 14, padding: '14px 18px', cursor: 'pointer', background: expanded ? 'rgba(244,63,94,0.05)' : 'transparent', transition: 'background 150ms' }}
+                                                onMouseEnter={e => { if (!expanded) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.02)'; }}
+                                                onMouseLeave={e => { if (!expanded) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+                                            >
+                                                <div style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, background: expanded ? '#f43f5e' : 'transparent', flexShrink: 0, minHeight: 20 }} />
+                                                {/* Reaction icon */}
+                                                <div style={{ width: 34, height: 34, borderRadius: '50%', flexShrink: 0, background: 'rgba(244,63,94,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 1 }}>
+                                                    <svg viewBox="0 0 24 24" fill="#f43f5e" width="16" height="16"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" /></svg>
+                                                </div>
+                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
+                                                        {post.author && <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>{post.author}</span>}
+                                                        {post.keywordsMatched?.filter(k => !k.startsWith('community:')).slice(0, 1).map(kw => (
+                                                            <span key={kw} style={{ fontSize: 10, padding: '1px 7px', borderRadius: 6, fontWeight: 600, background: 'var(--accent-bg)', color: 'var(--accent)' }}>{kw}</span>
+                                                        ))}
+                                                        <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 6, fontWeight: 600, background: 'rgba(244,63,94,0.1)', color: '#f43f5e', marginLeft: 'auto', flexShrink: 0 }}>Reacted</span>
+                                                    </div>
+                                                    <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 4px', lineHeight: 1.55, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{post.content}</p>
+                                                </div>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+                                                    {score != null && (
+                                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 38 }}>
+                                                            <span style={{ fontSize: 14, fontWeight: 700, color: scoreColor(score), lineHeight: 1 }}>{score}</span>
+                                                            <span style={{ fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>score</span>
+                                                        </div>
+                                                    )}
+                                                    {postedAt && <span style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{timeAgo(postedAt)}</span>}
+                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} style={{ width: 16, height: 16, color: 'var(--text-muted)', transition: 'transform 200ms', transform: expanded ? 'rotate(180deg)' : undefined, flexShrink: 0 }}>
+                                                        <polyline points="6,9 12,15 18,9" />
+                                                    </svg>
+                                                </div>
+                                            </div>
+                                            {expanded && (
+                                                <div style={{ padding: '0 18px 18px 69px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+                                                    <div>
+                                                        <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', marginBottom: 8 }}>
+                                                            Post{post.author ? ` · by ${post.author}` : ''}
+                                                        </div>
+                                                        <div style={{ background: 'var(--bg-input)', border: '1px solid var(--border-subtle)', borderRadius: 10, padding: '12px 16px', fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.65 }}>
+                                                            {post.content}
+                                                        </div>
+                                                        {post.url && (
+                                                            <a href={post.url} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--accent)', marginTop: 6, textDecoration: 'none' }}>
+                                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width="12" height="12"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" /><polyline points="15,3 21,3 21,9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
+                                                                View on Facebook
+                                                            </a>
+                                                        )}
+                                                    </div>
+                                                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                                        {postedAt && <span style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, background: 'var(--bg-input)', color: 'var(--text-muted)', border: '1px solid var(--border-subtle)' }}>{postedAt.toLocaleString()}</span>}
+                                                        {score != null && <span style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, background: `${scoreColor(score)}14`, color: scoreColor(score), border: `1px solid ${scoreColor(score)}30` }}>Score: {score}%</span>}
+                                                        {post.aiTone && <span style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, background: 'var(--bg-input)', color: 'var(--text-muted)', border: '1px solid var(--border-subtle)', textTransform: 'capitalize' }}>Tone: {post.aiTone}</span>}
+                                                        <span style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, background: 'rgba(244,63,94,0.1)', color: '#f43f5e', border: '1px solid rgba(244,63,94,0.2)' }}>Bot reacted ✓</span>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                        {/* Reacted pagination */}
+                        {Math.ceil(reactedTotal / LIMIT) > 1 && (
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 }}>
+                                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Page {reactedPage} of {Math.ceil(reactedTotal / LIMIT)}</span>
+                                <div style={{ display: 'flex', gap: 6 }}>
+                                    <button onClick={() => setReactedPage(p => Math.max(1, p - 1))} disabled={reactedPage <= 1} style={{ padding: '5px 12px', borderRadius: 7, border: '1px solid var(--border-subtle)', background: 'var(--bg-card)', color: 'var(--text-secondary)', fontSize: 12, cursor: reactedPage <= 1 ? 'default' : 'pointer', opacity: reactedPage <= 1 ? 0.4 : 1 }}>Prev</button>
+                                    <button onClick={() => setReactedPage(p => Math.min(Math.ceil(reactedTotal / LIMIT), p + 1))} disabled={reactedPage >= Math.ceil(reactedTotal / LIMIT)} style={{ padding: '5px 12px', borderRadius: 7, border: '1px solid var(--border-subtle)', background: 'var(--bg-card)', color: 'var(--text-secondary)', fontSize: 12, cursor: reactedPage >= Math.ceil(reactedTotal / LIMIT) ? 'default' : 'pointer', opacity: reactedPage >= Math.ceil(reactedTotal / LIMIT) ? 0.4 : 1 }}>Next</button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+
                 {/* ── Pagination ── */}
-                {!showEngageList && totalPages > 1 && (
+                {!showEngageList && !showReactedList && totalPages > 1 && (
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 20 }}>
                         <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                             Page {activePage} of {totalPages}
