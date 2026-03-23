@@ -88,8 +88,29 @@ function getCt0(cookies: CookieEntry[]): string {
   return cookies.find(c => c.name === 'ct0')?.value || '';
 }
 
+// Rotate Chrome versions to avoid fixed-UA bot fingerprinting.
+// In 2026, Chrome 128–134 covers the realistic "didn't update immediately" range.
+const CHROME_UA_POOL: { version: number; secChUaBrand: string }[] = [
+  { version: 128, secChUaBrand: '"Chromium";v="128", "Google Chrome";v="128", "Not-A.Brand";v="24"' },
+  { version: 129, secChUaBrand: '"Chromium";v="129", "Google Chrome";v="129", "Not-A.Brand";v="8"' },
+  { version: 130, secChUaBrand: '"Chromium";v="130", "Google Chrome";v="130", "Not-A.Brand";v="99"' },
+  { version: 131, secChUaBrand: '"Chromium";v="131", "Google Chrome";v="131", "Not-A.Brand";v="24"' },
+  { version: 132, secChUaBrand: '"Chromium";v="132", "Google Chrome";v="132", "Not-A.Brand";v="24"' },
+  { version: 133, secChUaBrand: '"Chromium";v="133", "Google Chrome";v="133", "Not-A.Brand";v="24"' },
+  { version: 134, secChUaBrand: '"Chromium";v="134", "Google Chrome";v="134", "Not-A.Brand";v="24"' },
+];
+
+function pickChromeUA(): { userAgent: string; secChUa: string } {
+  const pick = CHROME_UA_POOL[Math.floor(Math.random() * CHROME_UA_POOL.length)];
+  return {
+    userAgent: `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${pick.version}.0.0.0 Safari/537.36`,
+    secChUa: pick.secChUaBrand,
+  };
+}
+
 // --- Common headers for Twitter GraphQL ---
 function getHeaders(ct0: string, cookieHeader: string): Record<string, string> {
+  const { userAgent, secChUa } = pickChromeUA();
   return {
     Authorization: BEARER,
     'Content-Type': 'application/json',
@@ -98,14 +119,13 @@ function getHeaders(ct0: string, cookieHeader: string): Record<string, string> {
     'X-Twitter-Active-User': 'yes',
     'X-Twitter-Client-Language': 'en',
     Cookie: cookieHeader,
-    // Windows Chrome UA — less likely to trigger Twitter's automation detection than Linux
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'User-Agent': userAgent,
     Referer: 'https://x.com/',
     Origin: 'https://x.com',
     'Accept': '*/*',
     'Accept-Language': 'en-US,en;q=0.9',
     'Accept-Encoding': 'gzip, deflate, br',
-    'Sec-Ch-Ua': '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+    'Sec-Ch-Ua': secChUa,
     'Sec-Ch-Ua-Mobile': '?0',
     'Sec-Ch-Ua-Platform': '"Windows"',
     'Sec-Fetch-Dest': 'empty',
@@ -297,6 +317,9 @@ export async function likeTweetHttp(profileDir: string, tweetId: string): Promis
   const cookies = loadCookies(profileDir);
   const ct0 = getCt0(cookies);
   const cookieHeader = buildCookieHeader(cookies);
+  if (!ct0) throw new Error('No ct0 cookie — cannot like');
+
+  await jitter(800, 3000);
 
   const res = await fetch(`${TWITTER_GRAPHQL_BASE}/${_httpFavoriteTweetQueryId}/FavoriteTweet`, {
     method: 'POST',
@@ -308,8 +331,8 @@ export async function likeTweetHttp(profileDir: string, tweetId: string): Promis
   });
 
   if (!res.ok) {
-    const errorBody = await res.text();
-    throw new Error(`Twitter like error ${res.status}: ${errorBody.slice(0, 300)}`);
+    const body = await res.text();
+    throw new Error(`Twitter like error ${res.status}: ${parseTwitterError(body)}`);
   }
 }
 

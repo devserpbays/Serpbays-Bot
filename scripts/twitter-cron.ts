@@ -682,9 +682,11 @@ function pickActions(weights: Partial<Record<SocialAction, number>>, n: number):
   return selected;
 }
 
-/** Random delay between actions: 30s–3min */
+/** Human-paced delay between distinct actions: 45s–4min, bell-curve biased toward center */
 function betweenActionDelay(): Promise<void> {
-  const ms = 30_000 + Math.random() * 150_000;
+  // Average two randoms → bell-curve (most delays cluster around 2min, rare extremes)
+  const r1 = Math.random(), r2 = Math.random();
+  const ms = Math.round(45_000 + ((r1 + r2) / 2) * 195_000); // 45s–4min
   console.log(`[Social] Waiting ${Math.round(ms / 1000)}s before next action...`);
   return new Promise(r => setTimeout(r, ms));
 }
@@ -796,7 +798,8 @@ async function executeLikeAction(): Promise<void> {
       await Post.findByIdAndUpdate(post._id, { likedByBot: true });
       liked++;
       console.log(`[Like] Liked tweet ${tweetId}`);
-      if (liked < shuffled.length) await engageDelay(30, 90);
+      // 15–60s between likes — human pacing (getActionGap is 2–8s, too fast for stand-alone likes)
+      if (liked < shuffled.length) await engageDelay(15, 60);
     } catch (err) {
       console.warn(`[Like] Failed for ${tweetId}:`, (err as Error).message);
     }
