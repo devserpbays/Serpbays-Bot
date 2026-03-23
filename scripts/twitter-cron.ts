@@ -116,20 +116,44 @@ async function getTodayReplyCount(accountId: string): Promise<number> {
   return Post.countDocuments(query);
 }
 
+// Reply style + length pools for direct reply generation (mirrors openclaw.ts distribution)
+const DIRECT_REPLY_STYLES = [
+  { weight: 35, instruction: 'Add a related insight or practical tip that builds on what they said — like a peer sharing real experience' },
+  { weight: 20, instruction: 'Respond briefly then end with a genuine follow-up question showing real curiosity' },
+  { weight: 20, instruction: 'Write a SHORT punchy validation — 1 sentence max, like a quick nod from someone who gets it' },
+  { weight: 15, instruction: 'Frame it as a brief "same happened to me" personal anecdote — lived experience, not advice' },
+  { weight: 10, instruction: 'Respectfully push back on one assumption or add a nuance they missed — stay friendly' },
+];
+
+const DIRECT_REPLY_LENGTHS = [
+  { weight: 25, instruction: 'VERY SHORT — 1 punchy sentence, under 90 characters. Brevity is the point.' },
+  { weight: 45, instruction: '1–2 sentences, 90–180 characters — concise and complete.' },
+  { weight: 30, instruction: '2–3 sentences, up to 240 characters — add context or a question.' },
+];
+
+function pickDirectWeighted<T extends { weight: number }>(pool: T[]): T {
+  const total = pool.reduce((s, x) => s + x.weight, 0);
+  let r = Math.random() * total;
+  for (const item of pool) { r -= item.weight; if (r <= 0) return item; }
+  return pool[pool.length - 1];
+}
+
 async function generateTweetReply(
   postContent: string,
   companyName: string,
   companyDescription: string,
   brandMentionRate = 25
 ): Promise<string> {
-  const randomSeed = Math.floor(Math.random() * 1000);
+  const randomSeed = Math.floor(Math.random() * 9999);
   const mentionBrand = Math.random() < (brandMentionRate / 100);
+  const style = pickDirectWeighted(DIRECT_REPLY_STYLES);
+  const length = pickDirectWeighted(DIRECT_REPLY_LENGTHS);
 
   const brandRule = mentionBrand
-    ? `- Mention "${companyName}" once, naturally woven into the reply (e.g. "been using ${companyName} for this", "${companyName} has decent options for this")`
-    : `- Do NOT mention any brand, company, or service by name\n- Reply as a knowledgeable SEO person sharing a genuine tip or insight`;
+    ? `- Mention "${companyName}" once, naturally woven in (e.g. "been using ${companyName} for this")`
+    : `- Do NOT mention any brand or company name — just share the insight`;
 
-  const prompt = `You are an SEO practitioner who regularly builds backlinks and guest posts. Reply to this tweet naturally, like a real person sharing experience.
+  const prompt = `Reply to this tweet naturally, like a real person sharing experience.
 
 TWEET:
 """
@@ -138,16 +162,17 @@ ${postContent.slice(0, 280)}
 
 CONTEXT about ${companyName}: ${companyDescription}
 
+STYLE: ${style.instruction}
+LENGTH: ${length.instruction}
+
 RULES:
 - Write ONLY the reply text — no quotes, no labels, no explanation
-- Under 240 characters
-- Sound like a real SEO person casually sharing what worked for them — NOT a brand rep or sales pitch
+- Sound like a real person — NOT a brand rep or sales pitch
 ${brandRule}
-- No URLs, no hashtags, no emojis unless it fits naturally
-- Vary tone: sometimes enthusiastic, sometimes matter-of-fact, sometimes giving a tip
+- No URLs, no hashtags unless they fit naturally
 - Never start with "Hey", "Hi", "Great tweet", or "Absolutely"
-- Never use marketing phrases like "game-changer", "seamless", "leverage", "robust", "check out", "highly recommend"
-- Random variety seed: ${randomSeed}
+- Never use: "game-changer", "seamless", "leverage", "robust", "check out", "highly recommend"
+- Variety seed: ${randomSeed}
 
 Write the reply now:`;
 

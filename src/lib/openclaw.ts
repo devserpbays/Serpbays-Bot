@@ -21,6 +21,28 @@ function releaseCLISlot(): void {
   if (next) next();
 }
 
+// Reply style + length pools — randomly selected each evaluation so replies don't feel uniform
+const REPLY_STYLES = [
+  { weight: 35, style: 'add_insight',      instruction: 'Add a related insight or practical tip that builds on what they said — like a knowledgeable peer sharing experience' },
+  { weight: 20, style: 'ask_followup',     instruction: 'Respond briefly, then end with a genuine follow-up question that shows real curiosity about their situation' },
+  { weight: 20, style: 'short_agree',      instruction: 'Write a SHORT punchy validation or agreement — 1 sentence max, like a quick nod from someone who gets it' },
+  { weight: 15, style: 'share_experience', instruction: 'Frame the reply as a brief personal anecdote or "same happened to me" — make it feel like lived experience, not advice' },
+  { weight: 10, style: 'mild_disagree',    instruction: 'Respectfully push back on one assumption or add a nuance they might have missed — stay friendly, not combative' },
+] as const;
+
+const REPLY_LENGTHS = [
+  { weight: 25, instruction: 'Keep it VERY SHORT — 1 punchy sentence, under 90 characters. Brevity is the whole point.' },
+  { weight: 45, instruction: 'Aim for 1–2 sentences, 90–180 characters — concise and complete.' },
+  { weight: 30, instruction: '2–3 sentences, up to 240 characters. Enough room to add context or a question.' },
+] as const;
+
+function pickWeighted<T extends { weight: number }>(pool: readonly T[]): T {
+  const total = pool.reduce((s, x) => s + x.weight, 0);
+  let r = Math.random() * total;
+  for (const item of pool) { r -= item.weight; if (r <= 0) return item; }
+  return pool[pool.length - 1];
+}
+
 // --- Build the evaluation prompt ---
 function buildPrompt(
   postContent: string,
@@ -28,7 +50,18 @@ function buildPrompt(
   companyDescription: string,
   promptTemplate?: string
 ): string {
-  const defaultPrompt = `You are a social media engagement analyst. Analyze the following social media post and determine if it describes a problem or need that "${companyName}" can help solve.
+  if (promptTemplate) {
+    return promptTemplate
+      .replace(/\{postContent\}/g, postContent.slice(0, 1000))
+      .replace(/\{companyName\}/g, companyName)
+      .replace(/\{companyDescription\}/g, companyDescription);
+  }
+
+  const style = pickWeighted(REPLY_STYLES);
+  const length = pickWeighted(REPLY_LENGTHS);
+  const seed = Math.floor(Math.random() * 9999);
+
+  return `You are a social media engagement analyst. Analyze the following social media post and determine if it describes a problem or need that "${companyName}" can help solve.
 
 Company: ${companyName}
 Company Description: ${companyDescription}
@@ -38,23 +71,22 @@ Social Media Post:
 ${postContent.slice(0, 1000)}
 """
 
+For the suggestedReply field:
+- STYLE: ${style.instruction}
+- LENGTH: ${length.instruction}
+- Sound like a real person on social media — NOT a brand rep or analyst
+- Never start with "Hey", "Hi", "Great post", or "Absolutely"
+- Never use: "game-changer", "seamless", "leverage", "robust", "excited to share"
+- Variety seed: ${seed}
+
 Respond ONLY with valid JSON (no markdown, no code blocks, no extra text):
 {
   "relevant": true or false,
   "score": 0 to 100,
-  "suggestedReply": "A helpful, non-salesy reply (2-3 sentences MAX, under 280 characters) that naturally mentions how ${companyName} could help. Keep it short, conversational and genuine — like a real person on social media.",
+  "suggestedReply": "reply text here",
   "tone": "helpful or empathetic or informative or casual",
   "reasoning": "Brief explanation of why this is or isn't relevant"
 }`;
-
-  if (promptTemplate) {
-    return promptTemplate
-      .replace(/\{postContent\}/g, postContent.slice(0, 1000))
-      .replace(/\{companyName\}/g, companyName)
-      .replace(/\{companyDescription\}/g, companyDescription);
-  }
-
-  return defaultPrompt;
 }
 
 // Strip ANSI escape codes from a string
