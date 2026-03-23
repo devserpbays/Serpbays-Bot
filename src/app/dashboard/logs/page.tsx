@@ -60,14 +60,28 @@ function hourLabel(hour: number): string {
     return 'Daytime hours';
 }
 
+// Per-platform display names for log descriptions
+const PLATFORM_LABELS: Record<string, { post: string; posts: string; feed: string; name: string }> = {
+    twitter:   { post: 'tweet',   posts: 'tweets',   feed: 'Twitter feed',   name: 'Twitter' },
+    facebook:  { post: 'post',    posts: 'posts',    feed: 'Facebook feed',  name: 'Facebook' },
+    reddit:    { post: 'post',    posts: 'posts',    feed: 'Reddit feed',    name: 'Reddit' },
+    quora:     { post: 'answer',  posts: 'answers',  feed: 'Quora feed',     name: 'Quora' },
+    youtube:   { post: 'comment', posts: 'comments', feed: 'YouTube feed',   name: 'YouTube' },
+    pinterest: { post: 'pin',     posts: 'pins',     feed: 'Pinterest feed', name: 'Pinterest' },
+};
+function pl(platform: string) {
+    return PLATFORM_LABELS[platform] ?? { post: 'post', posts: 'posts', feed: 'feed', name: platform };
+}
+
 function humanize(entry: ActivityLogEntry): HumanEntry {
     const meta = entry.meta || {};
     const msg  = entry.message;
+    const p    = pl(entry.platform);
 
     switch (entry.action) {
 
         case 'cron_start':
-            return { category: 'system', title: 'Automation session started', description: 'The bot woke up and is about to check for new activity.' };
+            return { category: 'system', title: `${p.name} session started`, description: `The bot woke up and is checking for new ${p.posts} to engage with.` };
 
         case 'cron_end':
             return { category: 'system', title: 'Session finished', description: 'All tasks for this run are done. Next run scheduled automatically.' };
@@ -80,8 +94,8 @@ function humanize(entry: ActivityLogEntry): HumanEntry {
                 const h = meta.hour as number;
                 return {
                     category: 'browsing',
-                    title: 'Scrolled the feed — no actions this round',
-                    description: `${hourLabel(h)} (${h}:00). The bot browsed Twitter naturally without posting or engaging — mimicking a real user taking a break.`,
+                    title: `Scrolled the ${p.feed} — no actions this round`,
+                    description: `${hourLabel(h)} (${h}:00). The bot browsed the ${p.feed} without posting or engaging — mimicking a real user taking a break.`,
                 };
             }
             const mult = meta.activityMultiplier as number ?? 0.7;
@@ -94,7 +108,7 @@ function humanize(entry: ActivityLogEntry): HumanEntry {
 
         case 'social':
             if (msg.toLowerCase().includes('passive')) {
-                return { category: 'browsing', title: 'Browsed feed — no posts this round', description: msg };
+                return { category: 'browsing', title: `Browsed ${p.feed} — no posts this round`, description: msg };
             }
             if (msg.toLowerCase().includes('idle')) {
                 return { category: 'system', title: 'Idle cycle — resting this run', description: 'Randomly skipped all actions to avoid predictable patterns.' };
@@ -109,12 +123,12 @@ function humanize(entry: ActivityLogEntry): HumanEntry {
         case 'post':
             return {
                 category: 'reply',
-                title: 'Reply published',
+                title: `${p.name} reply published`,
                 description: meta.score != null
                     ? `Relevance score ${meta.score}/100 — strong match for your target audience.`
-                    : 'Comment posted successfully.',
+                    : `${p.name} comment posted successfully.`,
                 score: meta.score as number,
-                link: meta.replyUrl ? { href: meta.replyUrl as string, label: `View reply on ${entry.platform}` } : undefined,
+                link: meta.replyUrl ? { href: meta.replyUrl as string, label: `View reply on ${p.name}` } : undefined,
             };
 
         case 'original_tweet':
@@ -126,7 +140,7 @@ function humanize(entry: ActivityLogEntry): HumanEntry {
             };
 
         case 'post_failed':
-            return { category: 'issue', title: 'Reply failed — will retry automatically', description: msg, isIssue: true };
+            return { category: 'issue', title: `${p.name} reply failed — will retry automatically`, description: msg, isIssue: true };
 
         case 'engage': {
             if (msg.match(/liked?\s+\d+/i)) {
@@ -135,7 +149,7 @@ function humanize(entry: ActivityLogEntry): HumanEntry {
                     category: 'engagement',
                     title: msg,
                     description: ids.length
-                        ? `Liked tweets: ${ids.map(id => `#${id.slice(-6)}`).join(', ')}`
+                        ? `Liked ${p.posts}: ${ids.map(id => `#${id.slice(-6)}`).join(', ')}`
                         : 'Engagement recorded.',
                 };
             }
@@ -143,9 +157,9 @@ function humanize(entry: ActivityLogEntry): HumanEntry {
                 const url = msg.match(/https?:\/\/\S+/)?.[0];
                 return {
                     category: 'engagement',
-                    title: 'Retweeted a tweet',
-                    description: 'Shared a relevant tweet with followers.',
-                    link: url ? { href: url, label: 'View tweet' } : undefined,
+                    title: `Retweeted a ${p.post}`,
+                    description: `Shared a relevant ${p.post} with followers.`,
+                    link: url ? { href: url, label: `View ${p.post}` } : undefined,
                 };
             }
             if (msg.toLowerCase().includes('bookmark')) {
@@ -156,7 +170,7 @@ function humanize(entry: ActivityLogEntry): HumanEntry {
                 return { category: 'engagement', title: `Followed ${handle}`, description: 'Visited their profile first, then followed — just like a real user would.' };
             }
             if (msg.toLowerCase().includes('skipped') || msg.toLowerCase().includes('deleted')) {
-                return { category: 'issue', title: 'Post no longer available', description: `${msg} — marked to skip in future runs.`, isIssue: false };
+                return { category: 'issue', title: `${p.name} post no longer available`, description: `${msg} — marked to skip in future runs.`, isIssue: false };
             }
             if (msg.toLowerCase().includes('failed')) {
                 return { category: 'issue', title: 'Engagement action failed', description: msg, isIssue: true };
@@ -184,22 +198,22 @@ function humanize(entry: ActivityLogEntry): HumanEntry {
         case 'auth_error':
             return {
                 category: 'issue',
-                title: 'Account session expired — action needed',
-                description: 'Your login cookies have expired. Go to Social Accounts and re-upload your cookies to resume.',
+                title: `${p.name} session expired — action needed`,
+                description: `Your ${p.name} login cookies have expired. Go to Social Accounts and re-upload your cookies to resume.`,
                 isIssue: true,
             };
 
         case 'account_suspended':
-            return { category: 'issue', title: 'Account suspended', description: msg, isIssue: true };
+            return { category: 'issue', title: `${p.name} account suspended`, description: msg, isIssue: true };
 
         case 'scrape': {
             const tf = meta.totalFound as number;
             const np = meta.newPostCount as number;
             return {
                 category: 'system',
-                title: 'Searched for relevant content',
+                title: `Searched ${p.name} for relevant content`,
                 description: tf != null
-                    ? `Scanned ${tf} tweets — found ${np} new ${np === 1 ? 'opportunity' : 'opportunities'} to engage with.`
+                    ? `Scanned ${tf} ${p.posts} — found ${np} new ${np === 1 ? 'opportunity' : 'opportunities'} to engage with.`
                     : msg,
             };
         }
@@ -207,16 +221,16 @@ function humanize(entry: ActivityLogEntry): HumanEntry {
         case 'evaluate':
             return {
                 category: 'system',
-                title: 'AI reviewed content for relevance',
-                description: msg.replace(/Evaluated (\d+) posts?/, 'Reviewed $1 posts and scored each one for relevance to your brand.'),
+                title: `AI reviewed ${p.name} content for relevance`,
+                description: msg.replace(/Evaluated (\d+) posts?/, `Reviewed $1 ${p.posts} and scored each one for relevance to your brand.`),
             };
 
         case 'skip':
             if (msg.toLowerCase().includes('idle') || msg.toLowerCase().includes('score-based')) {
-                return { category: 'browsing', title: 'Idle cycle — resting this run', description: 'Randomly skipped this opportunity to avoid a predictable posting pattern — mimics a real user not always responding.' };
+                return { category: 'browsing', title: 'Idle cycle — resting this run', description: `Randomly skipped this ${p.name} opportunity to avoid a predictable posting pattern.` };
             }
             if (msg.toLowerCase().includes('threshold')) {
-                return { category: 'system', title: 'No high-score content found this run', description: 'No posts crossed the relevance threshold — nothing to reply to yet. Try lowering the auto-post threshold in Settings.' };
+                return { category: 'system', title: `No high-score ${p.name} content found`, description: `No ${p.posts} crossed the relevance threshold — nothing to reply to yet. Try lowering the auto-post threshold in Settings.` };
             }
             return { category: 'system', title: 'Skipped this run', description: msg };
 
@@ -514,10 +528,13 @@ export default function LogsPage() {
     const sessions       = todayLogs.filter(l => l.action === 'cron_start').length;
     const issues         = todayLogs.filter(l => l.level === 'error' || (l.level === 'warn' && l.action !== 'cooldown')).length;
 
-    const likesLog    = todayLogs.find(l => l.action === 'engage' && /liked?\s+\d+/i.test(l.message));
-    const likesMatch  = likesLog?.message.match(/(\d+)/);
-    const likesCount  = likesMatch ? parseInt(likesMatch[1]) : 0;
-    const retweets    = todayLogs.filter(l => l.action === 'engage' && /retweeted/i.test(l.message)).length;
+    // Likes / reactions: Twitter likes + Facebook react actions
+    const twitterLikesLog   = todayLogs.find(l => l.platform === 'twitter' && l.action === 'engage' && /liked?\s+\d+/i.test(l.message));
+    const twitterLikesMatch = twitterLikesLog?.message.match(/(\d+)/);
+    const twitterLikes      = twitterLikesMatch ? parseInt(twitterLikesMatch[1]) : 0;
+    const fbReactions       = todayLogs.filter(l => l.platform === 'facebook' && l.action === 'react').length;
+    const likesCount        = twitterLikes + fbReactions;
+    const retweets          = todayLogs.filter(l => l.action === 'engage' && /retweeted/i.test(l.message)).length;
 
     // ── Humanize + filter ──────────────────────────────────────────────────
     const humanized = logs.map(e => ({ entry: e, human: humanize(e) }));
@@ -560,12 +577,12 @@ export default function LogsPage() {
                 {/* ── Today's performance snapshot ───────────────────────── */}
                 <div style={{ display: 'flex', gap: 0, marginBottom: 0, overflowX: 'auto', WebkitOverflowScrolling: 'touch' as any }}>
                     {[
-                        { label: 'Replies sent',     value: repliesPosted,  color: '#22c55e', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={16} height={16}><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg> },
-                        { label: 'Original tweets',  value: originalPosted, color: '#a78bfa', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={16} height={16}><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg> },
-                        { label: 'Tweets liked',     value: likesCount,     color: '#f43f5e', icon: <svg viewBox="0 0 24 24" fill="currentColor" width={16} height={16}><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg> },
-                        { label: 'Retweets',         value: retweets,       color: '#34d399', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={16} height={16}><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 014-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg> },
-                        { label: 'Sessions run',     value: sessions,       color: '#6366f1', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={16} height={16}><polygon points="5,3 19,12 5,21 5,3"/></svg> },
-                        { label: 'Issues',           value: issues,         color: issues > 0 ? '#ef4444' : '#94a3b8', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={16} height={16}><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> },
+                        { label: 'Replies sent',       value: repliesPosted,  color: '#22c55e', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={16} height={16}><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg> },
+                        { label: 'Original posts',     value: originalPosted, color: '#a78bfa', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={16} height={16}><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg> },
+                        { label: 'Likes / Reactions',  value: likesCount,     color: '#f43f5e', icon: <svg viewBox="0 0 24 24" fill="currentColor" width={16} height={16}><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg> },
+                        { label: 'Shares / Retweets',  value: retweets,       color: '#34d399', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={16} height={16}><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 014-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg> },
+                        { label: 'Sessions run',       value: sessions,       color: '#6366f1', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={16} height={16}><polygon points="5,3 19,12 5,21 5,3"/></svg> },
+                        { label: 'Issues',             value: issues,         color: issues > 0 ? '#ef4444' : '#94a3b8', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={16} height={16}><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> },
                     ].map(({ label, value, color, icon }) => (
                         <div key={label} style={{ flex: '1 1 0', minWidth: 90, padding: '12px 14px', borderRight: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: 6 }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-muted)', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>

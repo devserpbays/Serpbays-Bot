@@ -44,7 +44,7 @@ import BrowserCookie from '../src/models/BrowserCookie';
 import { buildSuccessPatch, buildFailurePatch } from '../src/lib/accountHealth';
 
 const DEFAULT_DAILY_LIMIT = 3;  // Facebook flags accounts posting too many group comments/day
-const DEFAULT_AUTO_POST_THRESHOLD = 10;
+const DEFAULT_AUTO_POST_THRESHOLD = 70; // Only comment on high-relevance posts (same bar as Twitter)
 
 // --- Multi-session day model ---
 // Defines what type of session to run based on time of day (IST).
