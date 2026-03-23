@@ -784,7 +784,7 @@ async function executeOriginalTweetAction(settings: any, accountId: string): Pro
   console.log(`[OriginalTweet] "${tweetText}"`);
   try {
     const result = await postTweetHttp(PROFILE_DIR, tweetText);
-    const tweetId = result?.data?.create_tweet?.tweet_results?.result?.rest_id;
+    const tweetId = result?.data?.id;
     const tweetUrl = tweetId ? `https://x.com/i/status/${tweetId}` : `https://x.com/${accountId}`;
 
     await Post.create({
@@ -793,7 +793,7 @@ async function executeOriginalTweetAction(settings: any, accountId: string): Pro
       ...(CRON_USER_ID && { userId: CRON_USER_ID }),
       author: accountId,
       content: tweetText,
-      keywordsMatched: [keyword],
+      keywordsMatched: [topic],
       isOriginalTweet: true,
       status: 'posted',
       postedAt: new Date(),
@@ -801,7 +801,7 @@ async function executeOriginalTweetAction(settings: any, accountId: string): Pro
     });
 
     console.log(`[OriginalTweet] Posted: ${tweetUrl}`);
-    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'original_tweet', `Posted original tweet about "${keyword}"`, { keyword, tweetUrl });
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'original_tweet', `Posted original tweet about "${topic}"`, { topic, tweetUrl });
   } catch (err) {
     console.error('[OriginalTweet] Failed:', (err as Error).message);
   }
