@@ -95,7 +95,11 @@ export default function PlatformPage() {
     const [communityPosts, setCommunityPosts] = useState<IPost[]>([]);
     const [communityTotal, setCommunityTotal] = useState(0);
     const [communityPage, setCommunityPage] = useState(1);
-    type ActiveTab = 'keyword' | 'community' | 'liked' | 'retweeted' | 'bookmarked' | 'followed';
+    const [originalPosts, setOriginalPosts] = useState<IPost[]>([]);
+    const [originalTotal, setOriginalTotal] = useState(0);
+    const [originalPage, setOriginalPage] = useState(1);
+    const [originalLoading, setOriginalLoading] = useState(true);
+    type ActiveTab = 'keyword' | 'community' | 'original' | 'liked' | 'retweeted' | 'bookmarked' | 'followed';
     const [activeTab, setActiveTab] = useState<ActiveTab>('keyword');
     const [timeFilter, setTimeFilter] = useState('today');
     const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -191,18 +195,34 @@ export default function PlatformPage() {
         setCommunityLoading(false);
     }, [platformId, timeFilter, communityPage]);
 
+    const fetchOriginalPosts = useCallback(async () => {
+        if (platformId !== 'twitter') { setOriginalLoading(false); return; }
+        const p = new URLSearchParams({ status: 'posted', platform: 'twitter', source: 'original', limit: String(LIMIT), page: String(originalPage) });
+        const { from, to } = getDateRange(timeFilter);
+        if (from) p.set('from', from.toISOString());
+        if (to) p.set('to', to.toISOString());
+        try {
+            const res = await fetch(`${API_BASE}/api/posts?${p}`);
+            const data: PostsResponse = await res.json();
+            setOriginalPosts(data.posts ?? []);
+            setOriginalTotal(data.total ?? 0);
+        } catch { /* silent */ }
+        setOriginalLoading(false);
+    }, [platformId, timeFilter, originalPage]);
+
     useEffect(() => { fetchAccounts(); }, [fetchAccounts]);
     useEffect(() => { setLoading(true); fetchPosts(); }, [fetchPosts]);
     useEffect(() => { setCommunityLoading(true); fetchCommunityPosts(); }, [fetchCommunityPosts]);
+    useEffect(() => { setOriginalLoading(true); fetchOriginalPosts(); }, [fetchOriginalPosts]);
     useEffect(() => { fetchEngageStats(); }, [fetchEngageStats]);
     useEffect(() => {
         const isEngage = (['liked', 'retweeted', 'bookmarked', 'followed'] as const).includes(activeTab as EngageTab);
         if (isEngage) fetchEngageList(activeTab as EngageTab, engageListPage, engageTimeFilter);
     }, [activeTab, engageListPage, engageTimeFilter, fetchEngageList]);
     useEffect(() => {
-        pollRef.current = setInterval(() => { fetchPosts(); fetchCommunityPosts(); fetchEngageStats(); }, POLL_MS);
+        pollRef.current = setInterval(() => { fetchPosts(); fetchCommunityPosts(); fetchOriginalPosts(); fetchEngageStats(); }, POLL_MS);
         return () => { if (pollRef.current) clearInterval(pollRef.current); };
-    }, [fetchPosts, fetchCommunityPosts, fetchEngageStats]);
+    }, [fetchPosts, fetchCommunityPosts, fetchOriginalPosts, fetchEngageStats]);
 
     if (!meta) return null;
 
@@ -211,11 +231,12 @@ export default function PlatformPage() {
     const showEngageList = (['liked', 'retweeted', 'bookmarked', 'followed'] as const).includes(activeTab as EngageTab);
     const engageTab = activeTab as EngageTab;
     const isCommunityView = platformId === 'twitter' && activeTab === 'community';
-    const activePosts = isCommunityView ? communityPosts : posts;
-    const activeTotal = isCommunityView ? communityTotal : total;
-    const activePage = isCommunityView ? communityPage : page;
-    const setActivePage = isCommunityView ? setCommunityPage : setPage;
-    const activeLoading = isCommunityView ? communityLoading : loading;
+    const isOriginalView = platformId === 'twitter' && activeTab === 'original';
+    const activePosts = isCommunityView ? communityPosts : isOriginalView ? originalPosts : posts;
+    const activeTotal = isCommunityView ? communityTotal : isOriginalView ? originalTotal : total;
+    const activePage = isCommunityView ? communityPage : isOriginalView ? originalPage : page;
+    const setActivePage = isCommunityView ? setCommunityPage : isOriginalView ? setOriginalPage : setPage;
+    const activeLoading = isCommunityView ? communityLoading : isOriginalView ? originalLoading : loading;
     const totalPages = Math.ceil(activeTotal / LIMIT);
     const startItem = (activePage - 1) * LIMIT + 1;
     const endItem = Math.min(activePage * LIMIT, activeTotal);
@@ -408,6 +429,7 @@ export default function PlatformPage() {
                         {([
                             { key: 'keyword' as const, label: 'Replies', count: total, tc: color },
                             { key: 'community' as const, label: 'Communities', count: communityTotal, tc: '#1d9bf0' },
+                            { key: 'original' as const, label: 'Original Tweets', count: originalTotal, tc: '#a78bfa' },
                             { key: 'liked' as const, label: 'Liked', count: engageStats?.totalLiked ?? 0, tc: '#f43f5e' },
                             { key: 'retweeted' as const, label: 'Retweeted', count: engageStats?.totalRetweeted ?? 0, tc: '#34d399' },
                             { key: 'bookmarked' as const, label: 'Bookmarked', count: engageStats?.totalBookmarked ?? 0, tc: '#fbbf24' },
@@ -486,7 +508,7 @@ export default function PlatformPage() {
                     ) : (
                         activeTotal > 0 && (
                             <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                                Showing <strong style={{ color: 'var(--text-secondary)' }}>{startItem}–{endItem}</strong> of <strong style={{ color: 'var(--text-secondary)' }}>{activeTotal}</strong> {isCommunityView ? 'replies' : 'comments'}
+                                Showing <strong style={{ color: 'var(--text-secondary)' }}>{startItem}–{endItem}</strong> of <strong style={{ color: 'var(--text-secondary)' }}>{activeTotal}</strong> {isCommunityView ? 'replies' : isOriginalView ? 'tweets' : 'comments'}
                             </span>
                         )
                     )}
@@ -514,12 +536,14 @@ export default function PlatformPage() {
                             </svg>
                         </div>
                         <p style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-secondary)', margin: '0 0 6px' }}>
-                            {isCommunityView ? 'No community replies yet' : 'No comments yet'}
+                            {isCommunityView ? 'No community replies yet' : isOriginalView ? 'No original tweets yet' : 'No comments yet'}
                         </p>
                         <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>
                             {isCommunityView
                                 ? 'Add community IDs in Settings → Twitter → Communities, or click Sync to auto-detect.'
-                                : 'No posted comments found for this time period.'}
+                                : isOriginalView
+                                    ? 'Enable original tweets in Settings → Twitter → Original Tweets and run the cron.'
+                                    : 'No posted comments found for this time period.'}
                         </p>
                     </div>
                 ) : (

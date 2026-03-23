@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
 
   const from = searchParams.get('from');
   const to = searchParams.get('to');
-  const source = searchParams.get('source'); // 'community' | 'keyword'
+  const source = searchParams.get('source'); // 'community' | 'keyword' | 'original'
 
   const filter: Record<string, unknown> = { userId };
   if (status) filter.status = status;
@@ -26,8 +26,12 @@ export async function GET(req: NextRequest) {
   if (minScore) filter.aiRelevanceScore = { $gte: parseInt(minScore) };
   if (source === 'community') {
     filter.keywordsMatched = { $elemMatch: { $regex: '^community:' } };
+    filter.isOriginalTweet = { $ne: true };
+  } else if (source === 'original') {
+    filter.isOriginalTweet = true;
   } else if (source === 'keyword') {
     filter.keywordsMatched = { $not: { $elemMatch: { $regex: '^community:' } } };
+    filter.isOriginalTweet = { $ne: true };
   }
   if (from || to) {
     const dateFilter: Record<string, Date> = {};
