@@ -1214,6 +1214,22 @@ async function main() {
     process.exit(0);
   }
 
+  // Account health guard — skip if auto-paused or in backoff
+  if (CRON_USER_ID) {
+    const accHealth = await BrowserCookie.findOne({ userId: CRON_USER_ID, platform: 'twitter' }).lean() as Record<string, unknown> | null;
+    if (accHealth?.autoPaused) {
+      console.warn(`Twitter account auto-paused (health score: ${accHealth.healthScore ?? 0}/100) — skipping run. Resume from the Accounts page.`);
+      await logActivity(CRON_USER_ID, 'twitter', 'warn', 'account_paused', `Account auto-paused (score: ${accHealth.healthScore ?? 0}/100) — cron skipped. Resume from dashboard.`);
+      process.exit(0);
+    }
+    if (accHealth?.backoffUntil && new Date(accHealth.backoffUntil as string) > new Date()) {
+      const remainMin = Math.ceil((new Date(accHealth.backoffUntil as string).getTime() - Date.now()) / 60000);
+      console.warn(`Twitter account in backoff for ${remainMin} more minute(s) — skipping run.`);
+      await logActivity(CRON_USER_ID, 'twitter', 'warn', 'backoff', `Account in backoff — ${remainMin}m remaining. Cron skipped.`, { remainingMinutes: remainMin });
+      process.exit(0);
+    }
+  }
+
   const keywords: string[] = settings.twitterKeywords?.length
     ? settings.twitterKeywords
     : (settings.keywords?.length ? settings.keywords : []);

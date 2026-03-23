@@ -34,6 +34,10 @@ export interface SocialAccount {
   active?: boolean;
   verifiedAt?: string;   // ISO string — when cookies were last verified
   cookieVerified?: boolean;
+  healthScore?: number;  // 0–100
+  autoPaused?: boolean;
+  totalPosts?: number;
+  totalErrors?: number;
 }
 
 export interface ISettings {

@@ -296,6 +296,23 @@ function humanize(entry: ActivityLogEntry): HumanEntry {
                 isIssue: true,
             };
 
+        case 'account_paused':
+            return {
+                category: 'issue',
+                title: `${p.name} account auto-paused`,
+                description: msg + ' — Go to the platform page and click Resume to restart posting.',
+                isIssue: true,
+            };
+
+        case 'backoff':
+            return {
+                category: 'system',
+                title: `${p.name} account in cooldown`,
+                description: meta.remainingMinutes
+                    ? `${meta.remainingMinutes} minute${Number(meta.remainingMinutes) !== 1 ? 's' : ''} remaining in backoff — cron will resume automatically.`
+                    : msg,
+            };
+
         case 'config_error':
             return { category: 'issue', title: 'Setup incomplete', description: msg, isIssue: true };
 

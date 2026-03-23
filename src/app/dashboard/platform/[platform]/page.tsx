@@ -106,6 +106,7 @@ export default function PlatformPage() {
     const [accounts, setAccounts] = useState<SocialAccount[]>([]);
     const [loading, setLoading] = useState(true);
     const [cookieStatus, setCookieStatus] = useState<{ checked: boolean; expired: boolean; error?: string }>({ checked: false, expired: false });
+    const [resumingPlatform, setResumingPlatform] = useState<string | null>(null);
     const [communityLoading, setCommunityLoading] = useState(true);
     const [platformSettings, setPlatformSettings] = useState<Record<string, any>>({});
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -222,6 +223,20 @@ export default function PlatformPage() {
             }
         } catch { /* silent */ }
     }, [platformId]);
+
+    const handleResumeAccount = useCallback(async (platform: string) => {
+        setResumingPlatform(platform);
+        try {
+            await fetch(`${API_BASE}/api/social-accounts/resume`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ platform }),
+            });
+            await fetchAccounts();
+        } catch { /* silent */ } finally {
+            setResumingPlatform(null);
+        }
+    }, [fetchAccounts]);
 
     const fetchPosts = useCallback(async () => {
         const p = new URLSearchParams({ status: 'posted', platform: platformId, limit: String(LIMIT), page: String(page) });
@@ -381,22 +396,31 @@ export default function PlatformPage() {
                             const verifiedAgo = acc.verifiedAt
                                 ? timeAgo(new Date(acc.verifiedAt))
                                 : (acc.addedAt ? timeAgo(new Date(acc.addedAt)) : null);
+                            const health = acc.healthScore ?? 100;
+                            const paused = acc.autoPaused ?? false;
+                            const healthColor = paused ? '#94a3b8' : health >= 70 ? '#22c55e' : health >= 40 ? '#f59e0b' : '#ef4444';
+                            const healthLabel = paused ? 'Paused' : health >= 70 ? 'Healthy' : health >= 40 ? 'Warning' : 'Critical';
+                            const borderColor = paused ? 'rgba(148,163,184,0.35)' : !cookieOk ? 'rgba(239,68,68,0.3)' : health < 40 ? 'rgba(239,68,68,0.3)' : color + '35';
                             return (
                                 <div key={acc.id} style={{
                                     display: 'flex', alignItems: 'center', gap: 12,
                                     background: 'var(--bg-card)',
-                                    border: `1px solid ${cookieOk ? color + '35' : 'rgba(239,68,68,0.3)'}`,
+                                    border: `1px solid ${borderColor}`,
                                     borderRadius: 12, padding: '10px 16px',
                                     minWidth: 220,
                                 }}>
-                                    {/* Avatar */}
-                                    <div style={{
-                                        width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
-                                        background: `${color}22`, color,
-                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                        fontWeight: 700, fontSize: 14,
-                                    }}>
-                                        {displayLabel[0].toUpperCase()}
+                                    {/* Avatar with health ring */}
+                                    <div style={{ position: 'relative', flexShrink: 0 }}>
+                                        <div style={{
+                                            width: 36, height: 36, borderRadius: '50%',
+                                            background: `${color}22`, color,
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                            fontWeight: 700, fontSize: 14,
+                                            outline: `2px solid ${healthColor}`,
+                                            outlineOffset: 2,
+                                        }}>
+                                            {displayLabel[0].toUpperCase()}
+                                        </div>
                                     </div>
 
                                     {/* Info */}
@@ -414,7 +438,7 @@ export default function PlatformPage() {
                                         )}
                                     </div>
 
-                                    {/* Status badge */}
+                                    {/* Status + health */}
                                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
                                         <span style={{
                                             fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 6,
@@ -423,9 +447,35 @@ export default function PlatformPage() {
                                         }}>
                                             {cookieOk ? 'Active' : 'Expired'}
                                         </span>
-                                        <span style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 500 }}>
-                                            #{acc.accountIndex + 1}
+                                        {/* Health score badge */}
+                                        <span style={{
+                                            fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 6,
+                                            background: `${healthColor}18`,
+                                            color: healthColor,
+                                        }}>
+                                            {paused ? 'Paused' : `${healthLabel} ${health}/100`}
                                         </span>
+                                        {acc.totalPosts != null && (
+                                            <span style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 500 }}>
+                                                {acc.totalPosts} posts · {acc.totalErrors ?? 0} errors
+                                            </span>
+                                        )}
+                                        {/* Resume button — only shown when auto-paused */}
+                                        {paused && (
+                                            <button
+                                                onClick={() => handleResumeAccount(acc.platform)}
+                                                disabled={resumingPlatform === acc.platform}
+                                                style={{
+                                                    marginTop: 2, fontSize: 10, fontWeight: 700,
+                                                    padding: '3px 10px', borderRadius: 6, border: 'none',
+                                                    background: resumingPlatform === acc.platform ? 'rgba(99,102,241,0.12)' : 'rgba(99,102,241,0.85)',
+                                                    color: resumingPlatform === acc.platform ? '#6366f1' : '#fff',
+                                                    cursor: resumingPlatform === acc.platform ? 'default' : 'pointer',
+                                                }}
+                                            >
+                                                {resumingPlatform === acc.platform ? 'Resuming…' : 'Resume'}
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
                             );
@@ -512,7 +562,6 @@ export default function PlatformPage() {
                         ...(platformId === 'facebook' && fbGroups.length > 0 ? [{ label: 'Groups', value: `${fbGroups.length} monitored`, accent: '#1877f2' }] : []),
                         ...(platformId === 'facebook' ? [
                             { label: 'Passive sessions', value: '40% browse-only', accent: '#34d399' },
-                            { label: 'Reactions', value: 'Love · Care · Haha · Wow', accent: '#f43f5e' },
                             { label: 'Warmup', value: 'Active — auto-ramps to limit', accent: '#fbbf24' },
                         ] : []),
                         ...(platformId === 'quora' ? [{ label: 'Mode', value: 'Answer → Brand Comment', accent: '#818cf8' }] : []),

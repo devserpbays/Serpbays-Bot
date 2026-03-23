@@ -356,6 +356,22 @@ async function main() {
     process.exit(0);
   }
 
+  // Account health guard — skip if auto-paused or in backoff
+  if (CRON_USER_ID) {
+    const accHealth = await BrowserCookie.findOne({ userId: CRON_USER_ID, platform: 'facebook' }).lean() as Record<string, unknown> | null;
+    if (accHealth?.autoPaused) {
+      console.warn(`Facebook account auto-paused (health score: ${accHealth.healthScore ?? 0}/100) — skipping run. Resume from the Accounts page.`);
+      await logActivity(CRON_USER_ID, 'facebook', 'warn', 'account_paused', `Account auto-paused (score: ${accHealth.healthScore ?? 0}/100) — cron skipped. Resume from dashboard.`);
+      process.exit(0);
+    }
+    if (accHealth?.backoffUntil && new Date(accHealth.backoffUntil as string) > new Date()) {
+      const remainMin = Math.ceil((new Date(accHealth.backoffUntil as string).getTime() - Date.now()) / 60000);
+      console.warn(`Facebook account in backoff for ${remainMin} more minute(s) — skipping run.`);
+      await logActivity(CRON_USER_ID, 'facebook', 'warn', 'backoff', `Account in backoff — ${remainMin}m remaining. Cron skipped.`, { remainingMinutes: remainMin });
+      process.exit(0);
+    }
+  }
+
   const passiveSession = sessionType !== 'full'; // browse_only and react_only both skip commenting
 
   // Step 2b: Read current account identity
