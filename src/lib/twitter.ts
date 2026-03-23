@@ -325,17 +325,11 @@ export async function searchCommunityTweets(
   const page = await getPage();
   const communityUrl = `https://x.com/i/communities/${communityId}`;
 
-  // Capture all GraphQL responses while navigating to the community page.
-  // Twitter frequently renames community operation names so we cast a wide net:
-  // match any /graphql/ response that looks community-related.
+  // Capture all GraphQL responses. Community tweet timelines (CommunityTweetsTimeline)
+  // are only triggered after the page scrolls, so we scroll after initial load.
   const capturedResponses: any[] = [];
   const onResponse = async (r: any) => {
-    const url: string = r.url();
-    if (
-      url.includes('/i/api/graphql/') &&
-      r.status() === 200 &&
-      (url.toLowerCase().includes('community') || url.includes('Timeline') || url.includes('timeline'))
-    ) {
+    if (r.url().includes('/i/api/graphql/') && r.status() === 200) {
       try { capturedResponses.push(await r.json()); } catch { /* skip non-JSON */ }
     }
   };
@@ -343,8 +337,12 @@ export async function searchCommunityTweets(
 
   try {
     await page.goto(communityUrl, { waitUntil: 'domcontentloaded', timeout: NAVIGATION_TIMEOUT });
-    // Wait a bit for async API calls to land
     await page.waitForTimeout(3000);
+    // Scroll to trigger CommunityTweetsTimeline API call (not fired on initial load)
+    await page.evaluate(() => window.scrollBy(0, 600));
+    await page.waitForTimeout(2000);
+    await page.evaluate(() => window.scrollBy(0, 600));
+    await page.waitForTimeout(2000);
   } finally {
     page.off('response', onResponse);
   }

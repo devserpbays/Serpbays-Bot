@@ -78,7 +78,7 @@ const PROFILE_DIR = process.env.TWITTER_PROFILE_DIR
 // Parse --mode flag
 const MODE = (() => {
   const modeArg = process.argv.find(a => a.startsWith('--mode='));
-  return (modeArg?.split('=')[1] || 'full') as 'scrape' | 'post' | 'full' | 'engage';
+  return (modeArg?.split('=')[1] || 'full') as 'scrape' | 'post' | 'full' | 'engage' | 'community';
 })();
 
 // --- Read current Twitter account identity from profile dir's .verified file ---
@@ -312,11 +312,15 @@ Write the tweet now:`;
 }
 
 // === SCRAPE PHASE: search tweets + evaluate with AI (needs browser) ===
-async function scrapePhase(settings: any, keywords: string[]): Promise<{ totalFound: number; newPostCount: number }> {
+async function scrapePhase(settings: any, keywords: string[], opts: { communityOnly?: boolean } = {}): Promise<{ totalFound: number; newPostCount: number }> {
   let totalFound = 0;
   let newPostCount = 0;
 
-  for (const keyword of keywords) {
+  if (opts.communityOnly) {
+    console.log('[Scrape] community-only mode — skipping keyword search');
+  }
+
+  for (const keyword of opts.communityOnly ? [] : keywords) {
     try {
       console.log(`Searching tweets for: "${keyword}"`);
       const tweets = await searchTweets(keyword, 25);
@@ -776,12 +780,16 @@ const MAX_FOLLOWS_PER_DAY = 5;
 
 // ── Individual action executors ───────────────────────────────────────────────
 
-async function executeReplyAction(settings: any, accountId: string, dailyLimit: number, autoPostThreshold: number): Promise<void> {
+async function executeReplyAction(settings: any, accountId: string, dailyLimit: number, autoPostThreshold: number, communityOnly = false): Promise<void> {
   const todayCount = await getTodayReplyCount(accountId);
   if (todayCount >= dailyLimit) {
     console.log(`[Reply] Daily limit reached (${todayCount}/${dailyLimit}), skipping`);
     return;
   }
+
+  const communityFilter = communityOnly
+    ? { keywordsMatched: { $elemMatch: { $regex: /^community:/ } } }
+    : {};
 
   const candidate = await Post.findOne({
     platform: 'twitter',
@@ -790,11 +798,13 @@ async function executeReplyAction(settings: any, accountId: string, dailyLimit: 
     aiReply: { $exists: true, $ne: '' },
     postAttempts: { $not: { $gte: 3 } },
     ...(CRON_USER_ID && { userId: CRON_USER_ID }),
+    ...communityFilter,
   }).sort({ aiRelevanceScore: -1, _id: -1 });
 
   if (!candidate) {
-    console.log('[Reply] No candidates above auto-post threshold');
-    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'skip', 'No tweets above auto-post threshold');
+    const label = communityOnly ? 'community' : 'tweet';
+    console.log(`[Reply] No ${label} candidates above auto-post threshold`);
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'skip', `No ${label}s above auto-post threshold`);
     return;
   }
 
@@ -1207,7 +1217,7 @@ async function main() {
   const keywords: string[] = settings.twitterKeywords?.length
     ? settings.twitterKeywords
     : (settings.keywords?.length ? settings.keywords : []);
-  if (keywords.length === 0) {
+  if (keywords.length === 0 && MODE !== 'community') {
     console.log('No Twitter keywords configured. Add keywords in dashboard settings.');
     if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'warn', 'config_error', 'No Twitter keywords configured — add keywords in dashboard settings');
     process.exit(0);
@@ -1241,6 +1251,19 @@ async function main() {
   // Execute based on mode
   if (MODE === 'scrape' || MODE === 'full') {
     await scrapePhase(settings, keywords);
+  }
+
+  if (MODE === 'community') {
+    // Scrape + evaluate community posts, then reply to community posts only
+    const communityIds: string[] = settings.twitterCommunityIds ?? [];
+    if (communityIds.length === 0) {
+      console.log('[Community] No community IDs configured — add them in dashboard settings');
+      if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'warn', 'config_error', 'No Twitter community IDs configured');
+      process.exit(0);
+    }
+    console.log(`[Community] Running community-only mode for ${communityIds.length} communit${communityIds.length === 1 ? 'y' : 'ies'}`);
+    await scrapePhase(settings, keywords, { communityOnly: true });
+    await executeReplyAction(settings, accountId, dailyLimit, autoPostThreshold, true);
   }
 
   if (MODE === 'post' || MODE === 'full' || MODE === 'engage') {
