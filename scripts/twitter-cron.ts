@@ -861,10 +861,15 @@ async function executeLikeAction(): Promise<void> {
       await Post.findByIdAndUpdate(post._id, { likedByBot: true });
       liked++;
       console.log(`[Like] Liked tweet ${tweetId}`);
-      // 15–60s between likes — human pacing (getActionGap is 2–8s, too fast for stand-alone likes)
+      // 15–60s between likes — human pacing
       if (liked < shuffled.length) await engageDelay(15, 60);
     } catch (err) {
-      console.warn(`[Like] Failed for ${tweetId}:`, (err as Error).message);
+      const msg = (err as Error).message;
+      console.warn(`[Like] Failed for ${tweetId}:`, msg);
+      if (/404|385|not found|deleted/i.test(msg)) {
+        await Post.findByIdAndUpdate(post._id, { likedByBot: true });
+        console.log('[Like] Tweet appears deleted — marked to skip on future runs');
+      }
     }
   }
 
@@ -890,7 +895,13 @@ async function executeRetweetAction(): Promise<void> {
     console.log(`[Retweet] Retweeted tweet ${tweetId}`);
     if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'engage', `Retweeted ${candidate.url}`);
   } catch (err) {
-    console.warn('[Retweet] Failed:', (err as Error).message);
+    const msg = (err as Error).message;
+    console.warn('[Retweet] Failed:', msg);
+    // If tweet is gone (404/385/deleted), mark as retweeted so we never retry it
+    if (/404|385|not found|deleted/i.test(msg)) {
+      await Post.findByIdAndUpdate(candidate._id, { retweetedByBot: true });
+      console.log('[Retweet] Tweet appears deleted — marked to skip on future runs');
+    }
   }
 }
 
@@ -914,7 +925,12 @@ async function executeBookmarkAction(): Promise<void> {
       console.log(`[Bookmark] Bookmarked tweet ${tweetId}`);
       if (bookmarked < candidates.length) await engageDelay(20, 60);
     } catch (err) {
-      console.warn(`[Bookmark] Failed for ${tweetId}:`, (err as Error).message);
+      const msg = (err as Error).message;
+      console.warn(`[Bookmark] Failed for ${tweetId}:`, msg);
+      if (/404|385|not found|deleted/i.test(msg)) {
+        await Post.findByIdAndUpdate(post._id, { bookmarkedByBot: true });
+        console.log('[Bookmark] Tweet appears deleted — marked to skip on future runs');
+      }
     }
   }
 
