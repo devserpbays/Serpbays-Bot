@@ -433,6 +433,138 @@ export async function visitNewsFeed(): Promise<void> {
   }
 }
 
+// --- Visit notification inbox (part of every real user's session) ---
+export async function visitNotifications(): Promise<void> {
+  try {
+    const page = await getPage();
+    await page.goto('https://www.facebook.com/notifications', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await humanDelay(3000, 5000);
+    // Scroll through a couple of notifications
+    const scrolls = 1 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < scrolls; i++) {
+      await page.mouse.wheel(0, 400 + Math.random() * 300);
+      await humanDelay(1200, 2500);
+    }
+    console.log('[FB] Visited notifications');
+  } catch (err) {
+    console.warn('[FB] visitNotifications failed:', (err as Error).message);
+  }
+}
+
+// --- Visit the author's profile before commenting (real users check who they're replying to) ---
+export async function visitAuthorProfile(postUrl: string): Promise<void> {
+  try {
+    const page = await getPage();
+    await page.goto(postUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await humanDelay(2000, 4000);
+
+    // Find the post author link — first person's name in the post header
+    const authorLink = await page.$(
+      '[data-testid="post_author_profile_name"] a, ' +
+      'h2 a[href*="/groups/"], ' +
+      '[aria-label] a[href*="facebook.com"]:not([href*="photo"]):not([href*="video"])'
+    );
+
+    if (!authorLink) {
+      console.log('[FB] Author link not found, skipping profile visit');
+      return;
+    }
+
+    const profileHref = await authorLink.getAttribute('href').catch(() => null);
+    if (!profileHref) return;
+
+    // Navigate to their profile
+    const profileUrl = profileHref.startsWith('http') ? profileHref : `https://www.facebook.com${profileHref}`;
+    await page.goto(profileUrl, { waitUntil: 'domcontentloaded', timeout: 25000 });
+    await humanDelay(3000, 7000);
+
+    // Scroll down a little — simulates reading their profile
+    const scrolls = 1 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < scrolls; i++) {
+      await page.mouse.wheel(0, 400 + Math.random() * 400);
+      await humanDelay(1000, 2500);
+    }
+
+    console.log('[FB] Visited author profile');
+  } catch (err) {
+    console.warn('[FB] visitAuthorProfile failed:', (err as Error).message);
+  }
+}
+
+// --- Like 1–2 existing comments in the thread before posting ours ---
+// Real users engage with the discussion, not just append to it.
+export async function likeCommentsInThread(postUrl: string, maxLikes = 2): Promise<number> {
+  let liked = 0;
+  try {
+    const page = await getPage();
+    await page.goto(postUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await humanDelay(2500, 5000);
+
+    // Scroll down to reveal the comments section
+    for (let i = 0; i < 3; i++) {
+      await page.evaluate((pct) => window.scrollTo(0, document.body.scrollHeight * pct), (i + 1) * 0.33);
+      await humanDelay(800, 1500);
+    }
+
+    // Find Like buttons inside comment articles (not the main post Like button)
+    const commentLikeBtns = await page.$$(
+      '[role="article"] [aria-label="Like"][role="button"], ' +
+      '[data-testid*="comment"] [aria-label="Like"][role="button"]'
+    );
+
+    // Shuffle and take up to maxLikes
+    const targets = commentLikeBtns
+      .sort(() => Math.random() - 0.5)
+      .slice(0, maxLikes);
+
+    for (const btn of targets) {
+      try {
+        const visible = await btn.isVisible().catch(() => false);
+        const pressed = await btn.getAttribute('aria-pressed').catch(() => null);
+        if (!visible || pressed === 'true') continue;
+
+        await btn.click({ force: true });
+        liked++;
+        console.log(`[FB] Liked a comment in thread`);
+        await humanDelay(1500, 3000);
+      } catch { /* skip individual failures */ }
+    }
+  } catch (err) {
+    console.warn('[FB] likeCommentsInThread failed:', (err as Error).message);
+  }
+  return liked;
+}
+
+// --- Type text naturally with human-like rhythm, pauses, and occasional typos ---
+async function typeNaturally(page: import('playwright').Page, text: string): Promise<void> {
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+
+    // Occasional typo: type wrong char, pause, backspace, retype (4% chance, not on spaces)
+    if (char !== ' ' && Math.random() < 0.04) {
+      const typoChar = 'qwertyuiopasdfghjklzxcvbnm'[Math.floor(Math.random() * 26)];
+      await page.keyboard.type(typoChar);
+      await new Promise(r => setTimeout(r, 120 + Math.random() * 180));
+      await page.keyboard.press('Backspace');
+      await new Promise(r => setTimeout(r, 80 + Math.random() * 100));
+    }
+
+    await page.keyboard.type(char);
+
+    // Longer pause after punctuation (comma, period, exclamation) — feels like thinking
+    if ('.!?,;:'.includes(char)) {
+      await new Promise(r => setTimeout(r, 250 + Math.random() * 400));
+    } else if (char === ' ' && Math.random() < 0.08) {
+      // Occasional mid-word pause — like a human pausing to think
+      await new Promise(r => setTimeout(r, 300 + Math.random() * 500));
+    } else {
+      // Base per-character delay: 45–130ms with bursts
+      const burst = Math.random() < 0.3; // 30% of chars are part of a fast burst
+      await new Promise(r => setTimeout(r, burst ? 20 + Math.random() * 40 : 45 + Math.random() * 85));
+    }
+  }
+}
+
 
 // --- Like a Facebook post (warm-up engagement) ---
 export async function likeFacebookPost(postUrl: string): Promise<boolean> {
@@ -740,9 +872,9 @@ export async function postComment(
     await commentBox.click({ force: true });
     await humanDelay(800, 1800);
 
-    // Type the comment with human-like delay
-    await page.keyboard.type(comment, { delay: 30 + Math.random() * 60 });
-    await humanDelay(800, 2000);
+    // Type the comment character-by-character with human rhythm, pauses, and occasional typos
+    await typeNaturally(page, comment);
+    await humanDelay(600, 1500);
 
     // Submit with Enter
     await page.keyboard.press('Enter');

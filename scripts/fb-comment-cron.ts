@@ -28,6 +28,9 @@ import {
   pickReaction,
   browseFeedAndReact,
   visitNewsFeed,
+  visitNotifications,
+  visitAuthorProfile,
+  likeCommentsInThread,
   closeBrowser,
 } from '../src/lib/facebook';
 import { getWarmupLimit, getAccountAge, shouldRandomlySkip } from '../src/lib/antiBan';
@@ -40,6 +43,21 @@ import { buildSuccessPatch, buildFailurePatch } from '../src/lib/accountHealth';
 
 const DEFAULT_DAILY_LIMIT = 3;  // Facebook flags accounts posting too many group comments/day
 const DEFAULT_AUTO_POST_THRESHOLD = 10;
+
+// --- Multi-session day model ---
+// Defines what type of session to run based on time of day (IST).
+// Morning: browse+react only. Work hours: full (react+comment). Evening: react only. Night: skip.
+type SessionType = 'full' | 'react_only' | 'browse_only' | 'skip';
+
+function getSessionType(): SessionType {
+  const hour = (new Date().getUTCHours() + 5.5) % 24; // rough IST
+  const h = Math.floor(hour);
+  if (h >= 0 && h < 6)  return 'skip';        // 12am–6am: no activity
+  if (h >= 6 && h < 9)  return 'browse_only'; // 6am–9am: morning browse
+  if (h >= 9 && h < 18) return 'full';         // 9am–6pm: full session
+  if (h >= 18 && h < 21) return 'react_only';  // 6pm–9pm: evening reactions
+  return 'browse_only';                          // 9pm–12am: light browse
+}
 
 // --- Time-of-day activity multiplier (same pattern as Twitter) ---
 // Returns 0.0–1.0 — 1.0 = peak hours, lower = off-peak
@@ -292,19 +310,31 @@ async function main() {
     if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'facebook', 'info', 'warmup', `Warmup limit: ${dailyLimit}/${configuredDailyLimit}`);
   }
 
-  // Time-of-day gate: low-activity hours → probabilistic skip
+  // Multi-session model: determine session type from time of day
+  const sessionType: SessionType = process.env.CRON_MANUAL ? 'full' : getSessionType();
+  console.log(`Session type: ${sessionType} (${new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })} IST)`);
+
+  if (sessionType === 'skip') {
+    console.log('Night hours — skipping session');
+    process.exit(0);
+  }
+
+  if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'facebook', 'info', 'session_start', `Session type: ${sessionType}`);
+
+  // Within non-skip hours, still apply a probabilistic gate to avoid robotic regularity
   const todMultiplier = getTimeOfDayMultiplier();
   if (!process.env.CRON_MANUAL && Math.random() > todMultiplier) {
     console.log(`Time-of-day multiplier ${todMultiplier.toFixed(2)} → skipping this run`);
     process.exit(0);
   }
 
-  // Passive session gate: 40% of the time, browse only without commenting
-  const passiveSession = !process.env.CRON_MANUAL && Math.random() < 0.40;
-  if (passiveSession) {
-    console.log('Passive session: will browse groups without commenting this run');
-    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'facebook', 'info', 'passive_session', 'Passive session — browsing without commenting');
+  // Random 15% skip to break up patterns (applied to all session types)
+  if (!process.env.CRON_MANUAL && shouldRandomlySkip(0.15)) {
+    console.log('Random skip (15% chance) — skipping this run');
+    process.exit(0);
   }
+
+  const passiveSession = sessionType !== 'full'; // browse_only and react_only both skip commenting
 
   // Step 2b: Read current account identity
   const accountId = getCurrentAccountId();
@@ -359,6 +389,11 @@ async function main() {
     await visitNewsFeed();
   } catch (e) { console.warn('visitNewsFeed error:', (e as Error).message); }
 
+  // Visit notifications — part of every real user's session routine
+  try {
+    await visitNotifications();
+  } catch (e) { console.warn('visitNotifications error:', (e as Error).message); }
+
   // Re-write .verified with loggedIn: true; scrape identity if missing
   try {
     const existing = getVerifiedData();
@@ -389,20 +424,20 @@ async function main() {
   }
   console.log(`Scraping ${groupUrls.length} groups`);
 
-  // Passive session: browse and react without commenting, then exit
+  // Non-full sessions: browse / react without commenting, then exit
   if (passiveSession) {
+    if (sessionType === 'browse_only') {
+      // Morning / late night: just browse the news feed, no reactions
+      console.log('Browse-only session — visiting feed without reacting or commenting');
+      await closeBrowser();
+      process.exit(0);
+    }
+    // react_only: scroll groups and react to a few posts
     try {
-      const result = await browseFeedAndReact(groupUrls.slice(0, 3), 2 + Math.floor(Math.random() * 2));
-      console.log(`Passive session complete: reacted ${result.reacted} times (${result.reactions.join(', ')})`);
-      if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'facebook', 'info', 'passive_session', `Passive session done — reacted ${result.reacted} times`);
+      const result = await browseFeedAndReact(groupUrls.slice(0, 3), 2 + Math.floor(Math.random() * 3));
+      console.log(`React-only session complete: reacted ${result.reacted} times (${result.reactions.join(', ')})`);
+      if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'facebook', 'info', 'passive_session', `React-only session done — reacted ${result.reacted} times`);
     } catch (e) { console.warn('Passive session error:', (e as Error).message); }
-    await closeBrowser();
-    process.exit(0);
-  }
-
-  // Random 15% skip — makes posting patterns less predictable
-  if (!process.env.CRON_MANUAL && shouldRandomlySkip(0.15)) {
-    console.log('Random skip (15% chance) — skipping this run');
     await closeBrowser();
     process.exit(0);
   }
@@ -579,6 +614,17 @@ async function main() {
         `Auto-posting comment on ${autoPostCandidate.url} (score: ${autoPostCandidate.aiRelevanceScore})`
       );
       console.log(`Comment: "${replyText}"`);
+
+      // Visit author's profile — real users check who they're replying to
+      try {
+        await visitAuthorProfile(autoPostCandidate.url);
+      } catch (e) { console.warn('visitAuthorProfile error:', (e as Error).message); }
+
+      // Like 1–2 existing comments in the thread before posting ours
+      try {
+        const threadLikes = await likeCommentsInThread(autoPostCandidate.url, 1 + Math.floor(Math.random() * 2));
+        if (threadLikes > 0) console.log(`  Liked ${threadLikes} existing comment(s) in thread`);
+      } catch (e) { console.warn('likeCommentsInThread error:', (e as Error).message); }
 
       // Warm-up: react to post before commenting (social media manager style — varied reactions)
       if (!autoPostCandidate.likedByBot) {
