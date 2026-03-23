@@ -33,7 +33,7 @@ import {
   likeCommentsInThread,
   closeBrowser,
 } from '../src/lib/facebook';
-import { getWarmupLimit, getAccountAge, shouldRandomlySkip } from '../src/lib/antiBan';
+import { getWarmupLimit, getAccountAge, shouldRandomlySkip, jitterCooldown, getReadingDelay, getActionGap } from '../src/lib/antiBan';
 import { isWithinSchedule } from '../src/lib/schedule';
 import { logActivity, notifyAuthError } from '../src/lib/activityLog';
 import Post from '../src/models/Post';
@@ -118,6 +118,26 @@ function getVerifiedData(): Record<string, string> {
 
 function getCurrentAccountId(): string {
   return getVerifiedData().accountId || '';
+}
+
+const MAX_DAILY_REACTIONS = 30; // Facebook normal user reacts to ~20–60 posts/day; cap conservatively
+
+// --- Count reactions done today ---
+async function getTodayReactionCount(): Promise<number> {
+  const istOffset = 5.5 * 60 * 60000;
+  const startOfDayUTC = new Date(new Date(Date.now() + istOffset).setHours(0, 0, 0, 0) - istOffset);
+  return Post.countDocuments({
+    platform: 'facebook',
+    likedByBot: true,
+    updatedAt: { $gte: startOfDayUTC },
+    ...(CRON_USER_ID && { userId: CRON_USER_ID }),
+  });
+}
+
+// --- Extract Facebook group ID from a post URL ---
+function extractGroupId(postUrl: string): string | null {
+  const match = postUrl.match(/facebook\.com\/groups\/([^/?#]+)/);
+  return match ? match[1] : null;
 }
 
 // --- Count comments posted today for the current account ---
@@ -354,7 +374,7 @@ async function main() {
   // Step 3b: 15-minute cooldown — skip if last Facebook post was < 15 min ago
   // 15-minute cooldown (skipped for manual runs)
   if (!process.env.CRON_MANUAL) {
-    const MIN_COMMENT_GAP_MS = cooldownMinutes * 60 * 1000;
+    const MIN_COMMENT_GAP_MS = jitterCooldown(cooldownMinutes); // ±30% jitter — avoids mechanical regularity
     const lastPosted = await Post.findOne({ platform: 'facebook', status: 'posted', postedAt: { $exists: true }, ...(CRON_USER_ID && { userId: CRON_USER_ID }) })
       .sort({ postedAt: -1 })
       .select('postedAt platform');
@@ -422,7 +442,9 @@ async function main() {
     console.log('No Facebook groups found to scrape');
     process.exit(0);
   }
-  console.log(`Scraping ${groupUrls.length} groups`);
+  // Shuffle scrape order each run — avoids predictable group visit patterns
+  groupUrls = [...groupUrls].sort(() => Math.random() - 0.5);
+  console.log(`Scraping ${groupUrls.length} groups (shuffled)`);
 
   // Non-full sessions: browse / react without commenting, then exit
   if (passiveSession) {
@@ -489,40 +511,55 @@ async function main() {
   // Reactions should always outnumber comments. Pick a random subset of scraped posts
   // that haven't been reacted to yet, regardless of whether they'll be commented on.
   if (allPosts.length > 0) {
-    const reactCount = 2 + Math.floor(Math.random() * 3); // 2, 3, or 4 reactions per run
-    // Shuffle allPosts and take first reactCount entries
-    const shuffled = [...allPosts].sort(() => Math.random() - 0.5).slice(0, reactCount);
+    // Check daily reaction cap first
+    const todayReactions = await getTodayReactionCount();
+    if (todayReactions >= MAX_DAILY_REACTIONS) {
+      console.log(`Daily reaction cap reached (${todayReactions}/${MAX_DAILY_REACTIONS}) — skipping react phase`);
+    } else {
+      const remainingReactionSlots = MAX_DAILY_REACTIONS - todayReactions;
+      const reactCount = Math.min(2 + Math.floor(Math.random() * 3), remainingReactionSlots); // 2–4, capped by daily limit
+      const shuffled = [...allPosts].sort(() => Math.random() - 0.5).slice(0, reactCount);
 
-    console.log(`React phase: reacting to up to ${reactCount} posts`);
-    let reactedCount = 0;
+      console.log(`React phase: reacting to up to ${reactCount} posts (${todayReactions}/${MAX_DAILY_REACTIONS} today)`);
+      let reactedCount = 0;
 
-    for (const scraped of shuffled) {
-      try {
-        // Check if already reacted in DB
-        const dbPost = await Post.findOne({
-          url: scraped.url,
-          ...(CRON_USER_ID && { userId: CRON_USER_ID }),
-        }).select('_id likedByBot');
+      for (const scraped of shuffled) {
+        // Re-check cap inside loop
+        if ((todayReactions + reactedCount) >= MAX_DAILY_REACTIONS) break;
 
-        if (dbPost?.likedByBot) continue; // already reacted
+        try {
+          // Check if already reacted in DB
+          const dbPost = await Post.findOne({
+            url: scraped.url,
+            ...(CRON_USER_ID && { userId: CRON_USER_ID }),
+          }).select('_id likedByBot content');
 
-        const chosenReaction = pickReaction();
-        const reactionResult = await reactToPost(scraped.url, chosenReaction);
-        if (reactionResult.success) {
-          if (dbPost) {
-            await Post.findByIdAndUpdate(dbPost._id, { likedByBot: true, botReaction: reactionResult.reaction });
+          if (dbPost?.likedByBot) continue; // already reacted
+
+          // Simulate reading the post before reacting (length-aware delay)
+          const postLen = (dbPost?.content || scraped.content || '').length;
+          const readMs = getReadingDelay(postLen);
+          console.log(`  Reading post (${Math.round(readMs / 1000)}s before reacting)...`);
+          await new Promise(r => setTimeout(r, readMs));
+
+          const chosenReaction = pickReaction();
+          const reactionResult = await reactToPost(scraped.url, chosenReaction);
+          if (reactionResult.success) {
+            if (dbPost) {
+              await Post.findByIdAndUpdate(dbPost._id, { likedByBot: true, botReaction: reactionResult.reaction });
+            }
+            reactedCount++;
+            console.log(`  Reacted ${reactionResult.reaction} → ${scraped.url.slice(0, 60)}`);
+            if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'facebook', 'info', 'react', `Reacted ${reactionResult.reaction} to a post`, { url: scraped.url });
           }
-          reactedCount++;
-          console.log(`  Reacted ${reactionResult.reaction} → ${scraped.url.slice(0, 60)}`);
-          if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'facebook', 'info', 'react', `Reacted ${reactionResult.reaction} to a post`, { url: scraped.url });
+          // Action gap between reactions (2–8s, same as Twitter)
+          await new Promise(r => setTimeout(r, getActionGap()));
+        } catch (e) {
+          console.warn('  React phase error:', (e as Error).message);
         }
-        // Human-like pause between reactions (4–10 seconds)
-        await new Promise((r) => setTimeout(r, 4000 + Math.random() * 6000));
-      } catch (e) {
-        console.warn('  React phase error:', (e as Error).message);
       }
+      console.log(`React phase complete: reacted to ${reactedCount} posts`);
     }
-    console.log(`React phase complete: reacted to ${reactedCount} posts`);
   }
 
   // Step 8: Evaluate unevaluated Facebook posts
@@ -570,14 +607,34 @@ async function main() {
     process.exit(0);
   }
 
-  const autoPostCandidate = await Post.findOne({
+  // Per-group comment cap: find which groups already received a comment today
+  const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+  const postedToday = await Post.find({
+    platform: 'facebook', status: 'posted',
+    postedAt: { $gte: todayStart },
+    ...(CRON_USER_ID && { userId: CRON_USER_ID }),
+  }).select('url');
+  const commentedGroupIds = new Set(
+    postedToday.map(p => extractGroupId(p.url as string)).filter(Boolean)
+  );
+  if (commentedGroupIds.size > 0) {
+    console.log(`Per-group cap: already commented in group(s) ${[...commentedGroupIds].join(', ')} today`);
+  }
+
+  // Find candidates and pick first one not in an already-commented group today
+  const candidates = await Post.find({
     platform: 'facebook',
     status: 'evaluated',
     aiRelevanceScore: { $gte: autoPostThreshold },
     aiReply: { $exists: true, $ne: '' },
     postAttempts: { $not: { $gte: 3 } },
     ...(CRON_USER_ID && { userId: CRON_USER_ID }),
-  }).sort({ _id: -1 }); // newest first
+  }).sort({ _id: -1 }).limit(20);
+
+  const autoPostCandidate = candidates.find(c => {
+    const gid = extractGroupId(c.url as string);
+    return !gid || !commentedGroupIds.has(gid); // prefer unvisited groups
+  }) || null;
 
   if (autoPostCandidate) {
     // Generate a unique, varied comment using AI
@@ -615,16 +672,23 @@ async function main() {
       );
       console.log(`Comment: "${replyText}"`);
 
+      // Simulate reading the post before engaging (length-aware)
+      const readMs = getReadingDelay((autoPostCandidate.content || '').length);
+      console.log(`  Reading post (${Math.round(readMs / 1000)}s)...`);
+      await new Promise(r => setTimeout(r, readMs));
+
       // Visit author's profile — real users check who they're replying to
       try {
         await visitAuthorProfile(autoPostCandidate.url);
       } catch (e) { console.warn('visitAuthorProfile error:', (e as Error).message); }
+      await new Promise(r => setTimeout(r, getActionGap()));
 
       // Like 1–2 existing comments in the thread before posting ours
       try {
         const threadLikes = await likeCommentsInThread(autoPostCandidate.url, 1 + Math.floor(Math.random() * 2));
         if (threadLikes > 0) console.log(`  Liked ${threadLikes} existing comment(s) in thread`);
       } catch (e) { console.warn('likeCommentsInThread error:', (e as Error).message); }
+      await new Promise(r => setTimeout(r, getActionGap()));
 
       // Warm-up: react to post before commenting (social media manager style — varied reactions)
       if (!autoPostCandidate.likedByBot) {
@@ -635,7 +699,7 @@ async function main() {
             await Post.findByIdAndUpdate(autoPostCandidate._id, { likedByBot: true, botReaction: reactionResult.reaction });
             console.log(`  Reacted with ${reactionResult.reaction}`);
           }
-          await new Promise((r) => setTimeout(r, 2000 + Math.random() * 3000));
+          await new Promise(r => setTimeout(r, getActionGap()));
         } catch (e) { console.warn('React failed, continuing:', (e as Error).message); }
       }
 
