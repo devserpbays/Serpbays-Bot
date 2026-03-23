@@ -219,7 +219,7 @@ export default function OnboardingPage() {
 
   function goToDashboard() {
     setDone(true);
-    window.location.replace('/dashboard');
+    window.location.replace('/dashboard/accounts');
   }
 
   const progress = Math.round(((step - 1) / (STEPS.length - 1)) * 100);
@@ -779,32 +779,38 @@ export default function OnboardingPage() {
                   </p>
                 </div>
 
-                {/* Stacked platform reply cards */}
-                <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {(selectedPlatforms.length > 0 ? selectedPlatforms.slice(0, 3) : ['twitter', 'reddit', 'facebook']).map((pid, i) => {
-                    const plat = AVAILABLE_PLATFORMS.find(p => p.id === pid);
-                    if (!plat) return null;
-                    return (
-                      <div key={pid} style={{
-                        display: 'flex', alignItems: 'center', gap: 12,
-                        padding: '12px 16px',
-                        background: 'rgba(255,255,255,0.02)',
-                        border: '1px solid rgba(255,255,255,0.06)',
-                        borderRadius: 12,
-                        animation: `fadeIn 400ms ease ${i * 150}ms both`,
+                {/* Next steps guide */}
+                <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', marginBottom: 2 }}>
+                    Next steps to start auto-commenting
+                  </div>
+                  {[
+                    { num: 1, title: 'Connect your social accounts', desc: 'Paste browser cookies for platforms you want to post on', color: '#0ea5e9' },
+                    { num: 2, title: 'Review your settings', desc: 'Adjust daily limits, AI confidence, and posting schedule', color: '#8b5cf6' },
+                    { num: 3, title: 'Run your first pipeline', desc: 'Find relevant posts and generate AI replies automatically', color: '#10b981' },
+                  ].map((item, i) => (
+                    <div key={item.num} style={{
+                      display: 'flex', alignItems: 'center', gap: 14,
+                      padding: '14px 16px',
+                      background: 'rgba(255,255,255,0.02)',
+                      border: '1px solid rgba(255,255,255,0.06)',
+                      borderRadius: 12,
+                      animation: `fadeIn 400ms ease ${i * 150}ms both`,
+                    }}>
+                      <div style={{
+                        width: 28, height: 28, borderRadius: '50%',
+                        background: `${item.color}18`, border: `1.5px solid ${item.color}40`,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 12, fontWeight: 800, color: item.color, flexShrink: 0,
                       }}>
-                        <svg viewBox="0 0 24 24" width={18} height={18} fill={plat.color} style={{ flexShrink: 0 }}>
-                          <path d={plat.icon}/>
-                        </svg>
-                        <span style={{ flex: 1, fontSize: 13, color: 'var(--text-secondary)', textAlign: 'left' }}>
-                          Will auto-comment on <strong style={{ color: 'var(--text-primary)' }}>{plat.name}</strong>
-                        </span>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="#34d399" strokeWidth={2.5} width={16} height={16} style={{ flexShrink: 0 }}>
-                          <polyline points="20,6 9,17 4,12"/>
-                        </svg>
+                        {item.num}
                       </div>
-                    );
-                  })}
+                      <div style={{ flex: 1, textAlign: 'left' }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1.2 }}>{item.title}</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{item.desc}</div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             </FeedCard>
@@ -907,7 +913,7 @@ export default function OnboardingPage() {
                   transition: 'all 160ms',
                 }}
               >
-                {done ? 'Redirecting...' : 'Go to Dashboard →'}
+                {done ? 'Redirecting...' : 'Connect Accounts →'}
               </button>
             )}
           </div>

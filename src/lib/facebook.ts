@@ -549,63 +549,58 @@ export async function postComment(
       'form div[contenteditable="true"]',
     ];
 
+    // Helper: find visible comment box from known selectors
     async function findCommentBox() {
-      let cb = null;
       for (const sel of commentSelectors) {
         const elements = await page.$$(sel);
         for (const el of elements) {
           if (await el.isVisible().catch(() => false)) {
-            cb = el;
-            break;
+            return el;
           }
         }
-        if (cb) break;
       }
 
-      if (!cb) {
-        // Try multiple button patterns
-        const buttonTexts = ['Comment', 'comment', 'Write a comment'];
-        const allButtons = await page.$$('[role="button"], button, span[role="button"]');
-        for (const btn of allButtons) {
-          const text = (await btn.textContent().catch(() => ''))?.trim() || '';
-          if (buttonTexts.some(t => text.includes(t))) {
-            await btn.click({ force: true });
-            await humanDelay(2000, 4000);
-            break;
-          }
+      // Try multiple button patterns
+      const buttonTexts = ['Comment', 'comment', 'Write a comment'];
+      const allButtons = await page.$$('[role="button"], button, span[role="button"]');
+      for (const btn of allButtons) {
+        const text = (await btn.textContent().catch(() => ''))?.trim() || '';
+        if (buttonTexts.some(t => text.includes(t))) {
+          await btn.click({ force: true });
+          await humanDelay(2000, 4000);
+          break;
         }
-
-        // Also try clicking the comment icon (SVG near like/share buttons)
-        const commentIcons = await page.$$('[aria-label*="comment" i], [aria-label*="Comment" i]');
-        for (const icon of commentIcons) {
-          const tag = await icon.evaluate(el => el.tagName.toLowerCase()).catch(() => '');
-          if (tag === 'div' || tag === 'span' || tag === 'i') {
-            await icon.click({ force: true }).catch(() => {});
-            await humanDelay(1500, 3000);
-            break;
-          }
-        }
-
-        // Retry finding comment box with all selectors
-        for (const sel of commentSelectors) {
-          const elements = await page.$$(sel);
-          for (const el of elements) {
-            if (await el.isVisible().catch(() => false)) {
-              const parentRole = await el.evaluate((e: Element) => {
-                const p = e.closest('[data-pagelet="FeedUnit"], [data-pagelet="ProfileTimeline"]');
-                return p ? 'post-feed' : '';
-              }).catch(() => '');
-              if (parentRole === 'post-feed') continue;
-              return el;
-            }
-          }
-        }
-        return null;
       }
-      return cb;
+
+      // Also try clicking the comment icon (SVG near like/share buttons)
+      const commentIcons = await page.$$('[aria-label*="comment" i], [aria-label*="Comment" i]');
+      for (const icon of commentIcons) {
+        const tag = await icon.evaluate(el => el.tagName.toLowerCase()).catch(() => '');
+        if (tag === 'div' || tag === 'span' || tag === 'i') {
+          await icon.click({ force: true }).catch(() => {});
+          await humanDelay(1500, 3000);
+          break;
+        }
+      }
+
+      // Retry finding comment box with all selectors
+      for (const sel of commentSelectors) {
+        const elements = await page.$$(sel);
+        for (const el of elements) {
+          if (await el.isVisible().catch(() => false)) {
+            const parentRole = await el.evaluate((e: Element) => {
+              const p = e.closest('[data-pagelet="FeedUnit"], [data-pagelet="ProfileTimeline"]');
+              return p ? 'post-feed' : '';
+            }).catch(() => '');
+            if (parentRole === 'post-feed') continue;
+            return el;
+          }
+        }
+      }
+      return null;
     }
 
-    let commentBox = null;
+    let commentBox = await findCommentBox();
 
     // Helper: click the Comment action button using multiple approaches
     async function clickCommentButton(): Promise<boolean> {

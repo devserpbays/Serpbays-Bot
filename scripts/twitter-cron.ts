@@ -30,6 +30,8 @@ import { buildSuccessPatch, buildFailurePatch } from '../src/lib/accountHealth';
 import {
   replyToTweetHttp,
   likeTweetHttp,
+  retweetHttp,
+  bookmarkHttp,
   extractTweetId,
   isTwitterConfiguredHttp,
   verifyCredentialsHttp,
@@ -37,6 +39,19 @@ import {
 
 // Browser-based scraping + fallback posting (needs Chromium)
 import { searchTweets, searchCommunityTweets, closeBrowser, replyToTweet, likeTweet } from '../src/lib/twitter';
+
+// Human-like engagement engine
+import {
+  pickEngagementActions,
+  getReadingDelay,
+  getActionGap,
+  getInterReplyDelay,
+  getWarmupLimit,
+  getAccountAge,
+  shouldRandomlySkip,
+  humanSleep,
+  jitterCooldown,
+} from '../src/lib/antiBan';
 
 const DEFAULT_DAILY_LIMIT = 4;
 const DEFAULT_AUTO_POST_THRESHOLD = 70;
@@ -301,7 +316,6 @@ async function scrapePhase(settings: any, keywords: string[]): Promise<{ totalFo
 // === POST PHASE: reply to evaluated tweets via HTTP (no browser) ===
 // Posts a batch of up to MAX_BATCH replies per cron run to get closer to daily limit.
 const MAX_BATCH_PER_RUN = 3; // max replies in one cron run (with delays between each)
-const INTER_REPLY_DELAY_MS = 45_000; // 45s between replies within a batch
 
 async function postOneTweet(
   candidate: any,
@@ -352,65 +366,128 @@ async function postOneTweet(
   console.log(`Reply: "${tweetText}"`);
 
   try {
-    // Like via HTTP (no browser)
-    if (!candidate.likedByBot) {
-      try {
-        await likeTweetHttp(PROFILE_DIR, tweetId);
-        await Post.findByIdAndUpdate(candidate._id, { likedByBot: true });
-        console.log(`  Liked tweet ${tweetId}`);
-        await new Promise((r) => setTimeout(r, 2000 + Math.random() * 2000));
-      } catch {
-        try {
-          await likeTweet(tweetId);
-          await Post.findByIdAndUpdate(candidate._id, { likedByBot: true });
-          console.log(`  Liked tweet ${tweetId} (via browser fallback)`);
-        } catch { /* ignore like failures */ }
-      }
-    }
+    // ── Human-like engagement: simulate reading the post ──
+    const readTime = getReadingDelay((candidate.content || '').length);
+    console.log(`  Simulating reading (${Math.round(readTime / 1000)}s)...`);
+    await new Promise(r => setTimeout(r, readTime));
 
-    // Reply via HTTP first, fall back to browser if 226
-    let replyId = '';
-    try {
-      const result = await replyToTweetHttp(PROFILE_DIR, tweetText, tweetId);
-      replyId = result.data.id;
-      console.log('  Reply posted via HTTP');
-    } catch (httpErr) {
-      const msg = (httpErr as Error).message;
-      if (msg.includes('226') || msg.includes('403') || msg.includes('automated')) {
-        console.log(`  HTTP blocked (${msg.includes('403') ? '403' : '226'}), falling back to browser posting...`);
-        const result = await replyToTweet(tweetText, tweetId);
-        replyId = result.data.id;
-        console.log('  Reply posted via browser fallback');
-      } else if (msg.includes('344') || msg.toLowerCase().includes('daily limit') || msg.includes('429') || msg.toLowerCase().includes('rate limit')) {
-        console.log('  Twitter daily limit reached — stopping batch, will retry on next run');
-        if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'rate_limit', 'Twitter daily tweet limit reached — will retry on next run');
-        return 'daily_limit';
-      } else {
-        throw httpErr;
-      }
-    }
-
-    const replyUrl = `https://x.com/i/status/${replyId}`;
-    await Post.findByIdAndUpdate(candidate._id, {
-      status: 'posted',
-      postedAt: new Date(),
-      editedReply: tweetText,
-      replyUrl,
-      postedByAccount: accountId,
+    // ── Pick random engagement actions based on relevance score ──
+    const actions = pickEngagementActions(candidate.aiRelevanceScore || 0, {
+      likeRate: settings.twitterLikeRate,
+      retweetRate: settings.twitterRetweetRate,
+      bookmarkRate: settings.twitterBookmarkRate,
+      replyRate: settings.twitterReplyRate,
     });
 
-    // Update account health — success resets errorCount and boosts score
-    if (CRON_USER_ID) {
-      const acc = await BrowserCookie.findOne({ userId: CRON_USER_ID, platform: 'twitter' }).lean();
-      if (acc) {
-        const patch = buildSuccessPatch(acc as Parameters<typeof buildSuccessPatch>[0]);
-        await BrowserCookie.updateOne({ userId: CRON_USER_ID, platform: 'twitter' }, patch.$set ? { $set: patch.$set } : patch);
+    if (actions.length === 0) {
+      console.log('  Scrolled past (random skip) — no engagement this time');
+      return 'skip';
+    }
+
+    console.log(`  Actions: [${actions.join(', ')}]`);
+
+    let replyId = '';
+    let didReply = false;
+
+    for (const action of actions) {
+      // Gap between actions on the same post
+      await new Promise(r => setTimeout(r, getActionGap()));
+
+      switch (action) {
+        case 'like':
+          if (!candidate.likedByBot) {
+            try {
+              await likeTweetHttp(PROFILE_DIR, tweetId);
+              await Post.findByIdAndUpdate(candidate._id, { likedByBot: true });
+              console.log(`  Liked tweet ${tweetId}`);
+            } catch {
+              try {
+                await likeTweet(tweetId);
+                await Post.findByIdAndUpdate(candidate._id, { likedByBot: true });
+                console.log(`  Liked tweet ${tweetId} (browser fallback)`);
+              } catch { /* ignore */ }
+            }
+          }
+          break;
+
+        case 'retweet':
+          if (!candidate.retweetedByBot) {
+            try {
+              await retweetHttp(PROFILE_DIR, tweetId);
+              await Post.findByIdAndUpdate(candidate._id, { retweetedByBot: true });
+              console.log(`  Retweeted tweet ${tweetId}`);
+            } catch (e) {
+              console.log(`  Retweet failed: ${(e as Error).message.slice(0, 80)}`);
+            }
+          }
+          break;
+
+        case 'bookmark':
+          if (!candidate.bookmarkedByBot) {
+            try {
+              await bookmarkHttp(PROFILE_DIR, tweetId);
+              await Post.findByIdAndUpdate(candidate._id, { bookmarkedByBot: true });
+              console.log(`  Bookmarked tweet ${tweetId}`);
+            } catch (e) {
+              console.log(`  Bookmark failed: ${(e as Error).message.slice(0, 80)}`);
+            }
+          }
+          break;
+
+        case 'reply':
+          try {
+            const result = await replyToTweetHttp(PROFILE_DIR, tweetText, tweetId);
+            replyId = result.data.id;
+            didReply = true;
+            console.log('  Reply posted via HTTP');
+          } catch (httpErr) {
+            const msg = (httpErr as Error).message;
+            if (msg.includes('226') || msg.includes('403') || msg.includes('automated')) {
+              console.log(`  HTTP blocked, falling back to browser...`);
+              const result = await replyToTweet(tweetText, tweetId);
+              replyId = result.data.id;
+              didReply = true;
+              console.log('  Reply posted via browser fallback');
+            } else if (msg.includes('344') || msg.toLowerCase().includes('daily limit') || msg.includes('429') || msg.toLowerCase().includes('rate limit')) {
+              console.log('  Twitter daily limit reached — stopping batch');
+              if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'rate_limit', 'Twitter daily tweet limit reached — will retry on next run');
+              return 'daily_limit';
+            } else {
+              throw httpErr;
+            }
+          }
+          break;
       }
     }
 
-    console.log(`Reply posted successfully: ${replyUrl}`);
-    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'success', 'post', `Reply posted to ${candidate.url}`, { replyUrl, score: candidate.aiRelevanceScore });
-    return 'posted';
+    // Update post status if we replied
+    if (didReply && replyId) {
+      const replyUrl = `https://x.com/i/status/${replyId}`;
+      await Post.findByIdAndUpdate(candidate._id, {
+        status: 'posted',
+        postedAt: new Date(),
+        editedReply: tweetText,
+        replyUrl,
+        postedByAccount: accountId,
+      });
+
+      // Update account health — success resets errorCount and boosts score
+      if (CRON_USER_ID) {
+        const acc = await BrowserCookie.findOne({ userId: CRON_USER_ID, platform: 'twitter' }).lean();
+        if (acc) {
+          const patch = buildSuccessPatch(acc as Parameters<typeof buildSuccessPatch>[0]);
+          await BrowserCookie.updateOne({ userId: CRON_USER_ID, platform: 'twitter' }, patch.$set ? { $set: patch.$set } : patch);
+        }
+      }
+
+      console.log(`Reply posted successfully: ${replyUrl}`);
+      if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'success', 'post', `Reply posted to ${candidate.url}`, { replyUrl, score: candidate.aiRelevanceScore });
+    } else {
+      // Engaged but didn't reply — log as engagement-only
+      console.log(`  Engaged with tweet (no reply this time): ${actions.join(', ')}`);
+    }
+
+    return didReply ? 'posted' : 'skip';
   } catch (err) {
     const msg = (err as Error).message;
     const isAuthError = msg.includes('ct0') || msg.includes('auth_token') || msg.includes('cookies') || msg.includes('No cookies') || msg.includes('session expired');
@@ -482,9 +559,9 @@ async function postPhase(settings: any, accountId: string, dailyLimit: number, a
     return;
   }
 
-  // Cooldown between runs (user-configured, default 60min)
+  // Cooldown between runs with jitter (user-configured, default 60min ± 30%)
   if (!process.env.CRON_MANUAL) {
-    const MIN_COMMENT_GAP_MS = (settings.twitterCooldownMinutes ?? 60) * 60 * 1000;
+    const MIN_COMMENT_GAP_MS = jitterCooldown(settings.twitterCooldownMinutes ?? 60);
     const lastPosted = await Post.findOne({
       platform: 'twitter', status: 'posted', postedAt: { $exists: true },
       ...(CRON_USER_ID && { userId: CRON_USER_ID }),
@@ -535,10 +612,10 @@ async function postPhase(settings: any, accountId: string, dailyLimit: number, a
 
     if (result === 'posted') {
       postedThisRun++;
-      // Delay between replies within the batch (except after the last one)
+      // Human-like delay between replies (60-180s, bell-curve distribution)
       if (i < batchSize - 1) {
-        const delay = INTER_REPLY_DELAY_MS + Math.random() * 15_000;
-        console.log(`  Waiting ${Math.round(delay / 1000)}s before next reply...`);
+        const delay = getInterReplyDelay();
+        console.log(`  Waiting ${Math.round(delay / 1000)}s before next post...`);
         await new Promise((r) => setTimeout(r, delay));
       }
     } else if (result === 'daily_limit' || result === 'auth_error') {
@@ -594,6 +671,12 @@ async function main() {
     process.exit(0);
   }
 
+  // Random skip — 15% chance to skip this run (mimics human inconsistency)
+  if (!process.env.CRON_MANUAL && shouldRandomlySkip()) {
+    console.log('Random skip triggered — skipping this run (human-like inconsistency)');
+    process.exit(0);
+  }
+
   const keywords: string[] = settings.twitterKeywords?.length
     ? settings.twitterKeywords
     : (settings.keywords?.length ? settings.keywords : []);
@@ -602,7 +685,13 @@ async function main() {
     if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'warn', 'config_error', 'No Twitter keywords configured — add keywords in dashboard settings');
     process.exit(0);
   }
-  const dailyLimit: number = settings.twitterDailyLimit ?? DEFAULT_DAILY_LIMIT;
+  // Apply warmup limit for new accounts (ramp up over 30 days)
+  const configuredLimit: number = settings.twitterDailyLimit ?? DEFAULT_DAILY_LIMIT;
+  const accountAddedAt = getAccountAge(settings, 'twitter');
+  const dailyLimit = getWarmupLimit(configuredLimit, accountAddedAt);
+  if (dailyLimit < configuredLimit) {
+    console.log(`Warmup active: daily limit ${dailyLimit} (configured: ${configuredLimit})`);
+  }
   const autoPostThreshold: number = settings.twitterAutoPostThreshold ?? DEFAULT_AUTO_POST_THRESHOLD;
 
   let accountId = getCurrentAccountId();

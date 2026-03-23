@@ -353,6 +353,65 @@ export default function PipelinePage() {
 
                 {upgradeMessage && <UpgradeBanner message={upgradeMessage} />}
 
+                {/* ── Guidance for new users ── */}
+                {connectedPlatforms.length === 0 && (
+                    <div style={{
+                        background: 'linear-gradient(135deg, rgba(245,158,11,0.08) 0%, rgba(239,68,68,0.04) 100%)',
+                        border: '1px solid rgba(245,158,11,0.2)',
+                        borderRadius: 'var(--radius-lg)', padding: '18px 22px',
+                        display: 'flex', alignItems: 'center', gap: 14,
+                    }}>
+                        <div style={{
+                            width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
+                            background: 'rgba(245,158,11,0.12)', border: '1.5px solid rgba(245,158,11,0.3)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth={2} width={18} height={18}>
+                                <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                                <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                            </svg>
+                        </div>
+                        <div>
+                            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 3 }}>
+                                Connect an account first
+                            </div>
+                            <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                                You need to connect at least one social media account before running the pipeline.{' '}
+                                <a href="/dashboard/accounts" style={{ color: '#0ea5e9', fontWeight: 600, textDecoration: 'none' }}>
+                                    Go to Accounts →
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {connectedPlatforms.length > 0 && !anyPlatformRunning && Object.keys(cronStatuses).length === 0 && (
+                    <div style={{
+                        background: 'linear-gradient(135deg, rgba(16,185,129,0.08) 0%, rgba(14,165,233,0.04) 100%)',
+                        border: '1px solid rgba(16,185,129,0.2)',
+                        borderRadius: 'var(--radius-lg)', padding: '18px 22px',
+                        display: 'flex', alignItems: 'center', gap: 14,
+                    }}>
+                        <div style={{
+                            width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
+                            background: 'rgba(16,185,129,0.12)', border: '1.5px solid rgba(16,185,129,0.3)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth={2} width={18} height={18}>
+                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+                            </svg>
+                        </div>
+                        <div>
+                            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 3 }}>
+                                Ready to go!
+                            </div>
+                            <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                                Your accounts are connected. Click <strong style={{ color: 'var(--text-primary)' }}>Run</strong> on any platform below to find relevant posts and generate AI replies.
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {/* ── Automation Status ── */}
                 <div className="card">
                     <div className="card-header">

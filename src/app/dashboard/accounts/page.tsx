@@ -735,6 +735,40 @@ export default function AccountsPage() {
                     </div>
                 )}
 
+                {/* How to get cookies — always show when no accounts */}
+                {accounts.length === 0 && (
+                    <div style={{
+                        background: 'var(--bg-card)', border: '1px solid var(--border-default)',
+                        borderRadius: 'var(--radius-lg)', padding: '18px 22px',
+                    }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="#0ea5e9" strokeWidth={2} width={16} height={16}>
+                                <circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>
+                            </svg>
+                            How to get your browser cookies
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            {[
+                                { step: '1', text: 'Log into the social platform in your browser (Chrome recommended)' },
+                                { step: '2', text: 'Install the "Cookie-Editor" extension or open DevTools (F12) > Application > Cookies' },
+                                { step: '3', text: 'Export all cookies as JSON and paste them below' },
+                            ].map(s => (
+                                <div key={s.step} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                    <div style={{
+                                        width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
+                                        background: 'rgba(14,165,233,0.1)', border: '1px solid rgba(14,165,233,0.25)',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        fontSize: 11, fontWeight: 700, color: '#0ea5e9',
+                                    }}>
+                                        {s.step}
+                                    </div>
+                                    <span style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.4 }}>{s.text}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
                 {/* No accounts at all — prominent empty state */}
                 {!isSetup && accounts.length === 0 && (
                     <div style={{

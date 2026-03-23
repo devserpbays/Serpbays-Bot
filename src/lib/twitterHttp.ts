@@ -19,11 +19,15 @@ const BEARER =
 // Mutable query IDs — updated by browser-based twitter.ts when it resolves fresh IDs
 let _httpCreateTweetQueryId = 'a1p9RWpkYKBjWv_I3WzS-A';
 let _httpFavoriteTweetQueryId = 'lI07N6Otwv1PhnEgXILM7A';
+let _httpCreateRetweetQueryId = 'ojPdsZsimiJrUGLR1sjUtA';
+let _httpCreateBookmarkQueryId = 'aoDbu3RHznuiSkQ9aNM67Q';
 
 /** Update HTTP query IDs from browser-resolved values */
-export function setHttpQueryIds(createTweet?: string, favoriteTweet?: string) {
+export function setHttpQueryIds(createTweet?: string, favoriteTweet?: string, createRetweet?: string, createBookmark?: string) {
   if (createTweet) _httpCreateTweetQueryId = createTweet;
   if (favoriteTweet) _httpFavoriteTweetQueryId = favoriteTweet;
+  if (createRetweet) _httpCreateRetweetQueryId = createRetweet;
+  if (createBookmark) _httpCreateBookmarkQueryId = createBookmark;
 }
 
 interface TweetResponse {
@@ -306,6 +310,48 @@ export async function likeTweetHttp(profileDir: string, tweetId: string): Promis
   if (!res.ok) {
     const errorBody = await res.text();
     throw new Error(`Twitter like error ${res.status}: ${errorBody.slice(0, 300)}`);
+  }
+}
+
+// --- Retweet a tweet (HTTP) ---
+export async function retweetHttp(profileDir: string, tweetId: string): Promise<void> {
+  const cookies = loadCookies(profileDir);
+  const ct0 = getCt0(cookies);
+  const cookieHeader = buildCookieHeader(cookies);
+
+  const res = await fetch(`${TWITTER_GRAPHQL_BASE}/${_httpCreateRetweetQueryId}/CreateRetweet`, {
+    method: 'POST',
+    headers: getHeaders(ct0, cookieHeader),
+    body: JSON.stringify({
+      variables: { tweet_id: tweetId, dark_request: false },
+      queryId: _httpCreateRetweetQueryId,
+    }),
+  });
+
+  if (!res.ok) {
+    const errorBody = await res.text();
+    throw new Error(`Twitter retweet error ${res.status}: ${errorBody.slice(0, 300)}`);
+  }
+}
+
+// --- Bookmark a tweet (HTTP) ---
+export async function bookmarkHttp(profileDir: string, tweetId: string): Promise<void> {
+  const cookies = loadCookies(profileDir);
+  const ct0 = getCt0(cookies);
+  const cookieHeader = buildCookieHeader(cookies);
+
+  const res = await fetch(`${TWITTER_GRAPHQL_BASE}/${_httpCreateBookmarkQueryId}/CreateBookmark`, {
+    method: 'POST',
+    headers: getHeaders(ct0, cookieHeader),
+    body: JSON.stringify({
+      variables: { tweet_id: tweetId },
+      queryId: _httpCreateBookmarkQueryId,
+    }),
+  });
+
+  if (!res.ok) {
+    const errorBody = await res.text();
+    throw new Error(`Twitter bookmark error ${res.status}: ${errorBody.slice(0, 300)}`);
   }
 }
 
