@@ -411,37 +411,37 @@ export default function LogsPage() {
     const statusLabel = issues > 0 ? `${issues} issue${issues > 1 ? 's' : ''} need attention` : sessions > 0 ? 'Running smoothly' : 'No activity today';
 
     return (
-        <div className="animate-fade-in" style={{ minHeight: '100vh' }}>
+        <div className="animate-fade-in" style={{ minHeight: '100vh', overflow: 'hidden' }}>
 
             {/* ── Page header ────────────────────────────────────────────── */}
-            <div style={{ padding: '24px 28px 0', borderBottom: '1px solid var(--border-subtle)' }}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20 }}>
-                    <div>
+            <div style={{ padding: 'clamp(14px,3vw,24px) clamp(12px,3vw,28px) 0', borderBottom: '1px solid var(--border-subtle)' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 20 }}>
+                    <div style={{ minWidth: 0 }}>
                         <h2 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>Activity Feed</h2>
                         <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '4px 0 0' }}>
                             Everything your bot has done — in plain English
                         </p>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                         {/* Status pill */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 20, background: `${statusColor}12`, border: `1px solid ${statusColor}30`, fontSize: 12, fontWeight: 600, color: statusColor }}>
-                            <span style={{ width: 7, height: 7, borderRadius: '50%', background: statusColor, boxShadow: `0 0 6px ${statusColor}` }} />
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 20, background: `${statusColor}12`, border: `1px solid ${statusColor}30`, fontSize: 11, fontWeight: 600, color: statusColor, whiteSpace: 'nowrap' }}>
+                            <span style={{ width: 7, height: 7, borderRadius: '50%', background: statusColor, boxShadow: `0 0 6px ${statusColor}`, flexShrink: 0 }} />
                             {statusLabel}
                         </div>
                         {/* Auto-refresh */}
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)', cursor: 'pointer', padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border-subtle)', background: autoRefresh ? 'var(--accent-bg)' : 'transparent' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)', cursor: 'pointer', padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border-subtle)', background: autoRefresh ? 'var(--accent-bg)' : 'transparent', whiteSpace: 'nowrap' }}>
                             <input type="checkbox" checked={autoRefresh} onChange={e => setAutoRefresh(e.target.checked)} style={{ width: 13, height: 13, accentColor: 'var(--accent)' }} />
                             Live
                         </label>
                         <button onClick={() => { setLoading(true); Promise.all([fetchLogs(), fetchPostedComments()]).finally(() => setLoading(false)); }}
-                            style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid var(--border-subtle)', background: 'var(--bg-card)', fontSize: 12, color: 'var(--text-secondary)', cursor: 'pointer', fontWeight: 600 }}>
+                            style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border-subtle)', background: 'var(--bg-card)', fontSize: 12, color: 'var(--text-secondary)', cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}>
                             Refresh
                         </button>
                     </div>
                 </div>
 
                 {/* ── Today's performance snapshot ───────────────────────── */}
-                <div style={{ display: 'flex', gap: 0, marginBottom: 0, overflowX: 'auto' }}>
+                <div style={{ display: 'flex', gap: 0, marginBottom: 0, overflowX: 'auto', WebkitOverflowScrolling: 'touch' as any }}>
                     {[
                         { label: 'Replies sent',     value: repliesPosted,  color: '#22c55e', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={16} height={16}><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg> },
                         { label: 'Original tweets',  value: originalPosted, color: '#a78bfa', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={16} height={16}><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg> },
@@ -450,7 +450,7 @@ export default function LogsPage() {
                         { label: 'Sessions run',     value: sessions,       color: '#6366f1', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={16} height={16}><polygon points="5,3 19,12 5,21 5,3"/></svg> },
                         { label: 'Issues',           value: issues,         color: issues > 0 ? '#ef4444' : '#94a3b8', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={16} height={16}><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> },
                     ].map(({ label, value, color, icon }) => (
-                        <div key={label} style={{ flex: '1 1 0', minWidth: 100, padding: '14px 18px', borderRight: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <div key={label} style={{ flex: '1 1 0', minWidth: 90, padding: '12px 14px', borderRight: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: 6 }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-muted)', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                                 <span style={{ color }}>{icon}</span>
                                 {label}
@@ -477,44 +477,48 @@ export default function LogsPage() {
             </div>
 
             {/* ── Body ───────────────────────────────────────────────────── */}
-            <div style={{ padding: '20px 28px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={{ padding: 'clamp(14px,3vw,20px) clamp(12px,3vw,28px)', display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}>
 
                 {loading ? (
                     <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--text-muted)', fontSize: 13 }}>Loading…</div>
                 ) : activeTab === 'feed' ? (
                     <>
                         {/* ── Filter bar ─────────────────────────────────── */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                            <div style={{ display: 'flex', gap: 2, background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 10, padding: 3 }}>
-                                {FILTER_TABS.map(f => {
-                                    const count = f.key === 'all' ? logs.length : humanized.filter(({ entry, human }) => f.match(entry, human)).length;
-                                    return (
-                                        <button key={f.key} onClick={() => setFilterKey(f.key)} style={{
-                                            padding: '5px 12px', borderRadius: 7, border: 'none', fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                                            background: filterKey === f.key ? 'var(--accent)' : 'transparent',
-                                            color: filterKey === f.key ? '#fff' : 'var(--text-muted)', transition: 'all 150ms',
-                                            display: 'flex', alignItems: 'center', gap: 5,
-                                        }}>
-                                            {f.label}
-                                            {count > 0 && (
-                                                <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 8, background: filterKey === f.key ? 'rgba(255,255,255,0.22)' : 'var(--bg-input)', color: filterKey === f.key ? '#fff' : 'var(--text-muted)' }}>
-                                                    {count}
-                                                </span>
-                                            )}
-                                        </button>
-                                    );
-                                })}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', minWidth: 0 }}>
+                            <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' as any, flexShrink: 0, maxWidth: '100%' }}>
+                                <div style={{ display: 'flex', gap: 2, background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 10, padding: 3, width: 'max-content' }}>
+                                    {FILTER_TABS.map(f => {
+                                        const count = f.key === 'all' ? logs.length : humanized.filter(({ entry, human }) => f.match(entry, human)).length;
+                                        return (
+                                            <button key={f.key} onClick={() => setFilterKey(f.key)} style={{
+                                                padding: '5px 10px', borderRadius: 7, border: 'none', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                                                background: filterKey === f.key ? 'var(--accent)' : 'transparent',
+                                                color: filterKey === f.key ? '#fff' : 'var(--text-muted)', transition: 'all 150ms',
+                                                display: 'flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap',
+                                            }}>
+                                                {f.label}
+                                                {count > 0 && (
+                                                    <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 8, background: filterKey === f.key ? 'rgba(255,255,255,0.22)' : 'var(--bg-input)', color: filterKey === f.key ? '#fff' : 'var(--text-muted)' }}>
+                                                        {count}
+                                                    </span>
+                                                )}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
                             </div>
 
                             {/* Platform filter */}
-                            <div style={{ display: 'flex', gap: 2, background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 10, padding: 3 }}>
-                                {['all', 'twitter', 'reddit', 'facebook', 'quora'].map(p => (
-                                    <button key={p} onClick={() => setPlatformFilter(p)} style={{
-                                        padding: '5px 11px', borderRadius: 7, border: 'none', fontSize: 11, fontWeight: 600, cursor: 'pointer',
-                                        background: platformFilter === p ? (PLATFORM_COLORS[p] || 'var(--accent)') : 'transparent',
-                                        color: platformFilter === p ? '#fff' : 'var(--text-muted)', transition: 'all 150ms',
-                                    }}>{p === 'all' ? 'All Platforms' : p.charAt(0).toUpperCase() + p.slice(1)}</button>
-                                ))}
+                            <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' as any, flexShrink: 0, maxWidth: '100%' }}>
+                                <div style={{ display: 'flex', gap: 2, background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 10, padding: 3, width: 'max-content' }}>
+                                    {['all', 'twitter', 'reddit', 'facebook', 'quora'].map(p => (
+                                        <button key={p} onClick={() => setPlatformFilter(p)} style={{
+                                            padding: '5px 10px', borderRadius: 7, border: 'none', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                                            background: platformFilter === p ? (PLATFORM_COLORS[p] || 'var(--accent)') : 'transparent',
+                                            color: platformFilter === p ? '#fff' : 'var(--text-muted)', transition: 'all 150ms', whiteSpace: 'nowrap',
+                                        }}>{p === 'all' ? 'All Platforms' : p.charAt(0).toUpperCase() + p.slice(1)}</button>
+                                    ))}
+                                </div>
                             </div>
                         </div>
 
@@ -544,7 +548,7 @@ export default function LogsPage() {
                                             )}
 
                                             <div style={{
-                                                display: 'flex', gap: 14, padding: '12px 16px', borderRadius: 12,
+                                                display: 'flex', gap: 12, padding: '12px 14px', borderRadius: 12, minWidth: 0, overflow: 'hidden',
                                                 background: entry.level === 'error' ? 'rgba(239,68,68,0.04)'
                                                     : entry.level === 'warn' && human.isIssue ? 'rgba(245,158,11,0.04)'
                                                     : entry.level === 'success' ? 'rgba(34,197,94,0.04)'
@@ -560,11 +564,11 @@ export default function LogsPage() {
                                             >
                                                 <EntryIcon category={human.category} level={entry.level} action={entry.action} />
 
-                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
                                                     {/* Title row */}
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 3 }}>
+                                                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, flexWrap: 'wrap', marginBottom: 3 }}>
                                                         <span style={{
-                                                            fontSize: 13, fontWeight: 600,
+                                                            fontSize: 13, fontWeight: 600, minWidth: 0, wordBreak: 'break-word',
                                                             color: entry.level === 'error' ? '#ef4444'
                                                                 : entry.level === 'warn' && human.isIssue ? '#f59e0b'
                                                                 : entry.level === 'success' ? '#22c55e'
@@ -574,25 +578,25 @@ export default function LogsPage() {
                                                         </span>
 
                                                         {/* Platform badge */}
-                                                        <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 6, background: `${pc}18`, color: pc, border: `1px solid ${pc}30`, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                                        <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 6, background: `${pc}18`, color: pc, border: `1px solid ${pc}30`, textTransform: 'uppercase', letterSpacing: '0.05em', flexShrink: 0 }}>
                                                             {entry.platform}
                                                         </span>
 
                                                         {/* Score badge */}
                                                         {human.score != null && (
-                                                            <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: `${scoreColor(human.score)}14`, color: scoreColor(human.score) }}>
+                                                            <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: `${scoreColor(human.score)}14`, color: scoreColor(human.score), flexShrink: 0 }}>
                                                                 {human.score}/100
                                                             </span>
                                                         )}
 
                                                         {/* Timestamp */}
-                                                        <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 'auto', flexShrink: 0 }} title={new Date(entry.timestamp).toLocaleString()}>
+                                                        <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0, marginLeft: 'auto' }} title={new Date(entry.timestamp).toLocaleString()}>
                                                             {fmtTime(entry.timestamp)} · {timeAgo(entry.timestamp)}
                                                         </span>
                                                     </div>
 
                                                     {/* Description */}
-                                                    <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: 0, lineHeight: 1.6 }}>
+                                                    <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: 0, lineHeight: 1.6, wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
                                                         {human.description}
                                                     </p>
 
