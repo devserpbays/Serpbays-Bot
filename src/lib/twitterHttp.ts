@@ -435,30 +435,6 @@ export async function followUserHttp(profileDir: string, screenName: string): Pr
   }
 }
 
-// --- Unfollow a user by screen name (HTTP REST) ---
-export async function unfollowUserHttp(profileDir: string, screenName: string): Promise<void> {
-  const cookies = loadCookies(profileDir);
-  const ct0 = getCt0(cookies);
-  const cookieHeader = buildCookieHeader(cookies);
-  if (!ct0) throw new Error('No ct0 cookie — cannot unfollow');
-
-  await jitter(2000, 4000);
-
-  const res = await fetch('https://x.com/i/api/1.1/friendships/destroy.json', {
-    method: 'POST',
-    headers: {
-      ...getHeaders(ct0, cookieHeader),
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: `screen_name=${encodeURIComponent(screenName)}&skip_status=1`,
-  });
-
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Twitter unfollow error ${res.status}: ${parseTwitterError(body)}`);
-  }
-}
-
 // --- Simulate visiting the notifications tab (every real user does this constantly) ---
 export async function visitNotificationsFeed(profileDir: string): Promise<void> {
   const cookies = loadCookies(profileDir);

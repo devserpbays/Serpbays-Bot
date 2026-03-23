@@ -83,7 +83,6 @@ export async function GET(req: Request) {
         id: f._id,
         handle: f.targetHandle,
         followedAt: f.followedAt,
-        unfollowedAt: f.unfollowedAt,
         isFollowing: f.isFollowing,
       })),
     });
@@ -97,7 +96,7 @@ export async function GET(req: Request) {
     totalLiked, todayLiked,
     totalRetweeted, todayRetweeted,
     totalBookmarked,
-    currentlyFollowing, totalUnfollowed,
+    currentlyFollowing,
     recentFollows,
   ] = await Promise.all([
     Post.countDocuments({ userId, platform: 'twitter', likedByBot: true }),
@@ -106,7 +105,6 @@ export async function GET(req: Request) {
     Post.countDocuments({ userId, platform: 'twitter', retweetedByBot: true, updatedAt: { $gte: todayStart } }),
     Post.countDocuments({ userId, platform: 'twitter', bookmarkedByBot: true }),
     TwitterFollowed.countDocuments({ userId, isFollowing: true }),
-    TwitterFollowed.countDocuments({ userId, isFollowing: false }),
     TwitterFollowed.find({ userId, isFollowing: true }).sort({ followedAt: -1 }).limit(5).lean(),
   ]);
 
@@ -114,7 +112,7 @@ export async function GET(req: Request) {
     totalLiked, todayLiked,
     totalRetweeted, todayRetweeted,
     totalBookmarked,
-    currentlyFollowing, totalUnfollowed,
+    currentlyFollowing,
     recentFollows: recentFollows.map((f: any) => ({
       handle: f.targetHandle,
       followedAt: f.followedAt,

@@ -44,7 +44,6 @@ const ACTION_WORDS: Record<string, string> = {
     retweet: 'retweet',
     bookmark: 'save bookmarks',
     follow: 'follow someone',
-    unfollow: 'unfollow',
     browse: 'scroll the feed',
     original_tweet: 'post an original tweet',
 };
@@ -155,10 +154,6 @@ function humanize(entry: ActivityLogEntry): HumanEntry {
             if (msg.toLowerCase().includes('followed @')) {
                 const handle = msg.match(/@[\w]+/)?.[0] ?? '';
                 return { category: 'engagement', title: `Followed ${handle}`, description: 'Visited their profile first, then followed — just like a real user would.' };
-            }
-            if (msg.toLowerCase().includes('unfollowed @')) {
-                const handle = msg.match(/@[\w]+/)?.[0] ?? '';
-                return { category: 'engagement', title: `Unfollowed ${handle}`, description: 'Follow-unfollow cycle completed after 3+ days.' };
             }
             if (msg.toLowerCase().includes('skipped') || msg.toLowerCase().includes('deleted')) {
                 return { category: 'issue', title: 'Post no longer available', description: `${msg} — marked to skip in future runs.`, isIssue: false };

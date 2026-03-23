@@ -34,7 +34,6 @@ import {
   retweetHttp,
   bookmarkHttp,
   followUserHttp,
-  unfollowUserHttp,
   extractTweetId,
   isTwitterConfiguredHttp,
   verifyCredentialsHttp,
@@ -677,7 +676,7 @@ async function postOneTweet(
 // shuffles their order, then executes them with human-paced delays between each.
 // Replaces the separate deterministic postPhase + single-action engagePhase.
 
-type SocialAction = 'reply' | 'original_tweet' | 'like' | 'retweet' | 'bookmark' | 'follow' | 'unfollow' | 'browse';
+type SocialAction = 'reply' | 'original_tweet' | 'like' | 'retweet' | 'bookmark' | 'follow' | 'browse';
 
 /** Base weights — higher = more likely to be selected */
 const BASE_ACTION_WEIGHTS: Record<SocialAction, number> = {
@@ -687,7 +686,6 @@ const BASE_ACTION_WEIGHTS: Record<SocialAction, number> = {
   retweet:        12,
   bookmark:       12,
   follow:         10,
-  unfollow:        8,
   browse:         15,
 };
 
@@ -986,26 +984,6 @@ async function executeFollowAction(): Promise<void> {
   }
 }
 
-async function executeUnfollowAction(): Promise<void> {
-  const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
-  const target = await TwitterFollowed.findOne({
-    userId: CRON_USER_ID,
-    isFollowing: true,
-    followedAt: { $lt: threeDaysAgo },
-  }).sort({ followedAt: 1 });
-
-  if (!target) { console.log('[Unfollow] No candidates (follow someone first, or wait 3+ days)'); return; }
-
-  try {
-    await unfollowUserHttp(PROFILE_DIR, target.targetHandle);
-    await TwitterFollowed.findByIdAndUpdate(target._id, { isFollowing: false, unfollowedAt: new Date() });
-    console.log(`[Unfollow] Unfollowed @${target.targetHandle}`);
-    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'engage', `Unfollowed @${target.targetHandle}`);
-  } catch (err) {
-    console.warn(`[Unfollow] @${target.targetHandle} failed:`, (err as Error).message);
-  }
-}
-
 async function executeBrowseAction(): Promise<void> {
   const browseMs = 45_000 + Math.random() * 45_000;
   console.log(`[Browse] Scrolling home feed for ${Math.round(browseMs / 1000)}s`);
@@ -1148,7 +1126,6 @@ async function socialPhase(settings: any, accountId: string, dailyLimit: number,
       case 'retweet':        await executeRetweetAction(); break;
       case 'bookmark':       await executeBookmarkAction(); break;
       case 'follow':         await executeFollowAction(); break;
-      case 'unfollow':       await executeUnfollowAction(); break;
       case 'browse':         await executeBrowseAction(); break;
     }
 
