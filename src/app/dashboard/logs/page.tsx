@@ -443,6 +443,20 @@ function EntryIcon({ category, level, action }: { category: Category; level: str
             </div>
         );
     }
+    if (action === 'account_paused') {
+        return (
+            <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(148,163,184,0.12)', border: '1.5px solid rgba(148,163,184,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth={2} width={size} height={size}><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+            </div>
+        );
+    }
+    if (action === 'backoff') {
+        return (
+            <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(251,191,36,0.10)', border: '1.5px solid rgba(251,191,36,0.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="#fbbf24" strokeWidth={2} width={size} height={size}><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>
+            </div>
+        );
+    }
     if (action === 'limit') {
         return (
             <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(251,191,36,0.10)', border: '1.5px solid rgba(251,191,36,0.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>

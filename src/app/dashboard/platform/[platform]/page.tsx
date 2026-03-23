@@ -366,24 +366,34 @@ export default function PlatformPage() {
                             <h2 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>{label}</h2>
                             <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '3px 0 0' }}>
                                 {accounts.length > 0
-                                    ? platformId === 'facebook'
-                                        ? `${accounts.length} connected account${accounts.length > 1 ? 's' : ''} · ${fbStats?.totalComments ?? total} comment${(fbStats?.totalComments ?? total) !== 1 ? 's' : ''} published · ${fbStats?.totalReacted ?? 0} reacted`
-                                        : `${accounts.length} connected account${accounts.length > 1 ? 's' : ''} · ${total} comment${total !== 1 ? 's' : ''} published`
+                                    ? (() => {
+                                        const worstHealth = accounts.length > 0 ? Math.min(...accounts.map(a => a.healthScore ?? 100)) : 100;
+                                        const anyPaused = accounts.some(a => a.autoPaused);
+                                        const healthStr = anyPaused ? ' · Paused' : worstHealth < 70 ? ` · Health ${worstHealth}/100` : '';
+                                        const base = platformId === 'facebook'
+                                            ? `${accounts.length} connected account${accounts.length > 1 ? 's' : ''} · ${fbStats?.totalComments ?? total} comment${(fbStats?.totalComments ?? total) !== 1 ? 's' : ''} published · ${fbStats?.totalReacted ?? 0} reacted`
+                                            : `${accounts.length} connected account${accounts.length > 1 ? 's' : ''} · ${total} comment${total !== 1 ? 's' : ''} published`;
+                                        return base + healthStr;
+                                    })()
                                     : 'No accounts connected'}
                             </p>
                         </div>
                     </div>
 
-                    {/* Live / Expired indicator */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, marginTop: 4,
-                        color: cookieStatus.checked && cookieStatus.expired ? '#ef4444' : 'var(--text-muted)' }}>
-                        <span style={{
-                            width: 6, height: 6, borderRadius: '50%', display: 'inline-block',
-                            background: cookieStatus.checked && cookieStatus.expired ? '#ef4444' : '#34d399',
-                            boxShadow: cookieStatus.checked && cookieStatus.expired ? '0 0 6px #ef4444' : '0 0 6px #34d399',
-                        }} />
-                        {cookieStatus.checked && cookieStatus.expired ? 'Cookies expired' : 'Live'}
-                    </div>
+                    {/* Live / Expired / Paused indicator */}
+                    {(() => {
+                        const anyPaused = accounts.some(a => a.autoPaused);
+                        const anyLowHealth = accounts.some(a => !a.autoPaused && (a.healthScore ?? 100) < 40);
+                        const expired = cookieStatus.checked && cookieStatus.expired;
+                        const dotColor = expired ? '#ef4444' : anyPaused ? '#94a3b8' : anyLowHealth ? '#f59e0b' : '#34d399';
+                        const statusText = expired ? 'Cookies expired' : anyPaused ? 'Account paused' : anyLowHealth ? 'Low health' : 'Live';
+                        return (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, marginTop: 4, color: dotColor }}>
+                                <span style={{ width: 6, height: 6, borderRadius: '50%', display: 'inline-block', background: dotColor, boxShadow: `0 0 6px ${dotColor}` }} />
+                                {statusText}
+                            </div>
+                        );
+                    })()}
                 </div>
 
                 {/* ── Account cards ── */}
@@ -534,6 +544,67 @@ export default function PlatformPage() {
                         }}>
                             Re-upload cookies
                         </a>
+                    </div>
+                )}
+
+                {/* ── Auto-paused banner ── */}
+                {accounts.some(a => a.autoPaused) && (
+                    <div style={{
+                        marginTop: 14, padding: '12px 16px',
+                        background: 'rgba(148,163,184,0.08)',
+                        border: '1px solid rgba(148,163,184,0.3)',
+                        borderRadius: 12,
+                        display: 'flex', alignItems: 'center', gap: 12,
+                    }}>
+                        <div style={{
+                            width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
+                            background: 'rgba(148,163,184,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth={2} width={16} height={16}>
+                                <rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>
+                            </svg>
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: '#94a3b8' }}>
+                                Account auto-paused — bot has stopped posting
+                            </div>
+                            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                                Health score dropped below the safe threshold due to repeated errors. Resume below to restart at 50/100.
+                            </div>
+                        </div>
+                        <button
+                            onClick={() => handleResumeAccount(platformId)}
+                            disabled={resumingPlatform === platformId}
+                            style={{
+                                flexShrink: 0, padding: '6px 16px', borderRadius: 8, border: 'none',
+                                background: resumingPlatform === platformId ? 'rgba(99,102,241,0.15)' : '#6366f1',
+                                color: resumingPlatform === platformId ? '#6366f1' : '#fff',
+                                fontSize: 12, fontWeight: 700,
+                                cursor: resumingPlatform === platformId ? 'default' : 'pointer',
+                                whiteSpace: 'nowrap',
+                            }}
+                        >
+                            {resumingPlatform === platformId ? 'Resuming…' : 'Resume posting'}
+                        </button>
+                    </div>
+                )}
+
+                {/* ── Low health warning banner ── */}
+                {!accounts.some(a => a.autoPaused) && accounts.some(a => (a.healthScore ?? 100) < 40) && (
+                    <div style={{
+                        marginTop: 14, padding: '10px 16px',
+                        background: 'rgba(239,68,68,0.06)',
+                        border: '1px solid rgba(239,68,68,0.25)',
+                        borderRadius: 12,
+                        display: 'flex', alignItems: 'center', gap: 10,
+                    }}>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth={2} width={16} height={16}>
+                            <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                            <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                        </svg>
+                        <span style={{ fontSize: 12, color: '#f87171', fontWeight: 600 }}>
+                            Account health is critical — {accounts.filter(a => (a.healthScore ?? 100) < 40).length} account(s) near auto-pause. Check error logs.
+                        </span>
                     </div>
                 )}
 
