@@ -419,7 +419,10 @@ async function main() {
   // View a few stories — real users check stories at session start
   try {
     const storyResult = await viewStories();
-    if (storyResult.viewed > 0) console.log(`Viewed ${storyResult.viewed} stories`);
+    if (storyResult.viewed > 0) {
+      console.log(`Viewed ${storyResult.viewed} stories`);
+      if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'facebook', 'info', 'stories_viewed', `Viewed ${storyResult.viewed} Facebook ${storyResult.viewed === 1 ? 'story' : 'stories'} at session start`, { count: storyResult.viewed });
+    }
   } catch (e) { console.warn('viewStories error:', (e as Error).message); }
 
   // Re-write .verified with loggedIn: true; scrape identity if missing
@@ -640,6 +643,7 @@ async function main() {
   const recentAuthors = new Set(recentlyCommentedPosts.map(p => p.author as string).filter(Boolean));
   if (recentAuthors.size > 0) {
     console.log(`Author dedup: skipping ${recentAuthors.size} author(s) commented on in the last 7 days`);
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'facebook', 'info', 'author_dedup', `Skipping ${recentAuthors.size} author(s) already engaged in the last 7 days`, { count: recentAuthors.size });
   }
 
   // Find candidates and pick first one not in an already-commented group today

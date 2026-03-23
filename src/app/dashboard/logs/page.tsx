@@ -212,7 +212,75 @@ function humanize(entry: ActivityLogEntry): HumanEntry {
             };
 
         case 'skip':
-            return { category: 'system', title: 'No high-score content found this run', description: 'No tweets crossed the relevance threshold — nothing to reply to yet. Try lowering the auto-post threshold in Settings.' };
+            if (msg.toLowerCase().includes('idle') || msg.toLowerCase().includes('score-based')) {
+                return { category: 'browsing', title: 'Idle cycle — resting this run', description: 'Randomly skipped this opportunity to avoid a predictable posting pattern — mimics a real user not always responding.' };
+            }
+            if (msg.toLowerCase().includes('threshold')) {
+                return { category: 'system', title: 'No high-score content found this run', description: 'No posts crossed the relevance threshold — nothing to reply to yet. Try lowering the auto-post threshold in Settings.' };
+            }
+            return { category: 'system', title: 'Skipped this run', description: msg };
+
+        case 'session_start':
+            return {
+                category: 'system',
+                title: `Facebook session: ${msg.replace('Session type: ', '')}`,
+                description: msg.includes('full')
+                    ? 'Peak hours — will browse, react, and comment this session.'
+                    : msg.includes('react_only')
+                    ? 'Evening hours — reacting to posts only, no commenting.'
+                    : msg.includes('browse_only')
+                    ? 'Off-peak hours — light browsing only, no actions taken.'
+                    : msg,
+            };
+
+        case 'limit':
+            return {
+                category: 'system',
+                title: 'Daily comment limit reached',
+                description: msg + ' — The account will resume posting comments tomorrow.',
+                isIssue: false,
+            };
+
+        case 'passive_session':
+            return {
+                category: 'browsing',
+                title: 'Passive session complete',
+                description: msg.includes('reacted')
+                    ? msg + ' — React-only session keeps the account active during off-peak hours.'
+                    : 'Browse-only session — visited the feed without taking any actions.',
+            };
+
+        case 'react':
+            return {
+                category: 'engagement',
+                title: `Reacted to a Facebook post`,
+                description: meta.url
+                    ? `Added a ${msg.match(/(Like|Love|Haha|Wow|Care|Sad|Angry)/)?.[0] ?? 'reaction'} reaction before commenting — just like a real user would engage first.`
+                    : msg,
+                link: meta.url ? { href: meta.url as string, label: 'View post' } : undefined,
+            };
+
+        case 'stories_viewed':
+            return {
+                category: 'browsing',
+                title: `Checked ${meta.count ?? ''} Facebook ${Number(meta.count) === 1 ? 'story' : 'stories'}`,
+                description: 'Browsed stories at session start — a natural behavior pattern that boosts the account\'s trust score with Facebook.',
+            };
+
+        case 'author_dedup':
+            return {
+                category: 'system',
+                title: 'Avoiding repeat authors',
+                description: `Skipping ${meta.count ?? 'some'} author(s) already engaged with in the last 7 days — prevents over-targeting the same people.`,
+            };
+
+        case 'overlay_blocked':
+            return {
+                category: 'issue',
+                title: 'Facebook showed a warning — paused automatically',
+                description: `${msg} — The bot stopped immediately to protect the account. Check your Facebook account and re-verify cookies if needed.`,
+                isIssue: true,
+            };
 
         case 'config_error':
             return { category: 'issue', title: 'Setup incomplete', description: msg, isIssue: true };
@@ -299,6 +367,55 @@ function EntryIcon({ category, level, action }: { category: Category; level: str
         return (
             <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(168,85,247,0.10)', border: '1.5px solid rgba(168,85,247,0.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="#a855f7" strokeWidth={2} width={size} height={size}><path d="M12 2a10 10 0 110 20A10 10 0 0112 2z"/><path d="M12 6v6l4 2"/></svg>
+            </div>
+        );
+    }
+    if (action === 'stories_viewed') {
+        return (
+            <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(251,146,60,0.12)', border: '1.5px solid rgba(251,146,60,0.32)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="#fb923c" strokeWidth={2} width={size} height={size}><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+            </div>
+        );
+    }
+    if (action === 'react') {
+        return (
+            <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(244,63,94,0.10)', border: '1.5px solid rgba(244,63,94,0.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <svg viewBox="0 0 24 24" fill="#f43f5e" width={size} height={size}><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+            </div>
+        );
+    }
+    if (action === 'session_start') {
+        return (
+            <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(99,102,241,0.10)', border: '1.5px solid rgba(99,102,241,0.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="#6366f1" strokeWidth={2} width={size} height={size}><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>
+            </div>
+        );
+    }
+    if (action === 'passive_session') {
+        return (
+            <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(148,163,184,0.10)', border: '1.5px solid rgba(148,163,184,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth={2} width={size} height={size}><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            </div>
+        );
+    }
+    if (action === 'author_dedup') {
+        return (
+            <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(14,165,233,0.10)', border: '1.5px solid rgba(14,165,233,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="#0ea5e9" strokeWidth={2} width={size} height={size}><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
+            </div>
+        );
+    }
+    if (action === 'overlay_blocked') {
+        return (
+            <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(239,68,68,0.12)', border: '1.5px solid rgba(239,68,68,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth={2} width={size} height={size}><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+            </div>
+        );
+    }
+    if (action === 'limit') {
+        return (
+            <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(251,191,36,0.10)', border: '1.5px solid rgba(251,191,36,0.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="#fbbf24" strokeWidth={2} width={size} height={size}><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
             </div>
         );
     }
