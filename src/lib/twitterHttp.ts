@@ -100,18 +100,39 @@ const CHROME_UA_POOL: { version: number; secChUaBrand: string }[] = [
   { version: 134, secChUaBrand: '"Chromium";v="134", "Google Chrome";v="134", "Not-A.Brand";v="24"' },
 ];
 
-function pickChromeUA(): { userAgent: string; secChUa: string } {
+// iPhone / Safari mobile UA pool — real heavy users switch between desktop and phone
+const MOBILE_UA_POOL = [
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1',
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_3_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Mobile/15E148 Safari/604.1',
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 16_7_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+];
+
+interface UAProfile {
+  userAgent: string;
+  isMobile: boolean;
+  secChUa?: string;
+}
+
+/** Pick a UA — 25% chance mobile (iPhone), 75% desktop Chrome. */
+function pickUA(): UAProfile {
+  if (Math.random() < 0.25) {
+    return {
+      userAgent: MOBILE_UA_POOL[Math.floor(Math.random() * MOBILE_UA_POOL.length)],
+      isMobile: true,
+    };
+  }
   const pick = CHROME_UA_POOL[Math.floor(Math.random() * CHROME_UA_POOL.length)];
   return {
     userAgent: `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${pick.version}.0.0.0 Safari/537.36`,
+    isMobile: false,
     secChUa: pick.secChUaBrand,
   };
 }
 
 // --- Common headers for Twitter GraphQL ---
 function getHeaders(ct0: string, cookieHeader: string): Record<string, string> {
-  const { userAgent, secChUa } = pickChromeUA();
-  return {
+  const ua = pickUA();
+  const base: Record<string, string> = {
     Authorization: BEARER,
     'Content-Type': 'application/json',
     'X-Csrf-Token': ct0,
@@ -119,19 +140,25 @@ function getHeaders(ct0: string, cookieHeader: string): Record<string, string> {
     'X-Twitter-Active-User': 'yes',
     'X-Twitter-Client-Language': 'en',
     Cookie: cookieHeader,
-    'User-Agent': userAgent,
+    'User-Agent': ua.userAgent,
     Referer: 'https://x.com/',
     Origin: 'https://x.com',
     'Accept': '*/*',
     'Accept-Language': 'en-US,en;q=0.9',
     'Accept-Encoding': 'gzip, deflate, br',
-    'Sec-Ch-Ua': secChUa,
-    'Sec-Ch-Ua-Mobile': '?0',
-    'Sec-Ch-Ua-Platform': '"Windows"',
     'Sec-Fetch-Dest': 'empty',
     'Sec-Fetch-Mode': 'cors',
     'Sec-Fetch-Site': 'same-origin',
   };
+  if (ua.isMobile) {
+    base['Sec-Ch-Ua-Mobile'] = '?1';
+    base['Sec-Ch-Ua-Platform'] = '"iOS"';
+  } else {
+    base['Sec-Ch-Ua'] = ua.secChUa!;
+    base['Sec-Ch-Ua-Mobile'] = '?0';
+    base['Sec-Ch-Ua-Platform'] = '"Windows"';
+  }
+  return base;
 }
 
 /** Random jitter: wait between min and max ms */
@@ -430,6 +457,68 @@ export async function unfollowUserHttp(profileDir: string, screenName: string): 
     const body = await res.text();
     throw new Error(`Twitter unfollow error ${res.status}: ${parseTwitterError(body)}`);
   }
+}
+
+// --- Simulate visiting the notifications tab (every real user does this constantly) ---
+export async function visitNotificationsFeed(profileDir: string): Promise<void> {
+  const cookies = loadCookies(profileDir);
+  const ct0 = getCt0(cookies);
+  const cookieHeader = buildCookieHeader(cookies);
+  if (!ct0 || !cookieHeader) return;
+
+  const params = new URLSearchParams({
+    include_profile_interstitial_type: '1',
+    include_blocking: '1',
+    include_blocked_by: '1',
+    include_followed_by: '1',
+    include_want_retweets: '1',
+    include_mute_edge: '1',
+    include_can_dm: '1',
+    include_can_media_tag: '1',
+    count: '20',
+  });
+
+  try {
+    await fetch(`https://x.com/i/api/2/notifications/all.json?${params}`, {
+      headers: { ...getHeaders(ct0, cookieHeader), 'Content-Type': 'application/json' },
+    });
+    // small reading pause — simulates user glancing at notifications
+    await jitter(1500, 4000);
+  } catch { /* non-critical — silent */ }
+}
+
+// --- Simulate visiting a user's profile before following (human behaviour) ---
+export async function visitUserProfile(profileDir: string, screenName: string): Promise<void> {
+  const cookies = loadCookies(profileDir);
+  const ct0 = getCt0(cookies);
+  const cookieHeader = buildCookieHeader(cookies);
+  if (!ct0 || !cookieHeader) return;
+
+  const variables = JSON.stringify({
+    screen_name: screenName,
+    withSafetyModeUserFields: true,
+  });
+  const features = JSON.stringify({
+    hidden_profile_subscriptions_enabled: true,
+    rweb_tipjar_consumption_enabled: true,
+    responsive_web_graphql_exclude_directive_enabled: true,
+    verified_phone_label_enabled: false,
+    subscriptions_verification_info_is_identity_verified_enabled: true,
+    subscriptions_verification_info_verified_since_enabled: true,
+    highlights_tweets_tab_ui_enabled: true,
+    responsive_web_twitter_article_notes_tab_enabled: true,
+    creator_subscriptions_tweet_preview_api_enabled: true,
+    responsive_web_graphql_skip_user_profile_image_extensions_enabled: false,
+    responsive_web_graphql_timeline_navigation_enabled: true,
+  });
+
+  try {
+    await fetch(`${TWITTER_GRAPHQL_BASE}/G3KGOASz96M-Qu0nwmGXNg/UserByScreenName?variables=${encodeURIComponent(variables)}&features=${encodeURIComponent(features)}`, {
+      headers: getHeaders(ct0, cookieHeader),
+    });
+    // simulate reading their profile for 3–12 seconds
+    await jitter(3000, 12000);
+  } catch { /* non-critical — silent */ }
 }
 
 // --- Check if Twitter is configured (has cookies.json) ---

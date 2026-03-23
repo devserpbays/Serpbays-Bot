@@ -38,6 +38,8 @@ import {
   extractTweetId,
   isTwitterConfiguredHttp,
   verifyCredentialsHttp,
+  visitNotificationsFeed,
+  visitUserProfile,
 } from '../src/lib/twitterHttp';
 
 // Browser-based scraping + fallback posting (needs Chromium)
@@ -230,13 +232,18 @@ TASK: ${styleInstruction}
 
 RULES:
 - Write ONLY the tweet text — no quotes, no labels, no explanation
-- Under 240 characters
 - Sound like a real person, not a brand account
 ${brandRule}
 - No URLs
 - 0–2 hashtags only if they fit naturally — skip if forced
 - Never use: "game-changer", "seamless", "leverage", "robust", "delighted", "excited to share"
 - Never start with "Hey", "Hi", "Absolutely", or "Great question"
+- LENGTH: ${(() => {
+    const r = Math.random();
+    if (r < 0.30) return 'Keep it SHORT — 1 punchy sentence, under 100 characters. Brevity is the point.';
+    if (r < 0.80) return 'Aim for 120–200 characters — concise but complete.';
+    return 'Go longer this time — 200–240 characters with a follow-up question or extra detail.';
+  })()}
 - Random variety seed: ${randomSeed}
 
 Write the tweet now:`;
@@ -911,6 +918,9 @@ async function executeFollowAction(): Promise<void> {
   if (!handle) return;
 
   try {
+    // Visit their profile first — a human reads a profile before deciding to follow
+    console.log(`[Follow] Viewing @${handle}'s profile...`);
+    await visitUserProfile(PROFILE_DIR, handle);
     await followUserHttp(PROFILE_DIR, handle);
     await TwitterFollowed.findOneAndUpdate(
       { userId: CRON_USER_ID, targetHandle: handle },
@@ -952,7 +962,42 @@ async function executeBrowseAction(): Promise<void> {
   if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'engage', `Browsed home feed for ${Math.round(browseMs / 1000)}s`);
 }
 
+/**
+ * Activity multiplier by hour-of-day.
+ * Heavy Twitter users follow a natural rhythm: quiet at night, spikes at commute/lunch/evening.
+ * Multiplier 1.0 = peak, 0.2 = deep night.
+ */
+function getTimeOfDayMultiplier(): number {
+  const hour = new Date().getHours();
+  const HOUR_MULT: Record<number, number> = {
+    0: 0.40, 1: 0.30, 2: 0.20, 3: 0.20, 4: 0.25, 5: 0.35,
+    6: 0.50, 7: 0.90, 8: 1.00, 9: 0.80, 10: 0.70, 11: 0.75,
+    12: 1.00, 13: 0.90, 14: 0.60, 15: 0.55, 16: 0.65, 17: 0.75,
+    18: 0.85, 19: 0.95, 20: 1.00, 21: 1.00, 22: 0.85, 23: 0.60,
+  };
+  return HOUR_MULT[hour] ?? 0.50;
+}
+
 async function socialPhase(settings: any, accountId: string, dailyLimit: number, autoPostThreshold: number): Promise<void> {
+  // ── Session opener: visit notifications (every real user does this first) ──
+  console.log('[Social] Session start — checking notifications...');
+  await visitNotificationsFeed(PROFILE_DIR);
+
+  // ── Time-of-day multiplier ──
+  const todMult = getTimeOfDayMultiplier();
+  console.log(`[Social] Time-of-day multiplier: ${todMult.toFixed(2)} (hour ${new Date().getHours()})`);
+
+  // ── Passive session check ──────────────────────────────────────────────────
+  // 50–75% of runs are passive (browse + notifications only — no posting/engaging).
+  // Off-peak hours push the threshold higher: a user is more likely just scrolling at 3am.
+  const passiveThreshold = 0.50 + (1 - todMult) * 0.25; // 0.50 at peak → 0.70 at deep night
+  if (Math.random() < passiveThreshold && !process.env.CRON_MANUAL) {
+    console.log(`[Social] Passive session (threshold ${(passiveThreshold * 100).toFixed(0)}%) — browsing feed only`);
+    await executeBrowseAction();
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'social', 'Passive browse session');
+    return;
+  }
+
   // Build dynamic weights — reduce or exclude actions based on current state
   const weights: Partial<Record<SocialAction, number>> = { ...BASE_ACTION_WEIGHTS };
 
@@ -1007,7 +1052,9 @@ async function socialPhase(settings: any, accountId: string, dailyLimit: number,
     console.log(`[Social] Follow cap reached (${followsToday}/${MAX_FOLLOWS_PER_DAY}) — excluded`);
   }
 
-  const n = pickRunCount();
+  // Scale action count by time-of-day: off-peak runs pick fewer actions on average
+  let n = pickRunCount();
+  if (todMult < 0.6 && n > 1 && Math.random() > todMult) n = 1; // off-peak: cap at 1 action often
   if (n === 0) {
     console.log('[Social] 0-action run — idle cycle (randomised to reduce detection risk)');
     if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'social', 'Idle cron run');
