@@ -450,6 +450,46 @@ async function main() {
   }
   console.log(`Saved ${newPostCount} new posts to DB`);
 
+  // Step 7b: React phase — react to 2–4 posts before evaluating/commenting
+  // Reactions should always outnumber comments. Pick a random subset of scraped posts
+  // that haven't been reacted to yet, regardless of whether they'll be commented on.
+  if (allPosts.length > 0) {
+    const reactCount = 2 + Math.floor(Math.random() * 3); // 2, 3, or 4 reactions per run
+    // Shuffle allPosts and take first reactCount entries
+    const shuffled = [...allPosts].sort(() => Math.random() - 0.5).slice(0, reactCount);
+
+    console.log(`React phase: reacting to up to ${reactCount} posts`);
+    let reactedCount = 0;
+
+    for (const scraped of shuffled) {
+      try {
+        // Check if already reacted in DB
+        const dbPost = await Post.findOne({
+          url: scraped.url,
+          ...(CRON_USER_ID && { userId: CRON_USER_ID }),
+        }).select('_id likedByBot');
+
+        if (dbPost?.likedByBot) continue; // already reacted
+
+        const chosenReaction = pickReaction();
+        const reactionResult = await reactToPost(scraped.url, chosenReaction);
+        if (reactionResult.success) {
+          if (dbPost) {
+            await Post.findByIdAndUpdate(dbPost._id, { likedByBot: true, botReaction: reactionResult.reaction });
+          }
+          reactedCount++;
+          console.log(`  Reacted ${reactionResult.reaction} → ${scraped.url.slice(0, 60)}`);
+          if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'facebook', 'info', 'react', `Reacted ${reactionResult.reaction} to a post`, { url: scraped.url });
+        }
+        // Human-like pause between reactions (4–10 seconds)
+        await new Promise((r) => setTimeout(r, 4000 + Math.random() * 6000));
+      } catch (e) {
+        console.warn('  React phase error:', (e as Error).message);
+      }
+    }
+    console.log(`React phase complete: reacted to ${reactedCount} posts`);
+  }
+
   // Step 8: Evaluate unevaluated Facebook posts
   const unevaluatedPosts = await Post.find({
     platform: 'facebook',
