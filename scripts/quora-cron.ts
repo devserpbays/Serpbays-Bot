@@ -30,6 +30,7 @@ import { isWithinSchedule } from '../src/lib/schedule';
 import { logActivity, notifyAuthError } from '../src/lib/activityLog';
 import Post from '../src/models/Post';
 import Settings from '../src/models/Settings';
+import { getWarmupLimit, getAccountAge, capCooldown, jitterCooldown } from '../src/lib/antiBan';
 
 const DEFAULT_DAILY_LIMIT = 2;  // Quora aggressively collapses spam answers
 const DEFAULT_AUTO_POST_THRESHOLD = 70;
@@ -237,11 +238,17 @@ async function main() {
     if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'quora', 'warn', 'config_error', 'No Quora keywords configured');
     process.exit(0);
   }
-  const dailyLimit: number = settings.quoraDailyLimit ?? DEFAULT_DAILY_LIMIT;
+  const configuredDailyLimit: number = settings.quoraDailyLimit ?? DEFAULT_DAILY_LIMIT;
+  const accountAddedAt = getAccountAge(settings, 'quora');
+  const dailyLimit: number = getWarmupLimit(configuredDailyLimit, accountAddedAt, 'quora');
+  if (dailyLimit < configuredDailyLimit) {
+    console.log(`Warmup mode: daily limit capped at ${dailyLimit}/${configuredDailyLimit} (account age < 60 days)`);
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'quora', 'info', 'warmup', `Warmup limit: ${dailyLimit}/${configuredDailyLimit}`);
+  }
   const autoPostThreshold: number =
     settings.quoraAutoPostThreshold ?? DEFAULT_AUTO_POST_THRESHOLD;
   const brandMentionRate: number = (settings as any).quoraBrandMentionRate ?? 25;
-  const cooldownMinutes: number = (settings as any).quoraCooldownMinutes ?? 120;
+  const cooldownMinutes: number = capCooldown('quora', (settings as any).quoraCooldownMinutes ?? 120);
 
   // Step 2b: Read current account identity
   const accountId = getCurrentAccountId();
@@ -260,7 +267,7 @@ async function main() {
 
   // Step 3b: 15-minute cooldown (skipped for manual runs)
   if (!process.env.CRON_MANUAL) {
-    const MIN_COMMENT_GAP_MS = cooldownMinutes * 60 * 1000;
+    const MIN_COMMENT_GAP_MS = jitterCooldown(cooldownMinutes);
     const lastPosted = await Post.findOne({ platform: 'quora', status: 'posted', postedAt: { $exists: true }, ...(CRON_USER_ID && { userId: CRON_USER_ID }) })
       .sort({ postedAt: -1 })
       .select('postedAt platform');

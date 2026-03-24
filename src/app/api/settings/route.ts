@@ -75,11 +75,14 @@ export async function PUT(req: NextRequest) {
     if (arr) data.platforms = arr.filter(p => VALID_PLATFORMS.includes(p));
   }
 
+  // String fields (continued)
+  if (body.twitterTweetPersona !== undefined) data.twitterTweetPersona = validateString(body.twitterTweetPersona) ?? '';
+
   // String arrays
   const arrayFields = [
     'keywords', 'subreddits', 'facebookGroups', 'facebookKeywords',
-    'twitterKeywords', 'twitterCommunityIds', 'redditKeywords', 'quoraKeywords',
-    'youtubeKeywords', 'pinterestKeywords',
+    'twitterKeywords', 'twitterCommunityIds', 'twitterTweetTopics', 'twitterTweetStyles',
+    'redditKeywords', 'quoraKeywords', 'youtubeKeywords', 'pinterestKeywords',
   ] as const;
   for (const key of arrayFields) {
     if (body[key] !== undefined) {
@@ -88,20 +91,38 @@ export async function PUT(req: NextRequest) {
     }
   }
 
-  // Numeric fields with sane ranges
+  // Numeric fields — daily limits are hard-capped at PLATFORM_SAFE_LIMITS, cooldowns at platform minimums
+  // These caps are enforced server-side so no client can bypass them.
   const numericFields: { key: string; min: number; max: number }[] = [
-    { key: 'facebookDailyLimit', min: 1, max: 200 },
-    { key: 'facebookAutoPostThreshold', min: 0, max: 100 },
-    { key: 'twitterDailyLimit', min: 1, max: 200 },
-    { key: 'twitterAutoPostThreshold', min: 0, max: 100 },
-    { key: 'redditDailyLimit', min: 1, max: 200 },
-    { key: 'redditAutoPostThreshold', min: 0, max: 100 },
-    { key: 'quoraDailyLimit', min: 1, max: 200 },
-    { key: 'quoraAutoPostThreshold', min: 0, max: 100 },
-    { key: 'youtubeDailyLimit', min: 1, max: 200 },
-    { key: 'youtubeAutoPostThreshold', min: 0, max: 100 },
-    { key: 'pinterestDailyLimit', min: 1, max: 200 },
-    { key: 'pinterestAutoPostThreshold', min: 0, max: 100 },
+    { key: 'facebookDailyLimit',        min: 1,  max: 7   }, // PLATFORM_SAFE_LIMITS.facebook.maxDaily
+    { key: 'facebookAutoPostThreshold', min: 0,  max: 100 },
+    { key: 'facebookBrandMentionRate',  min: 0,  max: 100 },
+    { key: 'facebookCooldownMinutes',   min: 60, max: 1440 }, // PLATFORM_SAFE_LIMITS.facebook.minCooldownMinutes
+    { key: 'twitterDailyLimit',         min: 1,  max: 10  }, // PLATFORM_SAFE_LIMITS.twitter.maxDaily
+    { key: 'twitterAutoPostThreshold',  min: 0,  max: 100 },
+    { key: 'twitterBrandMentionRate',   min: 0,  max: 100 },
+    { key: 'twitterCooldownMinutes',    min: 45, max: 1440 }, // PLATFORM_SAFE_LIMITS.twitter.minCooldownMinutes
+    { key: 'twitterOriginalTweetDailyLimit', min: 0, max: 5 },
+    { key: 'twitterLikeRate',           min: 0,  max: 100 },
+    { key: 'twitterRetweetRate',        min: 0,  max: 100 },
+    { key: 'twitterBookmarkRate',       min: 0,  max: 100 },
+    { key: 'twitterReplyRate',          min: 0,  max: 100 },
+    { key: 'redditDailyLimit',          min: 1,  max: 7   }, // PLATFORM_SAFE_LIMITS.reddit.maxDaily
+    { key: 'redditAutoPostThreshold',   min: 0,  max: 100 },
+    { key: 'redditBrandMentionRate',    min: 0,  max: 100 },
+    { key: 'redditCooldownMinutes',     min: 60, max: 1440 }, // PLATFORM_SAFE_LIMITS.reddit.minCooldownMinutes
+    { key: 'quoraDailyLimit',           min: 1,  max: 5   }, // PLATFORM_SAFE_LIMITS.quora.maxDaily
+    { key: 'quoraAutoPostThreshold',    min: 0,  max: 100 },
+    { key: 'quoraBrandMentionRate',     min: 0,  max: 100 },
+    { key: 'quoraCooldownMinutes',      min: 90, max: 1440 }, // PLATFORM_SAFE_LIMITS.quora.minCooldownMinutes
+    { key: 'youtubeDailyLimit',         min: 1,  max: 7   }, // PLATFORM_SAFE_LIMITS.youtube.maxDaily
+    { key: 'youtubeAutoPostThreshold',  min: 0,  max: 100 },
+    { key: 'youtubeBrandMentionRate',   min: 0,  max: 100 },
+    { key: 'youtubeCooldownMinutes',    min: 90, max: 1440 }, // PLATFORM_SAFE_LIMITS.youtube.minCooldownMinutes
+    { key: 'pinterestDailyLimit',       min: 1,  max: 7   }, // PLATFORM_SAFE_LIMITS.pinterest.maxDaily
+    { key: 'pinterestAutoPostThreshold',min: 0,  max: 100 },
+    { key: 'pinterestBrandMentionRate', min: 0,  max: 100 },
+    { key: 'pinterestCooldownMinutes',  min: 60, max: 1440 }, // PLATFORM_SAFE_LIMITS.pinterest.minCooldownMinutes
     { key: 'cronStartHour', min: 0, max: 23 },
     { key: 'cronEndHour', min: 0, max: 23 },
     { key: 'cronIntervalMinutes', min: 15, max: 360 },
@@ -120,8 +141,9 @@ export async function PUT(req: NextRequest) {
       .map((d: number) => Math.round(d));
   }
 
-  // Boolean
+  // Booleans
   if (body.notifyViaEmail !== undefined) data.notifyViaEmail = !!body.notifyViaEmail;
+  if (body.twitterOriginalTweetsEnabled !== undefined) data.twitterOriginalTweetsEnabled = !!body.twitterOriginalTweetsEnabled;
 
   // Social accounts — validate profileDir
   if (body.socialAccounts !== undefined && Array.isArray(body.socialAccounts)) {

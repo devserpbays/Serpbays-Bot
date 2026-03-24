@@ -33,6 +33,7 @@ import Post from '../src/models/Post';
 import Settings from '../src/models/Settings';
 import BrowserCookie from '../src/models/BrowserCookie';
 import { buildSuccessPatch, buildFailurePatch } from '../src/lib/accountHealth';
+import { getWarmupLimit, getAccountAge, capCooldown, jitterCooldown } from '../src/lib/antiBan';
 
 const DEFAULT_DAILY_LIMIT = 3;  // Reddit bans accounts that post too many comments/day
 const DEFAULT_AUTO_POST_THRESHOLD = 70;
@@ -211,11 +212,17 @@ async function main() {
     if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'reddit', 'warn', 'config_error', 'No Reddit keywords configured');
     process.exit(0);
   }
-  const dailyLimit: number = settings.redditDailyLimit ?? DEFAULT_DAILY_LIMIT;
+  const configuredDailyLimit: number = settings.redditDailyLimit ?? DEFAULT_DAILY_LIMIT;
+  const accountAddedAt = getAccountAge(settings, 'reddit');
+  const dailyLimit: number = getWarmupLimit(configuredDailyLimit, accountAddedAt, 'reddit');
+  if (dailyLimit < configuredDailyLimit) {
+    console.log(`Warmup mode: daily limit capped at ${dailyLimit}/${configuredDailyLimit} (account age < 60 days)`);
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'reddit', 'info', 'warmup', `Warmup limit: ${dailyLimit}/${configuredDailyLimit}`);
+  }
   const autoPostThreshold: number =
     settings.redditAutoPostThreshold ?? DEFAULT_AUTO_POST_THRESHOLD;
   const brandMentionRate: number = (settings as any).redditBrandMentionRate ?? 25;
-  const cooldownMinutes: number = (settings as any).redditCooldownMinutes ?? 90;
+  const cooldownMinutes: number = capCooldown('reddit', (settings as any).redditCooldownMinutes ?? 90);
 
   // Step 2b: Read current account identity
   const accountId = getCurrentAccountId();
@@ -234,7 +241,7 @@ async function main() {
 
   // Step 3b: 15-minute cooldown (skipped for manual runs)
   if (!process.env.CRON_MANUAL) {
-    const MIN_COMMENT_GAP_MS = cooldownMinutes * 60 * 1000;
+    const MIN_COMMENT_GAP_MS = jitterCooldown(cooldownMinutes);
     const lastPosted = await Post.findOne({ platform: 'reddit', status: 'posted', postedAt: { $exists: true }, ...(CRON_USER_ID && { userId: CRON_USER_ID }) })
       .sort({ postedAt: -1 })
       .select('postedAt platform');

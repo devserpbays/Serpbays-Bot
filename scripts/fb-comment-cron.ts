@@ -35,7 +35,7 @@ import {
   checkForWarningOverlay,
   closeBrowser,
 } from '../src/lib/facebook';
-import { getWarmupLimit, getAccountAge, shouldRandomlySkip, jitterCooldown, getReadingDelay, getActionGap } from '../src/lib/antiBan';
+import { getWarmupLimit, getAccountAge, shouldRandomlySkip, jitterCooldown, getReadingDelay, getActionGap, capCooldown } from '../src/lib/antiBan';
 import { isWithinSchedule } from '../src/lib/schedule';
 import { logActivity, notifyAuthError } from '../src/lib/activityLog';
 import Post from '../src/models/Post';
@@ -322,13 +322,13 @@ async function main() {
   const autoPostThreshold: number =
     settings.facebookAutoPostThreshold ?? DEFAULT_AUTO_POST_THRESHOLD;
   const brandMentionRate: number = (settings as any).facebookBrandMentionRate ?? 80;
-  const cooldownMinutes: number = (settings as any).facebookCooldownMinutes ?? 90;
+  const cooldownMinutes: number = capCooldown('facebook', (settings as any).facebookCooldownMinutes ?? 90);
 
   // Warmup ramp: limit daily posts based on account age to avoid detection
   const fbAddedAt = getAccountAge(settings, 'facebook');
-  const dailyLimit = getWarmupLimit(configuredDailyLimit, fbAddedAt);
+  const dailyLimit = getWarmupLimit(configuredDailyLimit, fbAddedAt, 'facebook');
   if (dailyLimit < configuredDailyLimit) {
-    console.log(`Warmup mode: daily limit capped at ${dailyLimit}/${configuredDailyLimit} (account age < 30 days)`);
+    console.log(`Warmup mode: daily limit capped at ${dailyLimit}/${configuredDailyLimit} (account age < 60 days)`);
     if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'facebook', 'info', 'warmup', `Warmup limit: ${dailyLimit}/${configuredDailyLimit}`);
   }
 

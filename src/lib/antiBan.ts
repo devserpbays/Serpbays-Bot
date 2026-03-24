@@ -42,27 +42,46 @@ export function jitterCooldown(baseMinutes: number, jitterPercent = 30): number 
 }
 
 /**
- * Calculate safe daily limit based on account age.
- * New accounts start very low and gradually ramp up over 30 days.
+ * Calculate safe daily limit based on account age + configured limit + platform ceiling.
  *
- * Day 1-3:  1 post/day (warm-up)
- * Day 4-7:  2 posts/day
- * Day 8-14: 50% of configured limit
- * Day 15-30: 75% of configured limit
- * Day 30+:  full configured limit
+ * Warmup stages (based on when the account was added to the bot):
+ *   Stage 1 — Days  0–3:   1 post/day                          (brand new, zero trust)
+ *   Stage 2 — Days  4–7:   2 posts/day                         (still new, minimal footprint)
+ *   Stage 3 — Days  8–14:  3 posts/day OR 30% of configured    (establishing pattern)
+ *   Stage 4 — Days 15–30:  5 posts/day OR 55% of configured    (building trust)
+ *   Stage 5 — Days 31–60:  7 posts/day OR 75% of configured    (semi-established)
+ *   Stage 6 — Days 60+:    configured limit (capped at platform max)
+ *
+ * The result is always capped at PLATFORM_SAFE_LIMITS.maxDaily regardless of stage.
  */
-export function getWarmupLimit(configuredLimit: number, accountAddedAt: string | Date | undefined): number {
-  if (!accountAddedAt) return Math.min(configuredLimit, 2); // no date = assume new
+export function getWarmupLimit(
+  configuredLimit: number,
+  accountAddedAt: string | Date | undefined,
+  platform?: string,
+): number {
+  // First apply the platform absolute ceiling to the configured limit
+  const safeMax = platform
+    ? (PLATFORM_SAFE_LIMITS[platform as SupportedPlatform]?.maxDaily ?? 7)
+    : 7;
+  const cappedLimit = Math.min(configuredLimit, safeMax);
+
+  if (!accountAddedAt) return Math.min(cappedLimit, 1); // no date = treat as day 0
 
   const ageMs = Date.now() - new Date(accountAddedAt).getTime();
   const ageDays = ageMs / (24 * 60 * 60 * 1000);
 
-  if (ageDays < 3) return 1;
-  if (ageDays < 7) return Math.min(configuredLimit, 2);
-  if (ageDays < 14) return Math.max(1, Math.ceil(configuredLimit * 0.5));
-  if (ageDays < 30) return Math.max(1, Math.ceil(configuredLimit * 0.75));
-
-  return configuredLimit;
+  // Stage 1: Days 0–3
+  if (ageDays < 3)  return 1;
+  // Stage 2: Days 4–7
+  if (ageDays < 7)  return Math.min(cappedLimit, 2);
+  // Stage 3: Days 8–14
+  if (ageDays < 14) return Math.min(cappedLimit, Math.max(3, Math.ceil(cappedLimit * 0.30)));
+  // Stage 4: Days 15–30
+  if (ageDays < 30) return Math.min(cappedLimit, Math.max(5, Math.ceil(cappedLimit * 0.55)));
+  // Stage 5: Days 31–60
+  if (ageDays < 60) return Math.min(cappedLimit, Math.max(7, Math.ceil(cappedLimit * 0.75)));
+  // Stage 6: Days 60+ — full configured limit (already capped at platform max)
+  return cappedLimit;
 }
 
 /**
@@ -97,17 +116,47 @@ export function getAccountAge(
 }
 
 /**
- * Platform-specific safe defaults.
- * These are the MAXIMUM safe limits — actual limits should be lower during warm-up.
+ * Absolute safe ceilings per platform — enforced regardless of what users configure.
+ * Based on observed ban thresholds. Never set configuredLimit above these.
+ *
+ * Platform research notes:
+ *  Twitter:   10 comments/day max; stricter for accounts < 30 days old
+ *  Facebook:  7 comments/day; aggressive spam detection, groups are stricter
+ *  Reddit:    7 comments/day; karma checks + spam filters catch high-volume
+ *  Quora:     5 answers/day; collapses answers from low-trust accounts quickly
+ *  YouTube:   7 comments/day; comment spam filters are bot-fingerprint sensitive
+ *  Pinterest: 7 comments/day; lower detection but still flags velocity spikes
  */
-export const SAFE_DEFAULTS = {
-  twitter:   { dailyLimit: 4,  cooldownMinutes: 90,  batchSize: 2 },
-  reddit:    { dailyLimit: 3,  cooldownMinutes: 120, batchSize: 1 },
-  facebook:  { dailyLimit: 3,  cooldownMinutes: 120, batchSize: 1 },
-  quora:     { dailyLimit: 2,  cooldownMinutes: 180, batchSize: 1 },
-  youtube:   { dailyLimit: 2,  cooldownMinutes: 240, batchSize: 1 },
-  pinterest: { dailyLimit: 2,  cooldownMinutes: 120, batchSize: 1 },
+export const PLATFORM_SAFE_LIMITS = {
+  twitter:   { maxDaily: 10, minCooldownMinutes: 45  },
+  facebook:  { maxDaily: 7,  minCooldownMinutes: 60  },
+  reddit:    { maxDaily: 7,  minCooldownMinutes: 60  },
+  quora:     { maxDaily: 5,  minCooldownMinutes: 90  },
+  youtube:   { maxDaily: 7,  minCooldownMinutes: 90  },
+  pinterest: { maxDaily: 7,  minCooldownMinutes: 60  },
 } as const;
+
+export type SupportedPlatform = keyof typeof PLATFORM_SAFE_LIMITS;
+
+/**
+ * Cap a user-configured daily limit to the absolute platform safe ceiling.
+ * Use this everywhere a user-supplied limit is consumed.
+ */
+export function capDailyLimit(platform: string, configuredLimit: number): number {
+  const limits = PLATFORM_SAFE_LIMITS[platform as SupportedPlatform];
+  if (!limits) return Math.min(configuredLimit, 5); // unknown platform: be conservative
+  return Math.min(configuredLimit, limits.maxDaily);
+}
+
+/**
+ * Enforce minimum cooldown per platform — users cannot go below this
+ * even if they set a lower value in Settings.
+ */
+export function capCooldown(platform: string, configuredMinutes: number): number {
+  const limits = PLATFORM_SAFE_LIMITS[platform as SupportedPlatform];
+  const min = limits?.minCooldownMinutes ?? 60;
+  return Math.max(configuredMinutes, min);
+}
 
 /* ────────────────────────────────────────────────────────────────
  * Human-Like Engagement Engine

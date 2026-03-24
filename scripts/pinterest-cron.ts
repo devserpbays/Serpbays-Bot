@@ -22,6 +22,7 @@ import { isWithinSchedule } from '../src/lib/schedule';
 import { logActivity, notifyAuthError } from '../src/lib/activityLog';
 import Post from '../src/models/Post';
 import Settings from '../src/models/Settings';
+import { getWarmupLimit, getAccountAge, capCooldown, jitterCooldown } from '../src/lib/antiBan';
 
 if (CRON_USER_ID && !process.env.PINTEREST_PROFILE_DIR) {
   console.log('No Pinterest account connected for this user, skipping.');
@@ -434,10 +435,16 @@ async function main() {
     if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'pinterest', 'warn', 'config_error', 'No Pinterest keywords configured');
     process.exit(0);
   }
-  const dailyLimit: number = (settings as any).pinterestDailyLimit ?? DEFAULT_DAILY_LIMIT;
+  const configuredDailyLimit: number = (settings as any).pinterestDailyLimit ?? DEFAULT_DAILY_LIMIT;
+  const accountAddedAt = getAccountAge(settings, 'pinterest');
+  const dailyLimit: number = getWarmupLimit(configuredDailyLimit, accountAddedAt, 'pinterest');
+  if (dailyLimit < configuredDailyLimit) {
+    console.log(`Warmup mode: daily limit capped at ${dailyLimit}/${configuredDailyLimit} (account age < 60 days)`);
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'pinterest', 'info', 'warmup', `Warmup limit: ${dailyLimit}/${configuredDailyLimit}`);
+  }
   const autoPostThreshold: number = (settings as any).pinterestAutoPostThreshold ?? DEFAULT_AUTO_POST_THRESHOLD;
   const brandMentionRate: number = (settings as any).pinterestBrandMentionRate ?? 25;
-  const cooldownMinutes: number = (settings as any).pinterestCooldownMinutes ?? 90;
+  const cooldownMinutes: number = capCooldown('pinterest', (settings as any).pinterestCooldownMinutes ?? 90);
 
   const accountId = getCurrentAccountId();
   if (accountId) console.log(`Active Pinterest account: ${accountId}`);
@@ -453,7 +460,7 @@ async function main() {
 
   // Cooldown between comments (user-configured, default 90min)
   if (!process.env.CRON_MANUAL) {
-    const MIN_COMMENT_GAP_MS = cooldownMinutes * 60 * 1000;
+    const MIN_COMMENT_GAP_MS = jitterCooldown(cooldownMinutes);
     const lastPosted = await Post.findOne({ platform: 'pinterest', status: 'posted', postedAt: { $exists: true }, ...(CRON_USER_ID && { userId: CRON_USER_ID }) })
       .sort({ postedAt: -1 })
       .select('postedAt');

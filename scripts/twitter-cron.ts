@@ -57,6 +57,7 @@ import {
   shouldRandomlySkip,
   humanSleep,
   jitterCooldown,
+  capCooldown,
 } from '../src/lib/antiBan';
 
 const DEFAULT_DAILY_LIMIT = 4;
@@ -1084,7 +1085,7 @@ async function socialPhase(settings: any, accountId: string, dailyLimit: number,
 
   // Exclude reply if within cooldown window (with jitter to avoid mechanical patterns)
   if (weights.reply !== undefined && !process.env.CRON_MANUAL) {
-    const MIN_COMMENT_GAP_MS = jitterCooldown(settings.twitterCooldownMinutes ?? 60);
+    const MIN_COMMENT_GAP_MS = jitterCooldown(capCooldown('twitter', settings.twitterCooldownMinutes ?? 60));
     const lastPosted = await Post.findOne({
       platform: 'twitter', status: 'posted', isOriginalTweet: { $ne: true }, postedAt: { $exists: true },
       ...(CRON_USER_ID && { userId: CRON_USER_ID }),
@@ -1241,9 +1242,10 @@ async function main() {
   // Apply warmup limit for new accounts (ramp up over 30 days)
   const configuredLimit: number = settings.twitterDailyLimit ?? DEFAULT_DAILY_LIMIT;
   const accountAddedAt = getAccountAge(settings, 'twitter');
-  const dailyLimit = getWarmupLimit(configuredLimit, accountAddedAt);
+  const dailyLimit = getWarmupLimit(configuredLimit, accountAddedAt, 'twitter');
   if (dailyLimit < configuredLimit) {
-    console.log(`Warmup active: daily limit ${dailyLimit} (configured: ${configuredLimit})`);
+    console.log(`Warmup active: daily limit ${dailyLimit}/${configuredLimit} (account age < 60 days)`);
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'warmup', `Warmup limit: ${dailyLimit}/${configuredLimit}`);
   }
   const autoPostThreshold: number = settings.twitterAutoPostThreshold ?? DEFAULT_AUTO_POST_THRESHOLD;
 
