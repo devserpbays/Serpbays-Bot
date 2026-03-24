@@ -142,6 +142,12 @@ function humanize(entry: ActivityLogEntry): HumanEntry {
         case 'post_failed':
             return { category: 'issue', title: `${p.name} reply failed — will retry automatically`, description: msg, isIssue: true };
 
+        case 'post_rejected':
+            return { category: 'issue', title: `${p.name} comment rejected by platform`, description: msg, isIssue: true };
+
+        case 'shadow_removed':
+            return { category: 'issue', title: `Comment may have been shadow-removed`, description: `${p.name} accepted the comment then silently removed it — possible shadow ban or spam filter`, isIssue: true };
+
         case 'engage': {
             if (msg.match(/liked?\s+\d+/i)) {
                 const ids = (meta.tweetIds as string[]) || [];
@@ -436,10 +442,17 @@ function EntryIcon({ category, level, action }: { category: Category; level: str
             </div>
         );
     }
-    if (action === 'overlay_blocked') {
+    if (action === 'overlay_blocked' || action === 'post_rejected') {
         return (
             <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(239,68,68,0.12)', border: '1.5px solid rgba(239,68,68,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth={2} width={size} height={size}><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+            </div>
+        );
+    }
+    if (action === 'shadow_removed') {
+        return (
+            <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(245,158,11,0.12)', border: '1.5px solid rgba(245,158,11,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth={2} width={size} height={size}><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
             </div>
         );
     }

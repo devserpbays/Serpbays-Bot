@@ -784,10 +784,15 @@ async function main() {
         console.log(`Comment posted successfully${accountId ? ` (account: ${accountId})` : ''}`);
         if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'facebook', 'success', 'post', `Comment posted on ${autoPostCandidate.url}`, { score: autoPostCandidate.aiRelevanceScore });
       } else {
+        // Structural = problem with the post itself (not with the account)
         const isStructuralError = result.error?.includes('Comment box not found') ||
           result.error?.includes('Comments are disabled') ||
           result.error?.includes('members-only') ||
           result.error?.includes('private group');
+
+        // Account-level blocks — decrement health and use graduated backoff
+        const isShadowBan   = result.error?.includes('shadow-removed') || result.error?.includes('shadow ban');
+        const isFbRejected  = result.error?.includes('Facebook rejected comment') || result.error?.includes('Facebook blocked the comment');
 
         if (isStructuralError) {
           // Post's comment section is restricted — no point retrying it
@@ -795,18 +800,28 @@ async function main() {
           console.error('Post permanently skipped (restricted comment section):', result.error);
         } else {
           await Post.findByIdAndUpdate(autoPostCandidate._id, { $inc: { postAttempts: 1 } });
-          // Update account health on failure
+          // Update account health on failure — use graduated backoff based on consecutive errors
           if (CRON_USER_ID) {
-            const acc = await BrowserCookie.findOne({ userId: CRON_USER_ID, platform: 'facebook' }).lean();
+            const acc = await BrowserCookie.findOne({ userId: CRON_USER_ID, platform: 'facebook' }).lean() as Record<string, unknown> | null;
             if (acc) {
-              const backoffUntil = new Date(Date.now() + 1 * 60 * 60 * 1000);
+              const errorCount = (acc.errorCount as number ?? 0) + 1;
+              const backoffMs = errorCount >= 3 ? 24 * 60 * 60 * 1000
+                              : errorCount === 2 ? 4 * 60 * 60 * 1000
+                              : 1 * 60 * 60 * 1000;
+              const backoffUntil = new Date(Date.now() + backoffMs);
               const patch = buildFailurePatch(acc as Parameters<typeof buildFailurePatch>[0], backoffUntil);
               await BrowserCookie.updateOne({ userId: CRON_USER_ID, platform: 'facebook' }, { $set: patch.$set });
             }
           }
         }
         console.error('Failed to post Facebook comment:', result.error);
-        if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'facebook', 'error', 'post_failed', `Failed to post Facebook comment: ${result.error || 'Unknown error'}`, { url: autoPostCandidate.url });
+        const action = isShadowBan ? 'shadow_removed' : isFbRejected ? 'post_rejected' : 'post_failed';
+        const logMsg = isShadowBan
+          ? `Comment shadow-removed by Facebook — possible shadow ban`
+          : isFbRejected
+          ? `Facebook explicitly rejected the comment: ${result.error?.slice(0, 100)}`
+          : `Failed to post Facebook comment: ${result.error || 'Unknown error'}`;
+        if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'facebook', 'error', action, logMsg, { url: autoPostCandidate.url });
       }
     }
   } else {

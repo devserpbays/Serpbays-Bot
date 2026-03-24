@@ -995,30 +995,100 @@ export async function postComment(
     await page.keyboard.press('Enter');
     await humanDelay(4000, 7000);
 
+    // Check for explicit error toasts/dialogs Facebook shows after failed submissions
+    const postError = await page.evaluate(() => {
+      // Toast notifications and alert dialogs
+      const toastSelectors = [
+        '[role="alert"]',
+        '[role="alertdialog"]',
+        '[data-testid*="toast"]',
+        '[aria-live="polite"]',
+        '[aria-live="assertive"]',
+      ];
+      for (const sel of toastSelectors) {
+        const els = document.querySelectorAll(sel);
+        for (const el of els) {
+          const t = (el.textContent || '').toLowerCase();
+          if (
+            t.includes("couldn't post") ||
+            t.includes("couldn't be posted") ||
+            t.includes('comment could not') ||
+            t.includes('something went wrong') ||
+            t.includes('try again') ||
+            t.includes('not allowed to post') ||
+            t.includes('blocked from posting') ||
+            t.includes('temporarily blocked') ||
+            t.includes('action blocked')
+          ) {
+            return el.textContent?.trim().slice(0, 200) || 'Facebook blocked the comment';
+          }
+        }
+      }
+      // Also check modal dialogs that might appear post-submit
+      const dialogs = document.querySelectorAll('[role="dialog"]');
+      for (const d of dialogs) {
+        const t = (d.textContent || '').toLowerCase();
+        if (
+          t.includes("couldn't post") ||
+          t.includes('blocked') ||
+          t.includes('not allowed') ||
+          t.includes('temporarily') ||
+          t.includes('action blocked')
+        ) {
+          return d.textContent?.trim().slice(0, 200) || 'Facebook blocked the comment (dialog)';
+        }
+      }
+      return null;
+    }).catch(() => null);
+
+    if (postError) {
+      console.warn(`[FB] Comment explicitly rejected by Facebook: ${postError}`);
+      await debugScreenshot(page, 'facebook', 'post-rejected');
+      return { success: false, error: `Facebook rejected comment: ${postError.slice(0, 100)}` };
+    }
+
     // Verify submission: the comment box should be empty after a successful post
     const boxTextAfter = await commentBox.textContent().catch(() => comment);
     const boxCleared = !boxTextAfter || boxTextAfter.trim().length === 0;
 
     // Secondary check: look for our comment text in the comments section
     // (not in the input box — use a more specific selector)
-    const commentSectionText = await page.evaluate((snippet: string) => {
+    const snippet = comment.slice(0, 25);
+    const commentSectionText = await page.evaluate((snip: string) => {
       // Look for the text in elements that are NOT contenteditable
       const allText = Array.from(document.querySelectorAll('[role="article"] span, [data-testid*="comment"] span'))
         .map(el => el.textContent || '')
         .join(' ');
-      return allText.toLowerCase().includes(snippet.toLowerCase());
-    }, comment.slice(0, 25)).catch(() => false);
+      return allText.toLowerCase().includes(snip.toLowerCase());
+    }, snippet).catch(() => false);
 
     const posted = boxCleared || commentSectionText;
 
-    if (posted) {
-      console.log(`Comment posted successfully on: ${postUrl}`);
-      return { success: true };
-    } else {
+    if (!posted) {
       console.warn(`Comment may NOT have posted on: ${postUrl} (box not cleared, text not found in comments)`);
       await debugScreenshot(page, 'facebook', 'post-failed');
       return { success: false, error: 'Comment not confirmed after posting — Facebook may have blocked it or session expired' };
     }
+
+    // Shadow-ban re-check: wait 3s and verify the comment still exists in the DOM
+    // Facebook sometimes accepts then silently removes shadow-banned comments
+    if (commentSectionText) {
+      await sleep(3000);
+      const stillVisible = await page.evaluate((snip: string) => {
+        const allText = Array.from(document.querySelectorAll('[role="article"] span, [data-testid*="comment"] span'))
+          .map(el => el.textContent || '')
+          .join(' ');
+        return allText.toLowerCase().includes(snip.toLowerCase());
+      }, snippet).catch(() => true); // on error, assume still visible
+      if (!stillVisible) {
+        console.warn(`[FB] Comment appeared then vanished — possible shadow ban on: ${postUrl}`);
+        await debugScreenshot(page, 'facebook', 'shadow-removed');
+        return { success: false, error: 'Comment was shadow-removed by Facebook (possible shadow ban)' };
+      }
+    }
+
+    console.log(`Comment posted successfully on: ${postUrl}`);
+    return { success: true };
   } catch (err) {
     const msg = (err as Error).message;
     console.error(`Failed to post comment on ${postUrl}:`, msg);
