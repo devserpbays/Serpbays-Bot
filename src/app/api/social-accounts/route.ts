@@ -7,6 +7,7 @@ import { deleteCookies } from '@/lib/cookieStore';
 import { rm } from 'fs/promises';
 import { existsSync } from 'fs';
 import { getWarmupStatus } from '@/lib/humanize';
+import { computeHealthScore } from '@/lib/accountHealth';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,12 +26,22 @@ export async function GET() {
   const BrowserCookie = (await import('@/models/BrowserCookie')).default;
   const allCookies = await BrowserCookie.find(
     { userId },
-    { platform: 1, accountId: 1, username: 1, displayName: 1, verified: 1, verifiedAt: 1, createdAt: 1, healthScore: 1, autoPaused: 1, totalPosts: 1, totalErrors: 1 },
+    { platform: 1, accountId: 1, username: 1, displayName: 1, verified: 1, verifiedAt: 1, createdAt: 1, healthScore: 1, autoPaused: 1, totalPosts: 1, totalErrors: 1, errorCount: 1, backoffUntil: 1, lastPostedAt: 1 },
   ).lean();
 
   // Build a map: platform → cookie metadata
   const cookieMap = new Map<string, { verified: boolean; verifiedAt?: string; username?: string; displayName?: string; accountId?: string; connectedAt?: string; healthScore?: number; autoPaused?: boolean; totalPosts?: number; totalErrors?: number }>();
   for (const c of allCookies) {
+    // Always recompute from live BrowserCookie fields — never serve stale default 100
+    const liveHealth = computeHealthScore({
+      totalPosts:   c.totalPosts  ?? 0,
+      totalErrors:  c.totalErrors ?? 0,
+      errorCount:   c.errorCount  ?? 0,
+      backoffUntil: c.backoffUntil ?? null,
+      createdAt:    c.createdAt,
+      lastPostedAt: c.lastPostedAt ?? null,
+      autoPaused:   c.autoPaused  ?? false,
+    });
     cookieMap.set(c.platform, {
       verified: !!c.verified,
       verifiedAt: c.verifiedAt ? new Date(c.verifiedAt).toISOString() : undefined,
@@ -38,7 +49,7 @@ export async function GET() {
       displayName: c.displayName || '',
       accountId: c.accountId || '',
       connectedAt: c.createdAt ? new Date(c.createdAt).toISOString() : undefined,
-      healthScore: c.healthScore ?? 100,
+      healthScore: liveHealth.score,
       autoPaused: c.autoPaused ?? false,
       totalPosts: c.totalPosts ?? 0,
       totalErrors: c.totalErrors ?? 0,

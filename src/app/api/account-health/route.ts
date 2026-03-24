@@ -25,10 +25,11 @@ export async function GET() {
       { $match: { userId, status: 'posted' } },
       { $group: { _id: '$platform', count: { $sum: 1 } } },
     ]),
-    // Total "failed" attempts — posts with postAttempts > 0 that never got posted
+    // Total "failed" attempts — only permanently failed posts (status:'failed', 3 attempts)
+    // Excludes posts still queued for retry (evaluated/new with postAttempts > 0)
     Post.aggregate([
-      { $match: { userId, postAttempts: { $gt: 0 }, status: { $ne: 'posted' } } },
-      { $group: { _id: '$platform', count: { $sum: '$postAttempts' } } },
+      { $match: { userId, status: 'failed' } },
+      { $group: { _id: '$platform', count: { $sum: { $max: ['$postAttempts', 1] } } } },
     ]),
     // Posts in last 7 days
     Post.aggregate([
@@ -92,6 +93,23 @@ export async function GET() {
       recentPosts:  recentMap[acc.platform] ?? 0,
     };
   });
+
+  // Sync computed scores back to BrowserCookie so platform page chips stay consistent
+  await Promise.all(
+    result.map((r) =>
+      BrowserCookie.updateOne(
+        { userId, platform: r.platform },
+        {
+          $set: {
+            healthScore:  r.healthScore,
+            totalPosts:   r.totalPosts,
+            totalErrors:  r.totalErrors,
+            lastPostedAt: r.lastPostedAt ?? undefined,
+          },
+        }
+      )
+    )
+  );
 
   // Summary counts
   const summary = {

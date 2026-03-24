@@ -92,6 +92,18 @@ export function computeHealthScore(account: {
     }
   }
 
+  // 5. Positive track — successful posting history raises the floor
+  // This means a recovered account can earn its way back above the damage floor.
+  if (totalPosts >= 50) {
+    score = Math.min(100, score + 10);
+    if (score < 100) reasons.push(`Established account (${totalPosts} posts) — +10 trust bonus`);
+  } else if (totalPosts >= 20) {
+    score = Math.min(100, score + 5);
+    if (score < 100) reasons.push(`Growing account (${totalPosts} posts) — +5 trust bonus`);
+  } else if (totalPosts >= 5) {
+    score = Math.min(100, score + 2);
+  }
+
   score = Math.max(0, Math.min(100, score));
 
   let status: HealthScore['status'];
