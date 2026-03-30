@@ -48,12 +48,21 @@ export async function notifyAuthError(
     if (existing) return;
 
     const platformName = platform.charAt(0).toUpperCase() + platform.slice(1);
+    // Build specific reason for the notification
+    let reason = message || `Your ${platformName} session has expired.`;
+    if (message?.includes('automation') || message?.includes('blocked')) {
+      reason = `${platformName} detected automated activity. The bot has been paused to protect your account.`;
+    } else if (message?.includes('not logged') || message?.includes('session expired')) {
+      reason = `${platformName} cookies expired — the bot cannot log in. Please re-upload fresh cookies.`;
+    } else if (message?.includes('shadow')) {
+      reason = `${platformName} shadow-removed a comment. The bot is backing off to protect your account.`;
+    }
     const notifData = {
       userId,
       type: 'cookie_expired',
       platform,
-      title: `${platformName} cookies expired`,
-      message: message || `Your ${platformName} session has expired. Please reconnect from the Accounts page.`,
+      title: `${platformName} — Action Required`,
+      message: reason + ' Reconnect from the Accounts page to resume.',
       actionUrl: '/dashboard/accounts',
       actionLabel: 'Reconnect',
     };

@@ -5,6 +5,7 @@
  */
 import { connectDB } from '@/lib/mongodb';
 import Post from '@/models/Post';
+import ActivityLog from '@/models/ActivityLog';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type MongoFilter = Record<string, any>;
@@ -133,14 +134,31 @@ export async function getPostStats(userId: string): Promise<{
   byStatus: Record<string, number>;
   byPlatform: Record<string, number>;
   postedByPlatform: Record<string, number>;
+  likedByPlatform: Record<string, number>;
+  evaluatedByPlatform: Record<string, number>;
+  approvedByPlatform: Record<string, number>;
+  totalLikes: number;
+  postedByAccount: Record<string, number>;
+  likedByAccount: Record<string, number>;
 }> {
   await connectDB();
-  const rows = await Post.aggregate<{
-    _id: { platform: string; status: string };
-    count: number;
-  }>([
-    { $match: { userId } },
-    { $group: { _id: { platform: '$platform', status: '$status' }, count: { $sum: 1 } } },
+  const [rows, likedRows, postedAccRows, likedAccRows] = await Promise.all([
+    Post.aggregate<{ _id: { platform: string; status: string }; count: number }>([
+      { $match: { userId } },
+      { $group: { _id: { platform: '$platform', status: '$status' }, count: { $sum: 1 } } },
+    ]),
+    Post.aggregate<{ _id: string; count: number }>([
+      { $match: { userId, likedByBot: true } },
+      { $group: { _id: '$platform', count: { $sum: 1 } } },
+    ]),
+    Post.aggregate<{ _id: string; count: number }>([
+      { $match: { userId, status: 'posted', postedByAccount: { $exists: true, $ne: '' } } },
+      { $group: { _id: '$postedByAccount', count: { $sum: 1 } } },
+    ]),
+    Post.aggregate<{ _id: string; count: number }>([
+      { $match: { userId, likedByBot: true, postedByAccount: { $exists: true, $ne: '' } } },
+      { $group: { _id: '$postedByAccount', count: { $sum: 1 } } },
+    ]),
   ]);
 
   const statuses = ['new', 'evaluating', 'evaluated', 'approved', 'rejected', 'posted'];
@@ -150,7 +168,10 @@ export async function getPostStats(userId: string): Promise<{
   statuses.forEach(s => { byStatus[s] = 0; });
   const byPlatform: Record<string, number> = {};
   const postedByPlatform: Record<string, number> = {};
-  platforms.forEach(p => { byPlatform[p] = 0; postedByPlatform[p] = 0; });
+  const likedByPlatform: Record<string, number> = {};
+  const evaluatedByPlatform: Record<string, number> = {};
+  const approvedByPlatform: Record<string, number> = {};
+  platforms.forEach(p => { byPlatform[p] = 0; postedByPlatform[p] = 0; likedByPlatform[p] = 0; evaluatedByPlatform[p] = 0; approvedByPlatform[p] = 0; });
 
   let total = 0;
   for (const row of rows) {
@@ -160,10 +181,44 @@ export async function getPostStats(userId: string): Promise<{
     if (platform in byPlatform) {
       byPlatform[platform] += row.count;
       if (status === 'posted') postedByPlatform[platform] += row.count;
+      if (status === 'evaluated') evaluatedByPlatform[platform] += row.count;
+      if (status === 'approved') approvedByPlatform[platform] += row.count;
     }
   }
 
-  return { total, byStatus, byPlatform, postedByPlatform };
+  let totalLikes = 0;
+  for (const row of likedRows) {
+    if (row._id in likedByPlatform) likedByPlatform[row._id] = row.count;
+    totalLikes += row.count;
+  }
+
+  // Supplement with activity log counts for platforms where likedByBot is 0
+  // (Quora upvotes, YouTube Shorts likes, Pinterest saves are tracked in logs)
+  const engageActions = ['react', 'upvote_post', 'upvote_answer', 'like', 'save_pin', 'shorts_watched'];
+  try {
+    const logCounts = await ActivityLog.aggregate<{ _id: string; count: number }>([
+      { $match: { userId, action: { $in: engageActions } } },
+      { $group: { _id: '$platform', count: { $sum: 1 } } },
+    ]);
+    for (const row of logCounts) {
+      if (row._id in likedByPlatform && likedByPlatform[row._id] === 0) {
+        likedByPlatform[row._id] = row.count;
+        totalLikes += row.count;
+      }
+    }
+  } catch { /* non-critical — activity log fallback */ }
+
+  const postedByAccount: Record<string, number> = {};
+  for (const row of postedAccRows) {
+    if (row._id) postedByAccount[row._id] = row.count;
+  }
+
+  const likedByAccount: Record<string, number> = {};
+  for (const row of likedAccRows) {
+    if (row._id) likedByAccount[row._id] = row.count;
+  }
+
+  return { total, byStatus, byPlatform, postedByPlatform, likedByPlatform, evaluatedByPlatform, approvedByPlatform, totalLikes, postedByAccount, likedByAccount };
 }
 
 // ── Writes ──

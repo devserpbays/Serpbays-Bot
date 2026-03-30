@@ -33,23 +33,50 @@ async function getPage(profileDir: string): Promise<Page> {
   // Remove stale browser lock from previous crash
   try { unlinkSync(join(profileDir, 'SingletonLock')); } catch {}
 
+  const ua = randomUserAgent();
+  const vp = randomViewport();
+  const tz = process.env.ACCOUNT_TIMEZONE || randomTimezone();
   const context = await chromium.launchPersistentContext(profileDir, {
     headless: true,
     args: buildLaunchArgs(),
-    userAgent: randomUserAgent(),
-    viewport: randomViewport(),
+    userAgent: ua,
+    viewport: vp,
     locale: 'en-US',
-    timezoneId: randomTimezone(),
+    timezoneId: tz,
   });
-  await applyStealth(context);
+  await applyStealth(context, { viewport: vp, ua });
 
-  // Inject cookies from cookies.json if available
+  // Inject cookies from cookies.json — Google SSO requires cookies on BOTH domains
+  // (.google.com for auth, .youtube.com for session). Duplicate auth cookies to both.
   const cookiesJsonPath = join(profileDir, 'cookies.json');
   if (existsSync(cookiesJsonPath)) {
     try {
       const savedCookies = JSON.parse(readFileSync(cookiesJsonPath, 'utf8'));
       if (Array.isArray(savedCookies) && savedCookies.length > 0) {
-        await context.addCookies(savedCookies);
+        const GOOGLE_AUTH_NAMES = new Set([
+          'SID', 'HSID', 'SSID', 'APISID', 'SAPISID', 'NID',
+          '__Secure-1PSID', '__Secure-3PSID', '__Secure-1PAPISID', '__Secure-3PAPISID',
+          '__Secure-1PSIDTS', '__Secure-3PSIDTS', '__Secure-1PSIDCC', '__Secure-3PSIDCC',
+          'SIDCC', '__Secure-ENID',
+        ]);
+
+        // Duplicate auth cookies to both .google.com and .youtube.com
+        const expandedCookies: typeof savedCookies = [];
+        for (const c of savedCookies) {
+          expandedCookies.push(c);
+          if (GOOGLE_AUTH_NAMES.has(c.name)) {
+            // Add to .google.com if only on .youtube.com
+            if (c.domain === '.youtube.com') {
+              expandedCookies.push({ ...c, domain: '.google.com' });
+            }
+            // Add to .youtube.com if only on .google.com
+            if (c.domain === '.google.com') {
+              expandedCookies.push({ ...c, domain: '.youtube.com' });
+            }
+          }
+        }
+        await context.addCookies(expandedCookies);
+        console.log(`[youtube] Loaded ${savedCookies.length} cookies (expanded to ${expandedCookies.length} with dual-domain auth)`);
       }
     } catch (e) {
       console.error('Failed to load cookies.json:', e);
@@ -274,13 +301,28 @@ export async function scrapeYouTubeVideos(keywords: string[], profileDir: string
  */
 async function humanType(page: Page, text: string): Promise<void> {
   for (let i = 0; i < text.length; i++) {
-    await page.keyboard.type(text[i]);
-    // Variable delay: 60–180ms normally, occasional longer pause (350–700ms) mid-sentence
-    const isPause = text[i] === ',' || text[i] === '.' || text[i] === '!' || (Math.random() < 0.04);
-    const delay = isPause
-      ? 350 + Math.random() * 350
-      : 60 + Math.random() * 120;
-    await sleep(delay);
+    const char = text[i];
+
+    // Occasional typo: type wrong char, pause, backspace, retype (4% chance, not on spaces)
+    if (char !== ' ' && Math.random() < 0.04) {
+      const typoChar = 'qwertyuiopasdfghjklzxcvbnm'[Math.floor(Math.random() * 26)];
+      await page.keyboard.type(typoChar);
+      await sleep(120 + Math.random() * 180);
+      await page.keyboard.press('Backspace');
+      await sleep(80 + Math.random() * 100);
+    }
+
+    await page.keyboard.type(char);
+
+    // Variable delay: punctuation = thinking pause, spaces = occasional pause, else normal typing
+    if ('.!?,;:'.includes(char)) {
+      await sleep(250 + Math.random() * 400);
+    } else if (char === ' ' && Math.random() < 0.08) {
+      await sleep(300 + Math.random() * 500);
+    } else {
+      const burst = Math.random() < 0.3;
+      await sleep(burst ? 20 + Math.random() * 40 : 50 + Math.random() * 90);
+    }
   }
 }
 
@@ -455,11 +497,25 @@ export async function likeYouTubeVideo(
           return { success: true };
         }
         const box = await btn.boundingBox();
-        if (box) await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 8 });
-        await sleep(300 + Math.random() * 400);
-        await btn.click({ force: true });
-        console.log(`[youtube] Liked video: ${videoUrl}`);
-        return { success: true };
+        if (box) {
+          // Use native mouse click — YouTube's React handlers need real events
+          const cx = box.x + box.width / 2;
+          const cy = box.y + box.height / 2;
+          await page.mouse.move(cx, cy, { steps: 8 });
+          await sleep(300 + Math.random() * 400);
+          await page.mouse.click(cx, cy);
+        } else {
+          await btn.click();
+        }
+        await sleep(1500 + Math.random() * 1000);
+        // Verify like registered
+        const confirmed = await btn.getAttribute('aria-pressed').catch(() => null);
+        if (confirmed === 'true') {
+          console.log(`[youtube] Liked video (verified): ${videoUrl.slice(0, 60)}`);
+          return { success: true };
+        }
+        console.warn(`[youtube] Like click did not register: ${videoUrl.slice(0, 60)}`);
+        return { success: false };
       }
     }
 
@@ -467,6 +523,84 @@ export async function likeYouTubeVideo(
     return { success: false };
   } catch (err) {
     console.error('[youtube] likeYouTubeVideo error:', (err as Error).message);
+    return { success: false };
+  }
+}
+
+/**
+ * Subscribe to a YouTube channel from a video page.
+ * Only subscribes if not already subscribed.
+ */
+export async function subscribeToChannel(
+  videoUrl: string,
+  profileDir: string
+): Promise<{ success: boolean; alreadySubscribed?: boolean }> {
+  try {
+    const page = await getPage(profileDir);
+    await page.goto(videoUrl, { waitUntil: 'domcontentloaded' });
+    await sleep(SLOW_WAIT);
+
+    await smoothScroll(page, 200);
+    await sleep(1500 + Math.random() * 1500);
+
+    // Find subscribe button — multiple selectors for different YouTube layouts
+    const subSelectors = [
+      'ytd-subscribe-button-renderer button',
+      'yt-button-shape button[aria-label*="Subscribe" i]',
+      '#subscribe-button button',
+      'button[aria-label*="Subscribe to" i]',
+      'tp-yt-paper-button[subscribed]',
+    ];
+
+    for (const sel of subSelectors) {
+      const btn = page.locator(sel).first();
+      if (await btn.isVisible({ timeout: 3000 }).catch(() => false)) {
+        // Check if already subscribed
+        const label = await btn.getAttribute('aria-label').catch(() => '') || '';
+        const subscribed = await btn.getAttribute('subscribed').catch(() => null);
+        const text = await btn.textContent().catch(() => '') || '';
+
+        if (subscribed !== null || label.toLowerCase().includes('unsubscribe') || text.toLowerCase().includes('subscribed')) {
+          console.log('[youtube] Already subscribed to this channel');
+          return { success: true, alreadySubscribed: true };
+        }
+
+        // Human-like: move mouse to button, pause, native click
+        const box = await btn.boundingBox();
+        if (box) {
+          await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 10 });
+          await sleep(400 + Math.random() * 600);
+          await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+        } else {
+          await btn.click();
+        }
+        await sleep(2000 + Math.random() * 1500);
+
+        // Verify subscription registered
+        const postLabel = await btn.getAttribute('aria-label').catch(() => '') || '';
+        const postText = await btn.textContent().catch(() => '') || '';
+        const postSubscribed = await btn.getAttribute('subscribed').catch(() => null);
+        if (postSubscribed !== null || postLabel.toLowerCase().includes('unsubscribe') || postText.toLowerCase().includes('subscribed')) {
+          console.log(`[youtube] Subscribed to channel from: ${videoUrl.slice(0, 60)}`);
+          return { success: true };
+        }
+
+        // Might show a confirmation dialog — dismiss it
+        const confirmBtn = page.locator('button[aria-label*="Subscribe" i], yt-button-renderer button').first();
+        if (await confirmBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+          await confirmBtn.click({ force: true }).catch(() => {});
+          await sleep(1000);
+        }
+
+        console.log(`[youtube] Subscribed (unconfirmed) to channel from: ${videoUrl.slice(0, 60)}`);
+        return { success: true };
+      }
+    }
+
+    console.warn('[youtube] Subscribe button not found on:', videoUrl);
+    return { success: false };
+  } catch (err) {
+    console.error('[youtube] subscribeToChannel error:', (err as Error).message);
     return { success: false };
   }
 }
@@ -536,6 +670,133 @@ export async function watchAndLike(
   }
 
   return { watched, liked };
+}
+
+/**
+ * Watch a YouTube Short — swipe-style viewing simulation.
+ * Shorts are 15-60s vertical videos; watching them builds engagement signals.
+ */
+export async function watchShort(
+  shortUrl: string,
+  profileDir: string,
+  andLike: boolean = true
+): Promise<{ watched: boolean; liked: boolean }> {
+  let watched = false;
+  let liked = false;
+  try {
+    const page = await getPage(profileDir);
+    await page.goto(shortUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await sleep(3000 + Math.random() * 2000);
+
+    // Watch the Short for 8-30 seconds (realistic for short-form content)
+    const watchMs = 8000 + Math.random() * 22000;
+    await sleep(watchMs);
+    watched = true;
+    console.log(`[youtube] Watched Short ${Math.round(watchMs / 1000)}s: ${shortUrl.slice(0, 50)}`);
+
+    if (andLike) {
+      // Shorts like button — different selectors than regular videos
+      const likeSelectors = [
+        '#like-button button',
+        'ytd-like-button-renderer button',
+        'button[aria-label*="like" i]',
+        '#segmented-like-button button',
+        'like-button-view-model button',
+      ];
+      for (const sel of likeSelectors) {
+        try {
+          const btn = page.locator(sel).first();
+          if (await btn.isVisible({ timeout: 2000 }).catch(() => false)) {
+            const pressed = await btn.getAttribute('aria-pressed').catch(() => null);
+            if (pressed === 'true') { liked = true; break; }
+            // Use native mouse click for Shorts like button
+            const sBox = await btn.boundingBox();
+            if (sBox) {
+              await page.mouse.move(sBox.x + sBox.width / 2, sBox.y + sBox.height / 2, { steps: 6 });
+              await sleep(200 + Math.random() * 300);
+              await page.mouse.click(sBox.x + sBox.width / 2, sBox.y + sBox.height / 2);
+            } else {
+              await btn.click();
+            }
+            await sleep(1000 + Math.random() * 500);
+            const shortConfirmed = await btn.getAttribute('aria-pressed').catch(() => null);
+            if (shortConfirmed === 'true') {
+              liked = true;
+              console.log(`[youtube] Liked Short (verified): ${shortUrl.slice(0, 50)}`);
+            } else {
+              console.warn(`[youtube] Short like did not register: ${shortUrl.slice(0, 50)}`);
+            }
+            break;
+          }
+        } catch { /* try next */ }
+      }
+    }
+  } catch (err) {
+    console.error('[youtube] watchShort error:', (err as Error).message);
+  }
+  return { watched, liked };
+}
+
+/**
+ * Browse YouTube Shorts feed — discover and watch Shorts by keyword.
+ * Simulates a user scrolling through Shorts.
+ */
+export async function browseShorts(
+  profileDir: string,
+  keywords: string[],
+  maxShorts: number = 3
+): Promise<{ watched: number; liked: number; urls: string[]; likedUrls: string[] }> {
+  let watched = 0;
+  let liked = 0;
+  const urls: string[] = [];
+  const likedUrls: string[] = [];
+  try {
+    const page = await getPage(profileDir);
+
+    // Search for keyword + "shorts" or go to Shorts feed
+    const keyword = keywords[Math.floor(Math.random() * keywords.length)];
+    const useSearch = Math.random() < 0.6; // 60% search, 40% browse feed
+
+    if (useSearch && keyword) {
+      await page.goto(`https://www.youtube.com/results?search_query=${encodeURIComponent(keyword)}&sp=EgIYAQ%253D%253D`, { waitUntil: 'domcontentloaded' });
+    } else {
+      await page.goto('https://www.youtube.com/shorts', { waitUntil: 'domcontentloaded' });
+    }
+    await sleep(3000 + Math.random() * 2000);
+
+    // Scroll to load Shorts
+    for (let i = 0; i < 3; i++) {
+      await page.evaluate(() => window.scrollBy({ top: 800, behavior: 'smooth' }));
+      await sleep(1500 + Math.random() * 1000);
+    }
+
+    // Find Short links
+    const shortLinks = await page.evaluate(() => {
+      const links: string[] = [];
+      const els = document.querySelectorAll('a[href*="/shorts/"]');
+      for (const el of els) {
+        const href = (el as HTMLAnchorElement).href;
+        if (href && !links.includes(href)) links.push(href);
+      }
+      return links;
+    }).catch(() => []);
+
+    console.log(`[youtube] Found ${shortLinks.length} Shorts${useSearch ? ` for "${keyword}"` : ' on feed'}`);
+
+    // Watch random selection
+    const selected = shortLinks.sort(() => Math.random() - 0.5).slice(0, maxShorts);
+    for (const shortUrl of selected) {
+      const shouldLike = Math.random() < 0.5; // 50% like rate for Shorts
+      const result = await watchShort(shortUrl, profileDir, shouldLike);
+      if (result.watched) { watched++; urls.push(shortUrl); }
+      if (result.liked) { liked++; likedUrls.push(shortUrl); }
+      // Short pause between Shorts (like swiping)
+      await sleep(1000 + Math.random() * 2000);
+    }
+  } catch (err) {
+    console.error('[youtube] browseShorts error:', (err as Error).message);
+  }
+  return { watched, liked, urls, likedUrls };
 }
 
 /**

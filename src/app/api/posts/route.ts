@@ -35,16 +35,24 @@ export async function GET(req: NextRequest) {
   }
   const likedByBot = searchParams.get('likedByBot');
   if (likedByBot === 'true') filter.likedByBot = true;
+  const pinterestHeartLiked = searchParams.get('pinterestHeartLiked');
+  if (pinterestHeartLiked === 'true') filter.pinterestHeartLiked = true;
+  const sharedByBot = searchParams.get('sharedByBot');
+  if (sharedByBot === 'true') filter.sharedByBot = true;
   if (from || to) {
     const dateFilter: Record<string, Date> = {};
     if (from) dateFilter.$gte = new Date(from);
     if (to) dateFilter.$lt = new Date(to);
-    filter.postedAt = dateFilter;
+    // Liked/shared posts have no postedAt — filter by updatedAt (set when bot action happened)
+    const useBotActionDate = filter.likedByBot || filter.sharedByBot || filter.pinterestHeartLiked;
+    filter[useBotActionDate ? 'updatedAt' : 'postedAt'] = dateFilter;
   }
+
+  const useBotActionDate2 = filter.likedByBot || filter.sharedByBot || filter.pinterestHeartLiked;
 
   const [posts, total] = await Promise.all([
     Post.find(filter)
-      .sort({ postedAt: -1, scrapedAt: -1 })
+      .sort(useBotActionDate2 ? '-updatedAt' : '-postedAt -scrapedAt')
       .skip((page - 1) * limit)
       .limit(limit)
       .lean(),

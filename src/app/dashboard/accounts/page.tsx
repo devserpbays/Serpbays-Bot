@@ -298,8 +298,33 @@ function PlatformCard({
     const [usernameInput, setUsernameInput] = useState('');
     const [saving, setSaving] = useState(false);
     const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+    const savedProxy = platAccounts[0]?.proxyUrl || '';
+    const [proxyInput, setProxyInput] = useState(savedProxy);
+    const [proxySaving, setProxySaving] = useState(false);
+    const [proxyMessage, setProxyMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+    const [proxyOpen, setProxyOpen] = useState(false);
+    const hasProxy = !!savedProxy;
     const isOpen = addingFor === platform.id;
     const isConnected = platAccounts.length > 0;
+
+    const handleSaveProxy = async () => {
+        setProxySaving(true);
+        setProxyMessage(null);
+        try {
+            const res = await fetch('/api/social-accounts', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ platform: platform.id, proxyUrl: proxyInput.trim() }),
+            });
+            const data = await res.json();
+            if (!res.ok || data.error) throw new Error(data.error || 'Failed');
+            setProxyMessage({ type: 'success', text: proxyInput.trim() ? 'Proxy saved — takes effect on next cron run.' : 'Proxy cleared.' });
+            setTimeout(() => setProxyMessage(null), 3000);
+        } catch (err) {
+            setProxyMessage({ type: 'error', text: (err as Error).message || 'Failed to save proxy' });
+        }
+        setProxySaving(false);
+    };
 
     const handleSubmit = async () => {
         if (!cookieInput.trim()) return;
@@ -377,10 +402,19 @@ function PlatformCard({
                             </span>
                         )}
                     </div>
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3, display: 'flex', alignItems: 'center', gap: 8 }}>
                         {isConnected
                             ? `${platAccounts.length} account${platAccounts.length > 1 ? 's' : ''} — bot will use ${platAccounts.length > 1 ? 'these' : 'this'} to post`
                             : 'Paste browser cookies to connect'}
+                        {isConnected && (
+                            <a
+                                href={`/dashboard/platform/${platform.id}`}
+                                style={{ color: platform.color, fontWeight: 600, fontSize: 11, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 3 }}
+                            >
+                                View activity
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} width={10} height={10}><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                            </a>
+                        )}
                     </div>
                 </div>
 
@@ -439,6 +473,138 @@ function PlatformCard({
                     {platAccounts.map((acc) => (
                         <AccountPill key={acc.id} acc={acc} color={platform.color} onRemove={onRemove} />
                     ))}
+                </div>
+            )}
+
+            {/* Extra protection — shown when connected */}
+            {isConnected && !isOpen && (
+                <div style={{ borderTop: '1px solid var(--border-subtle)' }}>
+                    {/* Collapsed row */}
+                    <button
+                        onClick={() => { setProxyOpen(o => !o); setProxyMessage(null); }}
+                        style={{
+                            width: '100%', display: 'flex', alignItems: 'center', gap: 10,
+                            padding: '11px 20px', background: 'none', border: 'none', cursor: 'pointer',
+                            textAlign: 'left',
+                        }}
+                    >
+                        {/* Shield icon */}
+                        <div style={{
+                            width: 30, height: 30, borderRadius: 8, flexShrink: 0,
+                            background: proxyOpen ? `${platform.color}18` : 'rgba(255,255,255,0.04)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            color: proxyOpen ? platform.color : 'var(--text-muted)',
+                            transition: 'all 0.15s',
+                        }}>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={15} height={15}>
+                                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                            </svg>
+                        </div>
+                        <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                Extra account protection
+                                {hasProxy ? (
+                                    <span style={{
+                                        fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 10,
+                                        background: 'rgba(52,211,153,0.12)', color: 'var(--status-approved)',
+                                        border: '1px solid rgba(52,211,153,0.25)', letterSpacing: '0.05em',
+                                        textTransform: 'uppercase',
+                                    }}>Proxy Active</span>
+                                ) : (
+                                    <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--text-muted)' }}>optional</span>
+                                )}
+                            </div>
+                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>
+                                {hasProxy
+                                    ? 'Bot is routing through your proxy — click to change or remove'
+                                    : 'Route the bot through a different internet connection to look more natural'}
+                            </div>
+                        </div>
+                        {/* Chevron */}
+                        <svg viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth={2} width={14} height={14}
+                            style={{ flexShrink: 0, transform: proxyOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>
+                            <polyline points="6 9 12 15 18 9" />
+                        </svg>
+                    </button>
+
+                    {/* Expanded form */}
+                    {proxyOpen && (
+                        <div style={{ padding: '0 20px 18px' }}>
+                            {/* Plain-English explainer */}
+                            <div style={{
+                                display: 'flex', gap: 10, alignItems: 'flex-start',
+                                background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-subtle)',
+                                borderRadius: 'var(--radius-sm)', padding: '10px 12px', marginBottom: 14,
+                            }}>
+                                <svg viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth={2} width={14} height={14} style={{ flexShrink: 0, marginTop: 1 }}>
+                                    <circle cx="12" cy="12" r="10" />
+                                    <line x1="12" y1="8" x2="12" y2="12" />
+                                    <line x1="12" y1="16" x2="12.01" y2="16" />
+                                </svg>
+                                <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.7 }}>
+                                    <strong style={{ color: 'var(--text-secondary)' }}>What is this?</strong>{' '}
+                                    Think of it like a VPN for the bot — it makes the bot use a different internet connection
+                                    so your {platform.label} account looks more natural and is less likely to get flagged.
+                                    <br /><br />
+                                    <strong style={{ color: 'var(--text-secondary)' }}>How to get one (3 easy steps):</strong>
+                                    <ol style={{ margin: '6px 0 0 16px', padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                        <li>Sign up at{' '}
+                                            <a href="https://www.webshare.io" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', fontWeight: 600, textDecoration: 'none' }}>Webshare.io</a>
+                                            {' '}(free tier available, easiest to start) or{' '}
+                                            <a href="https://smartproxy.com" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', fontWeight: 600, textDecoration: 'none' }}>Smartproxy</a>
+                                            {' '}/ {' '}
+                                            <a href="https://brightdata.com" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', fontWeight: 600, textDecoration: 'none' }}>Bright Data</a>
+                                        </li>
+                                        <li>Choose a <strong style={{ color: 'var(--text-secondary)' }}>Residential Proxy</strong> plan — residential proxies look most human-like</li>
+                                        <li>In your dashboard go to <strong style={{ color: 'var(--text-secondary)' }}>&ldquo;Proxy credentials&rdquo;</strong> or <strong style={{ color: 'var(--text-secondary)' }}>&ldquo;Connection string&rdquo;</strong> and copy the link — it looks like <code style={{ background: 'rgba(255,255,255,0.07)', padding: '1px 5px', borderRadius: 4, fontSize: 11, fontFamily: 'monospace' }}>http://user:pass@host:port</code></li>
+                                    </ol>
+                                    <br />
+                                    <span>No proxy yet? That&apos;s totally fine — skip this. You only need it if your account starts getting warnings or posts get removed.</span>
+                                </div>
+                            </div>
+
+                            <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>
+                                Your proxy link
+                            </label>
+                            <div style={{ display: 'flex', gap: 8 }}>
+                                <input
+                                    type="text"
+                                    className="input"
+                                    placeholder="Paste the link your proxy provider gave you…"
+                                    value={proxyInput}
+                                    onChange={e => setProxyInput(e.target.value)}
+                                    style={{ flex: 1, fontSize: 12 }}
+                                />
+                                <button
+                                    onClick={handleSaveProxy}
+                                    disabled={proxySaving}
+                                    style={{
+                                        padding: '0 16px', borderRadius: 'var(--radius-sm)',
+                                        fontSize: 12, fontWeight: 600, cursor: proxySaving ? 'not-allowed' : 'pointer',
+                                        border: `1px solid ${platform.color}40`,
+                                        background: `${platform.color}15`, color: platform.color,
+                                        flexShrink: 0, whiteSpace: 'nowrap',
+                                        opacity: proxySaving ? 0.6 : 1,
+                                    }}
+                                >
+                                    {proxySaving ? 'Saving…' : 'Save'}
+                                </button>
+                            </div>
+                            <div style={{ marginTop: 5, fontSize: 11, color: 'var(--text-muted)' }}>
+                                Leave blank to use your server&apos;s regular connection (the default).
+                            </div>
+                            {proxyMessage && (
+                                <div style={{
+                                    marginTop: 8, fontSize: 12, fontWeight: 500,
+                                    color: proxyMessage.type === 'success' ? 'var(--status-approved)' : 'var(--status-rejected)',
+                                }}>
+                                    {proxyMessage.type === 'success'
+                                        ? (proxyInput.trim() ? '✓ Saved! The bot will use this connection next time it runs.' : '✓ Cleared. Using the default connection.')
+                                        : `⚠ ${proxyMessage.text}`}
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </div>
             )}
 
@@ -748,11 +914,11 @@ export default function AccountsPage() {
                             How to get your browser cookies
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                            {[
-                                { step: '1', text: 'Log into the social platform in your browser (Chrome recommended)' },
-                                { step: '2', text: 'Install the "Cookie-Editor" extension or open DevTools (F12) > Application > Cookies' },
-                                { step: '3', text: 'Export all cookies as JSON and paste them below' },
-                            ].map(s => (
+                            {([
+                                { step: '1', text: <>Log into the social platform in <strong style={{ color: 'var(--text-primary)' }}>Chrome</strong> (recommended)</> },
+                                { step: '2', text: <>Install the free <a href="https://chromewebstore.google.com/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkalmdm" target="_blank" rel="noopener noreferrer" style={{ color: '#0ea5e9', fontWeight: 600, textDecoration: 'none' }}>Cookie-Editor</a> Chrome extension</> },
+                                { step: '3', text: <>Click the Cookie-Editor icon → <strong style={{ color: 'var(--text-primary)' }}>Export → Export as JSON</strong> → paste below</> },
+                            ] as { step: string; text: React.ReactNode }[]).map(s => (
                                 <div key={s.step} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                                     <div style={{
                                         width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
@@ -808,6 +974,66 @@ export default function AccountsPage() {
                         />
                     ))}
                 </div>
+
+                {/* What's next — shown once at least one account is connected */}
+                {totalConnected > 0 && (
+                    <div style={{
+                        background: 'var(--bg-card)', border: '1px solid var(--border-default)',
+                        borderRadius: 'var(--radius-lg)', padding: '18px 22px',
+                    }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="#34d399" strokeWidth={2} width={16} height={16}>
+                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+                            </svg>
+                            You&apos;re connected — here&apos;s what to do next
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                            {[
+                                {
+                                    num: '1',
+                                    label: 'Set your keywords & targets',
+                                    desc: 'Tell the bot what topics and questions to look for',
+                                    href: '/dashboard/settings',
+                                    cta: 'Open Settings →',
+                                },
+                                {
+                                    num: '2',
+                                    label: 'Check your platform activity',
+                                    desc: 'See what the bot is posting and how your accounts are doing',
+                                    href: `/dashboard/platform/${PLATFORMS.find(p => accountsFor(p.id).length > 0)?.id || 'twitter'}`,
+                                    cta: 'View activity →',
+                                },
+                                {
+                                    num: '3',
+                                    label: 'Watch your posts in the dashboard',
+                                    desc: 'See every reply the bot has made, across all platforms',
+                                    href: '/dashboard',
+                                    cta: 'Go to Dashboard →',
+                                },
+                            ].map(item => (
+                                <div key={item.num} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                    <div style={{
+                                        width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
+                                        background: 'rgba(52,211,153,0.1)', border: '1px solid rgba(52,211,153,0.25)',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        fontSize: 11, fontWeight: 700, color: '#34d399',
+                                    }}>{item.num}</div>
+                                    <div style={{ flex: 1 }}>
+                                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{item.label}</div>
+                                        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{item.desc}</div>
+                                    </div>
+                                    <a href={item.href} style={{
+                                        fontSize: 12, fontWeight: 600, color: 'var(--accent)',
+                                        textDecoration: 'none', whiteSpace: 'nowrap',
+                                        display: 'flex', alignItems: 'center', gap: 4,
+                                    }}>
+                                        {item.cta}
+                                    </a>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
             </div>
 
             {/* Disconnect confirmation modal */}

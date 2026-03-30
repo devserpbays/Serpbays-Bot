@@ -20,11 +20,11 @@ import { join } from 'path';
 import { connectDB } from '../src/lib/mongodb';
 import { evaluatePost, askOpenClaw } from '../src/lib/openclaw';
 import { logActivity, notifyAuthError } from '../src/lib/activityLog';
-import { isWithinSchedule } from '../src/lib/schedule';
+import { isWithinSchedule, getTodayStartUTC, getHourInTimezone } from '../src/lib/schedule';
 import Post from '../src/models/Post';
 import Settings from '../src/models/Settings';
 import BrowserCookie from '../src/models/BrowserCookie';
-import { buildSuccessPatch, buildFailurePatch } from '../src/lib/accountHealth';
+import { buildSuccessPatch, buildFailurePatch, handleAutomationBlock, getActivityProfile } from '../src/lib/accountHealth';
 
 // HTTP-only posting (no Chromium)
 import {
@@ -39,10 +39,11 @@ import {
   verifyCredentialsHttp,
   visitNotificationsFeed,
   visitUserProfile,
+  checkGhostBanHttp,
 } from '../src/lib/twitterHttp';
 
 // Browser-based scraping + fallback posting (needs Chromium)
-import { searchTweets, searchCommunityTweets, closeBrowser, scrollHomeFeed, replyToTweet, likeTweet, type CommunitySearchResult } from '../src/lib/twitter';
+import { searchTweets, searchCommunityTweets, closeBrowser, scrollHomeFeed, replyToTweet, postTweet, likeTweet, setProxy as setTwitterProxy, type CommunitySearchResult } from '../src/lib/twitter';
 
 import TwitterFollowed from '../src/models/TwitterFollowed';
 
@@ -53,6 +54,7 @@ import {
   getActionGap,
   getInterReplyDelay,
   getWarmupLimit,
+  getOriginalTweetDailyLimit,
   getAccountAge,
   shouldRandomlySkip,
   humanSleep,
@@ -62,7 +64,9 @@ import {
 
 const DEFAULT_DAILY_LIMIT = 4;
 const DEFAULT_AUTO_POST_THRESHOLD = 70;
-const MIN_ENGAGEMENT_SCORE = 1;
+// Minimum engagement (likes+retweets+replies) a tweet must have before we reply to it.
+// Replying to dead/low-visibility tweets wastes replies and raises ghost-ban risk.
+const MIN_ENGAGEMENT_SCORE = 5;
 
 // In-memory cache of community metadata (populated during scrape phase, used during reply phase)
 const communityCache = new Map<string, { name: string; rules: string[] }>();
@@ -100,14 +104,8 @@ function getCurrentAccountId(): string {
   return getExistingAccountData().accountId || '';
 }
 
-async function getTodayReplyCount(accountId: string): Promise<number> {
-  const now = new Date();
-  const istOffset = 5.5 * 60 * 60000;
-  const istNow = new Date(now.getTime() + istOffset);
-  const startOfDay = new Date(istNow);
-  startOfDay.setHours(0, 0, 0, 0);
-  const startOfDayUTC = new Date(startOfDay.getTime() - istOffset);
-
+async function getTodayReplyCount(accountId: string, timezone = 'UTC'): Promise<number> {
+  const startOfDayUTC = getTodayStartUTC(timezone);
   const query: Record<string, unknown> = {
     platform: 'twitter',
     status: 'posted',
@@ -115,7 +113,6 @@ async function getTodayReplyCount(accountId: string): Promise<number> {
   };
   if (accountId) query.postedByAccount = accountId;
   if (CRON_USER_ID) query.userId = CRON_USER_ID;
-
   return Post.countDocuments(query);
 }
 
@@ -583,25 +580,29 @@ async function postOneTweet(
           break;
 
         case 'reply':
+          // Use real browser (Playwright) as primary — authentic TLS/HTTP2 fingerprint avoids 226
+          // Fall back to HTTP-only if browser fails for any non-critical reason
           try {
-            const result = await replyToTweetHttp(PROFILE_DIR, tweetText, tweetId, communityId);
+            const result = await replyToTweet(tweetText, tweetId, communityId);
             replyId = result.data.id;
             didReply = true;
-            console.log(`  Reply posted via HTTP${communityId ? ` (community: ${communityId})` : ''}`);
-          } catch (httpErr) {
-            const msg = (httpErr as Error).message;
-            if (msg.includes('226') || msg.includes('403') || msg.includes('automated')) {
-              console.log(`  HTTP blocked, falling back to browser...`);
-              const result = await replyToTweet(tweetText, tweetId);
-              replyId = result.data.id;
-              didReply = true;
-              console.log('  Reply posted via browser fallback');
-            } else if (msg.includes('344') || msg.toLowerCase().includes('daily limit') || msg.includes('429') || msg.toLowerCase().includes('rate limit')) {
+            console.log(`  Reply posted via browser${communityId ? ` (community: ${communityId})` : ''}`);
+          } catch (browserErr) {
+            const msg = (browserErr as Error).message;
+            if (msg.includes('344') || msg.toLowerCase().includes('daily limit') || msg.includes('429') || msg.toLowerCase().includes('rate limit')) {
               console.log('  Twitter daily limit reached — stopping batch');
               if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'rate_limit', 'Twitter daily tweet limit reached — will retry on next run');
               return 'daily_limit';
-            } else {
-              throw httpErr;
+            }
+            // Browser failed for non-rate-limit reason — try HTTP as last resort
+            console.log(`  Browser post failed (${msg.slice(0, 80)}), trying HTTP fallback...`);
+            try {
+              const result = await replyToTweetHttp(PROFILE_DIR, tweetText, tweetId, communityId);
+              replyId = result.data.id;
+              didReply = true;
+              console.log('  Reply posted via HTTP fallback');
+            } catch (httpErr) {
+              throw httpErr; // let outer catch handle 226/auth/suspended
             }
           }
           break;
@@ -630,6 +631,38 @@ async function postOneTweet(
 
       console.log(`Reply posted successfully: ${replyUrl}`);
       if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'success', 'post', `Reply posted to ${candidate.url}`, { replyUrl, score: candidate.aiRelevanceScore });
+
+      // ── Ghost ban check ──
+      // After posting a reply, check if our recent replies are visible in Twitter search.
+      // If search returns 0 results despite confirmed recent replies → ghost banned → enter browse-only recovery.
+      if (CRON_USER_ID) {
+        try {
+          const accountData = getExistingAccountData();
+          const username = accountData.username || '';
+          const todayStart = getTodayStartUTC(settings?.cronTimezone || 'UTC');
+          const recentReplies = await Post.countDocuments({
+            platform: 'twitter', status: 'posted', isOriginalTweet: { $ne: true },
+            postedAt: { $gte: todayStart }, ...(CRON_USER_ID && { userId: CRON_USER_ID }),
+          });
+          const banStatus = await checkGhostBanHttp(PROFILE_DIR, username, recentReplies);
+          if (banStatus === 'banned') {
+            const recoveryHours = 36 + Math.floor(Math.random() * 12); // 36–48h
+            const until = new Date(Date.now() + recoveryHours * 3600000);
+            await BrowserCookie.findOneAndUpdate(
+              { userId: CRON_USER_ID, platform: 'twitter' },
+              { $set: { browseOnlyUntil: until } },
+              { upsert: true },
+            );
+            const msg = `Ghost ban detected — replies hidden from search. Browse-only mode activated for ${recoveryHours}h (until ${until.toDateString()}).`;
+            console.warn(`[Ghost Ban] ${msg}`);
+            await logActivity(CRON_USER_ID, 'twitter', 'warn', 'ghost_ban', msg, {
+              username, recoveryHours, until: until.toISOString(),
+            });
+          } else if (banStatus === 'clean') {
+            console.log('[Ghost Ban] Check passed — replies visible in search');
+          }
+        } catch { /* non-critical — don't let this block the cron */ }
+      }
     } else {
       // Engaged but didn't reply — log as engagement-only
       console.log(`  Engaged with tweet (no reply this time): ${actions.join(', ')}`);
@@ -656,23 +689,35 @@ async function postOneTweet(
     };
 
     if (isAuthError) {
+      const authMsg = 'Twitter cookies expired — re-upload from the Accounts page';
       console.error(`[Twitter] Auth error: ${msg}`);
-      await applyFailurePatch(4);
+      await applyFailurePatch(24);
       if (CRON_USER_ID) {
-        await logActivity(CRON_USER_ID, 'twitter', 'error', 'auth_error', 'Twitter cookies expired — re-upload from dashboard');
-        await notifyAuthError(CRON_USER_ID, 'twitter', 'Twitter cookies expired — re-upload from dashboard');
+        await BrowserCookie.findOneAndUpdate(
+          { userId: CRON_USER_ID, platform: 'twitter' },
+          { $set: { autoPaused: true, autoPausedReason: authMsg, updatedAt: new Date() } },
+          { upsert: true },
+        );
+        await logActivity(CRON_USER_ID, 'twitter', 'error', 'auth_error', authMsg);
+        await notifyAuthError(CRON_USER_ID, 'twitter', authMsg);
       }
       return 'auth_error';
     } else if (isAutomationBlock) {
-      const attempts = (candidate.postAttempts || 0) + 1;
       await Post.findByIdAndUpdate(candidate._id, { $inc: { postAttempts: 1 } });
-      await applyFailurePatch(attempts >= 3 ? 24 : 4);
-      console.warn(`[Twitter] Automation block (attempt ${attempts}/3): ${msg}`);
       if (CRON_USER_ID) {
-        await logActivity(CRON_USER_ID, 'twitter', 'warn', 'automation_block', `Twitter flagged posting as automated activity (attempt ${attempts}/3). Posting paused — will retry automatically.`);
-        if (attempts >= 3) {
-          await notifyAuthError(CRON_USER_ID, 'twitter', 'Twitter is blocking posts as automated activity. Try posting less frequently or re-upload fresher cookies.');
+        const { action, hours, blockCount } = await handleAutomationBlock(CRON_USER_ID, 'twitter', BrowserCookie);
+        const actionMsg = action === 'hard_pause'
+          ? `Account hard-paused after ${blockCount} automation blocks in 7 days — resume from Accounts page after refreshing cookies`
+          : action === 'browse_only'
+          ? `Browse-only mode activated for 24h (block #${blockCount}) — will like/retweet/browse but not post`
+          : `Backoff ${hours}h (block #${blockCount}) — will auto-resume next eligible run`;
+        console.warn(`[Twitter] Automation block #${blockCount}: ${actionMsg}`);
+        await logActivity(CRON_USER_ID, 'twitter', 'warn', 'automation_block', actionMsg, { blockCount, action, hours });
+        if (action === 'hard_pause') {
+          await notifyAuthError(CRON_USER_ID, 'twitter', `Twitter automation detected ${blockCount} times in 7 days — account needs attention`);
         }
+      } else {
+        console.warn(`[Twitter] Automation block detected: ${msg}`);
       }
       return 'error';
     } else if (isSuspended) {
@@ -706,15 +751,15 @@ async function postOneTweet(
 
 type SocialAction = 'reply' | 'original_tweet' | 'like' | 'retweet' | 'bookmark' | 'follow' | 'browse';
 
-/** Base weights — higher = more likely to be selected */
+/** Base weights — ghost-ban safe: likes outnumber replies 2:1, follows kept minimal */
 const BASE_ACTION_WEIGHTS: Record<SocialAction, number> = {
-  reply:          30,
-  original_tweet: 15,
-  like:           25,
-  retweet:        12,
-  bookmark:       12,
-  follow:         10,
-  browse:         15,
+  reply:          20,  // lowered — too many replies is the #1 ghost-ban trigger
+  original_tweet: 12,
+  like:           35,  // raised — passive engagement is low-risk
+  retweet:        14,
+  bookmark:       14,
+  follow:         8,   // lowered — aggressive following triggers ghost ban
+  browse:         18,  // raised — browsing sessions improve account standing
 };
 
 /** How many distinct actions to run this invocation — 0–4, weighted */
@@ -777,12 +822,13 @@ function engageDelay(minS: number, maxS: number): Promise<void> {
   return new Promise(r => setTimeout(r, (minS + Math.random() * (maxS - minS)) * 1000));
 }
 
-const MAX_FOLLOWS_PER_DAY = 5;
+// Ghost-ban safe limits — keep reply:like ratio low
+const MAX_FOLLOWS_PER_DAY = 3; // lowered from 5 — excessive following is a primary ghost-ban trigger
 
 // ── Individual action executors ───────────────────────────────────────────────
 
 async function executeReplyAction(settings: any, accountId: string, dailyLimit: number, autoPostThreshold: number, communityOnly = false): Promise<void> {
-  const todayCount = await getTodayReplyCount(accountId);
+  const todayCount = await getTodayReplyCount(accountId, settings.cronTimezone || 'UTC');
   if (todayCount >= dailyLimit) {
     console.log(`[Reply] Daily limit reached (${todayCount}/${dailyLimit}), skipping`);
     return;
@@ -792,12 +838,27 @@ async function executeReplyAction(settings: any, accountId: string, dailyLimit: 
     ? { keywordsMatched: { $elemMatch: { $regex: /^community:/ } } }
     : {};
 
+  // Same-author dedup: never reply to the same author twice within 7 days.
+  // Replying to the same account repeatedly is a known ghost-ban trigger.
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const recentlyRepliedAuthors = await Post.find({
+    platform: 'twitter',
+    status: 'posted',
+    postedAt: { $gte: sevenDaysAgo },
+    author: { $exists: true, $ne: '' },
+    ...(CRON_USER_ID && { userId: CRON_USER_ID }),
+  }).distinct('author');
+
+  const freshCutoff = new Date(Date.now() - 48 * 60 * 60 * 1000); // only reply to tweets from last 48h
   const candidate = await Post.findOne({
     platform: 'twitter',
     status: 'evaluated',
+    tweetDeleted: { $ne: true },
     aiRelevanceScore: { $gte: autoPostThreshold },
     aiReply: { $exists: true, $ne: '' },
     postAttempts: { $not: { $gte: 3 } },
+    scrapedAt: { $gte: freshCutoff },
+    ...(recentlyRepliedAuthors.length > 0 && { author: { $nin: recentlyRepliedAuthors } }),
     ...(CRON_USER_ID && { userId: CRON_USER_ID }),
     ...communityFilter,
   }).sort({ aiRelevanceScore: -1, _id: -1 });
@@ -847,7 +908,16 @@ async function executeOriginalTweetAction(settings: any, accountId: string): Pro
 
   console.log(`[OriginalTweet] "${tweetText}"`);
   try {
-    const result = await postTweetHttp(PROFILE_DIR, tweetText);
+    // Use browser (Playwright) as primary to get authentic fingerprint — HTTP fallback only
+    let result: { data: { id: string; text: string } };
+    try {
+      result = await postTweet(tweetText);
+      console.log('[OriginalTweet] Posted via browser');
+    } catch (browserErr) {
+      console.log(`[OriginalTweet] Browser failed (${(browserErr as Error).message.slice(0, 80)}), trying HTTP...`);
+      result = await postTweetHttp(PROFILE_DIR, tweetText);
+      console.log('[OriginalTweet] Posted via HTTP fallback');
+    }
     const tweetId = result?.data?.id;
     const tweetUrl = tweetId ? `https://x.com/i/status/${tweetId}` : `https://x.com/${accountId}`;
 
@@ -873,10 +943,13 @@ async function executeOriginalTweetAction(settings: any, accountId: string): Pro
 
 async function executeLikeAction(): Promise<void> {
   const count = 2 + Math.floor(Math.random() * 3); // 2–4
+  const freshCutoff = new Date(Date.now() - 48 * 60 * 60 * 1000);
   const candidates = await Post.find({
     platform: 'twitter',
     likedByBot: { $ne: true },
+    tweetDeleted: { $ne: true },
     aiRelevanceScore: { $gte: 30 },
+    scrapedAt: { $gte: freshCutoff },
     ...(CRON_USER_ID && { userId: CRON_USER_ID }),
   }).sort({ aiRelevanceScore: -1 }).limit(count * 2);
 
@@ -899,9 +972,9 @@ async function executeLikeAction(): Promise<void> {
       const msg = (err as Error).message;
       console.warn(`[Like] Failed for ${tweetId}:`, msg);
       if (/404|385|not found|deleted/i.test(msg)) {
-        await Post.findByIdAndUpdate(post._id, { likedByBot: true });
-        console.log('[Like] Tweet appears deleted — marked to skip on future runs');
-        if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'warn', 'engage', `Like skipped — tweet deleted or not found (${tweetId})`);
+        await Post.findByIdAndUpdate(post._id, { likedByBot: true, tweetDeleted: true });
+        console.log('[Like] Tweet deleted — flagged to skip all future actions');
+        if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'engage', `Tweet deleted — skipping (${tweetId})`);
       } else {
         if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'warn', 'engage', `Like failed: ${msg}`);
       }
@@ -915,10 +988,13 @@ async function executeLikeAction(): Promise<void> {
 }
 
 async function executeRetweetAction(): Promise<void> {
+  const freshCutoff = new Date(Date.now() - 48 * 60 * 60 * 1000);
   const candidate = await Post.findOne({
     platform: 'twitter',
     retweetedByBot: { $ne: true },
+    tweetDeleted: { $ne: true },
     aiRelevanceScore: { $gte: 55 },
+    scrapedAt: { $gte: freshCutoff },
     ...(CRON_USER_ID && { userId: CRON_USER_ID }),
   }).sort({ aiRelevanceScore: -1 });
 
@@ -936,9 +1012,9 @@ async function executeRetweetAction(): Promise<void> {
     const msg = (err as Error).message;
     console.warn('[Retweet] Failed:', msg);
     if (/404|385|not found|deleted/i.test(msg)) {
-      await Post.findByIdAndUpdate(candidate._id, { retweetedByBot: true });
-      console.log('[Retweet] Tweet appears deleted — marked to skip on future runs');
-      if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'warn', 'engage', `Retweet skipped — tweet deleted or not found (${tweetId})`);
+      await Post.findByIdAndUpdate(candidate._id, { retweetedByBot: true, tweetDeleted: true });
+      console.log('[Retweet] Tweet deleted — flagged to skip all future actions');
+      if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'engage', `Tweet deleted — skipping (${tweetId})`);
     } else {
       if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'warn', 'engage', `Retweet failed: ${msg}`);
     }
@@ -947,10 +1023,13 @@ async function executeRetweetAction(): Promise<void> {
 
 async function executeBookmarkAction(): Promise<void> {
   const count = 1 + Math.floor(Math.random() * 2); // 1–2
+  const freshCutoff = new Date(Date.now() - 48 * 60 * 60 * 1000); // only tweets from last 48h
   const candidates = await Post.find({
     platform: 'twitter',
     bookmarkedByBot: { $ne: true },
+    tweetDeleted: { $ne: true },
     aiRelevanceScore: { $gte: 40 },
+    scrapedAt: { $gte: freshCutoff },
     ...(CRON_USER_ID && { userId: CRON_USER_ID }),
   }).sort({ aiRelevanceScore: -1 }).limit(count);
 
@@ -968,9 +1047,9 @@ async function executeBookmarkAction(): Promise<void> {
       const msg = (err as Error).message;
       console.warn(`[Bookmark] Failed for ${tweetId}:`, msg);
       if (/404|385|not found|deleted/i.test(msg)) {
-        await Post.findByIdAndUpdate(post._id, { bookmarkedByBot: true });
-        console.log('[Bookmark] Tweet appears deleted — marked to skip on future runs');
-        if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'warn', 'engage', `Bookmark skipped — tweet deleted or not found (${tweetId})`);
+        await Post.findByIdAndUpdate(post._id, { bookmarkedByBot: true, tweetDeleted: true });
+        console.log('[Bookmark] Tweet appears deleted — marked tweetDeleted to skip all future actions');
+        if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'engage', `Tweet deleted — skipping (${tweetId})`);
       } else {
         if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'warn', 'engage', `Bookmark failed: ${msg}`);
       }
@@ -980,8 +1059,8 @@ async function executeBookmarkAction(): Promise<void> {
   if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'engage', `Bookmarked ${bookmarked} tweet${bookmarked !== 1 ? 's' : ''}`);
 }
 
-async function executeFollowAction(): Promise<void> {
-  const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+async function executeFollowAction(timezone = 'UTC'): Promise<void> {
+  const todayStart = getTodayStartUTC(timezone);
   const followsToday = await TwitterFollowed.countDocuments({ userId: CRON_USER_ID, followedAt: { $gte: todayStart } });
   if (followsToday >= MAX_FOLLOWS_PER_DAY) {
     console.log(`[Follow] Daily cap reached (${followsToday}/${MAX_FOLLOWS_PER_DAY})`);
@@ -1031,8 +1110,8 @@ async function executeBrowseAction(): Promise<void> {
  * Heavy Twitter users follow a natural rhythm: quiet at night, spikes at commute/lunch/evening.
  * Multiplier 1.0 = peak, 0.2 = deep night.
  */
-function getTimeOfDayMultiplier(): number {
-  const hour = new Date().getHours();
+function getTimeOfDayMultiplier(timezone = 'UTC'): number {
+  const hour = getHourInTimezone(timezone);
   const HOUR_MULT: Record<number, number> = {
     0: 0.40, 1: 0.30, 2: 0.20, 3: 0.20, 4: 0.25, 5: 0.35,
     6: 0.50, 7: 0.90, 8: 1.00, 9: 0.80, 10: 0.70, 11: 0.75,
@@ -1042,25 +1121,47 @@ function getTimeOfDayMultiplier(): number {
   return HOUR_MULT[hour] ?? 0.50;
 }
 
-async function socialPhase(settings: any, accountId: string, dailyLimit: number, autoPostThreshold: number): Promise<void> {
+async function socialPhase(settings: any, accountId: string, dailyLimit: number, autoPostThreshold: number, browseOnly = false, accountAddedAt?: string | Date): Promise<void> {
   // ── Time-of-day multiplier ──
-  const todMult = getTimeOfDayMultiplier();
-  const hour = new Date().getHours();
-  console.log(`[Social] Time-of-day multiplier: ${todMult.toFixed(2)} (hour ${hour})`);
+  const tz = settings.cronTimezone || 'UTC';
+  const todMult = getTimeOfDayMultiplier(tz);
+  const hour = getHourInTimezone(tz);
+  console.log(`[Social] Time-of-day multiplier: ${todMult.toFixed(2)} (hour ${hour} ${tz})`);
 
   // ── Session opener: visit notifications (every real user does this first) ──
   console.log('[Social] Session start — checking notifications...');
   await visitNotificationsFeed(PROFILE_DIR);
   if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'session',
-    `Session opened — notifications checked · activity level ${Math.round(todMult * 100)}% (${hour}:00)`,
+    `Session opened — notifications checked · activity level ${Math.round(todMult * 100)}% (${hour}:00 ${tz})`,
     { hour, activityMultiplier: todMult },
   );
+
+  // ── Priority: original tweet slot (runs BEFORE passive gate) ─────────────
+  // When original tweets are enabled, post one before deciding if this is a passive
+  // session — otherwise the 50-75% passive rate + low weight means tweets rarely fire.
+  let didOriginalTweetThisRun = false;
+  if (settings.twitterOriginalTweetsEnabled && !browseOnly) {
+    const originalDailyLimit = getOriginalTweetDailyLimit(settings.twitterOriginalTweetDailyLimit ?? 2, accountAddedAt);
+    const todayStart = getTodayStartUTC(settings.cronTimezone || 'UTC');
+    const todayOriginalCount = await Post.countDocuments({
+      platform: 'twitter', isOriginalTweet: true, postedAt: { $gte: todayStart },
+      ...(CRON_USER_ID && { userId: CRON_USER_ID }),
+    });
+    if (todayOriginalCount >= originalDailyLimit) {
+      console.log(`[Social] Original tweet daily limit reached (${todayOriginalCount}/${originalDailyLimit}) — skipping priority slot`);
+    } else if (Math.random() < 0.25) {
+      console.log(`[Social] Priority tweet slot — ${todayOriginalCount}/${originalDailyLimit} today (age-based cap)`);
+      await executeOriginalTweetAction(settings, accountId);
+      didOriginalTweetThisRun = true;
+    }
+  }
 
   // ── Passive session check ──────────────────────────────────────────────────
   // 50–75% of runs are passive (browse + notifications only — no posting/engaging).
   // Off-peak hours push the threshold higher: a user is more likely just scrolling at 3am.
+  // Skip if we already posted an original tweet this run — don't waste the session.
   const passiveThreshold = 0.50 + (1 - todMult) * 0.25; // 0.50 at peak → 0.70 at deep night
-  if (Math.random() < passiveThreshold && !process.env.CRON_MANUAL) {
+  if (!didOriginalTweetThisRun && Math.random() < passiveThreshold && !process.env.CRON_MANUAL) {
     console.log(`[Social] Passive session (threshold ${(passiveThreshold * 100).toFixed(0)}%) — browsing feed only`);
     await executeBrowseAction();
     if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'session',
@@ -1073,11 +1174,31 @@ async function socialPhase(settings: any, accountId: string, dailyLimit: number,
   // Build dynamic weights — reduce or exclude actions based on current state
   const weights: Partial<Record<SocialAction, number>> = { ...BASE_ACTION_WEIGHTS };
 
-  // Reduce reply weight as we approach daily limit; exclude if at limit
-  const todayCount = await getTodayReplyCount(accountId);
-  if (todayCount >= dailyLimit) {
+  // Browse-only mode: automation cooldown active — exclude all posting, keep engagement
+  if (browseOnly) {
+    console.log('[Social] Browse-only mode (automation cooldown) — likes/retweets/browse only, no replies or tweets');
+    delete weights.original_tweet;
+  }
+
+  // Already posted an original tweet in the priority slot this run — don't double-post
+  if (didOriginalTweetThisRun) {
+    delete weights.original_tweet;
+  }
+
+  // Warmup gate: if daily limit is 0 (Stage 1, account < 2 days old), block all posting
+  if (dailyLimit === 0) {
     delete weights.reply;
-    console.log(`[Social] Reply limit reached (${todayCount}/${dailyLimit}) — excluded`);
+    delete weights.original_tweet;
+    delete weights.follow;
+    console.log('[Social] Warmup Stage 1 (account < 2 days) — browse + like only');
+    if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'warmup', 'Stage 1 warmup — browse and like only for first 2 days (no replies)');
+  }
+
+  // Reduce reply weight as we approach daily limit; exclude if at limit
+  const todayCount = await getTodayReplyCount(accountId, settings.cronTimezone || 'UTC');
+  if (browseOnly || todayCount >= dailyLimit) {
+    delete weights.reply;
+    if (!browseOnly) console.log(`[Social] Reply limit reached (${todayCount}/${dailyLimit}) — excluded`);
   } else {
     const fraction = todayCount / dailyLimit;
     weights.reply = Math.max(5, Math.round(BASE_ACTION_WEIGHTS.reply * (1 - fraction * 0.7)));
@@ -1108,8 +1229,8 @@ async function socialPhase(settings: any, accountId: string, dailyLimit: number,
   if (!settings.twitterOriginalTweetsEnabled) {
     delete weights.original_tweet;
   } else {
-    const originalDailyLimit = settings.twitterOriginalTweetDailyLimit ?? 2;
-    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+    const originalDailyLimit = getOriginalTweetDailyLimit(settings.twitterOriginalTweetDailyLimit ?? 2, accountAddedAt);
+    const todayStart = getTodayStartUTC(settings.cronTimezone || 'UTC');
     const todayOriginalCount = await Post.countDocuments({
       platform: 'twitter', isOriginalTweet: true, postedAt: { $gte: todayStart },
       ...(CRON_USER_ID && { userId: CRON_USER_ID }),
@@ -1120,12 +1241,14 @@ async function socialPhase(settings: any, accountId: string, dailyLimit: number,
     }
   }
 
-  // follow: exclude if daily cap reached
-  const todayStartForFollow = new Date(); todayStartForFollow.setHours(0, 0, 0, 0);
+  // follow: exclude if daily cap reached.
+  // Ghost-ban safe: reduce cap further when we've already posted ≥2 replies today.
+  const todayStartForFollow = getTodayStartUTC(settings.cronTimezone || 'UTC');
   const followsToday = await TwitterFollowed.countDocuments({ userId: CRON_USER_ID, followedAt: { $gte: todayStartForFollow } });
-  if (followsToday >= MAX_FOLLOWS_PER_DAY) {
+  const effectiveFollowCap = todayCount >= 2 ? Math.floor(MAX_FOLLOWS_PER_DAY / 2) : MAX_FOLLOWS_PER_DAY;
+  if (followsToday >= effectiveFollowCap) {
     delete weights.follow;
-    console.log(`[Social] Follow cap reached (${followsToday}/${MAX_FOLLOWS_PER_DAY}) — excluded`);
+    console.log(`[Social] Follow cap reached (${followsToday}/${effectiveFollowCap}${todayCount >= 2 ? ', reduced — replies today' : ''}) — excluded`);
   }
 
   // Scale action count by time-of-day: off-peak runs pick fewer actions on average
@@ -1159,7 +1282,7 @@ async function socialPhase(settings: any, accountId: string, dailyLimit: number,
       case 'like':           await executeLikeAction(); break;
       case 'retweet':        await executeRetweetAction(); break;
       case 'bookmark':       await executeBookmarkAction(); break;
-      case 'follow':         await executeFollowAction(); break;
+      case 'follow':         await executeFollowAction(settings.cronTimezone || 'UTC'); break;
       case 'browse':         await executeBrowseAction(); break;
     }
 
@@ -1198,10 +1321,20 @@ async function main() {
     process.exit(0);
   }
 
-  const schedule = settings.platformSchedules?.get('twitter');
-  if (!process.env.CRON_MANUAL && !isWithinSchedule(schedule)) {
-    console.log('Outside scheduled hours, exiting');
-    process.exit(0);
+  const cronTz = (settings as any).cronTimezone || '';
+  const platformSchedule = (settings as any).platformSchedules?.get?.('twitter') || null;
+  // Only enforce schedule when the user has explicitly configured a timezone
+  if (!process.env.CRON_MANUAL && cronTz) {
+    const effectiveSchedule = platformSchedule || {
+      timezone: cronTz,
+      startHour: (settings as any).cronStartHour ?? 9,
+      endHour: (settings as any).cronEndHour ?? 18,
+      days: (settings as any).cronDays ?? [0, 1, 2, 3, 4, 5, 6],
+    };
+    if (!isWithinSchedule(effectiveSchedule)) {
+      console.log('Outside scheduled hours, exiting');
+      process.exit(0);
+    }
   }
 
   if (!process.env.CRON_MANUAL && settings.autoPostingPaused) {
@@ -1215,9 +1348,12 @@ async function main() {
     process.exit(0);
   }
 
-  // Account health guard — skip if auto-paused or in backoff
+  // Account health guard — skip if auto-paused or in backoff; browse-only if in cooldown
+  let browseOnlyMode = false;
   if (CRON_USER_ID) {
     const accHealth = await BrowserCookie.findOne({ userId: CRON_USER_ID, platform: 'twitter' }).lean() as Record<string, unknown> | null;
+    // Apply per-account proxy before any browser launch
+    if (accHealth?.proxyUrl) setTwitterProxy(accHealth.proxyUrl as string);
     if (accHealth?.autoPaused) {
       console.warn(`Twitter account auto-paused (health score: ${accHealth.healthScore ?? 0}/100) — skipping run. Resume from the Accounts page.`);
       await logActivity(CRON_USER_ID, 'twitter', 'warn', 'account_paused', `Account auto-paused (score: ${accHealth.healthScore ?? 0}/100) — cron skipped. Resume from dashboard.`);
@@ -1228,6 +1364,12 @@ async function main() {
       console.warn(`Twitter account in backoff for ${remainMin} more minute(s) — skipping run.`);
       await logActivity(CRON_USER_ID, 'twitter', 'warn', 'backoff', `Account in backoff — ${remainMin}m remaining. Cron skipped.`, { remainingMinutes: remainMin });
       process.exit(0);
+    }
+    if (accHealth?.browseOnlyUntil && new Date(accHealth.browseOnlyUntil as string) > new Date()) {
+      const remainH = Math.ceil((new Date(accHealth.browseOnlyUntil as string).getTime() - Date.now()) / 3600000);
+      console.warn(`Twitter in browse-only mode for ${remainH}h more (automation cooldown) — scraping/engaging only, no posting.`);
+      await logActivity(CRON_USER_ID, 'twitter', 'warn', 'browse_only', `Browse-only mode — ${remainH}h remaining. Posting skipped, engagement continues.`);
+      browseOnlyMode = true; // don't exit — let scrape + engage continue
     }
   }
 
@@ -1242,16 +1384,51 @@ async function main() {
   // Apply warmup limit for new accounts (ramp up over 30 days)
   const configuredLimit: number = settings.twitterDailyLimit ?? DEFAULT_DAILY_LIMIT;
   const accountAddedAt = getAccountAge(settings, 'twitter');
-  const dailyLimit = getWarmupLimit(configuredLimit, accountAddedAt, 'twitter');
+  let dailyLimit = getWarmupLimit(configuredLimit, accountAddedAt, 'twitter');
   if (dailyLimit < configuredLimit) {
     console.log(`Warmup active: daily limit ${dailyLimit}/${configuredLimit} (account age < 60 days)`);
     if (CRON_USER_ID) await logActivity(CRON_USER_ID, 'twitter', 'info', 'warmup', `Warmup limit: ${dailyLimit}/${configuredLimit}`);
+  }
+
+  // ── Adaptive health throttling ──
+  if (CRON_USER_ID) {
+    const twitterDoc = await BrowserCookie.findOne({ userId: CRON_USER_ID, platform: 'twitter' }).lean() as any;
+    const healthScore: number = twitterDoc?.healthScore ?? 100;
+    const actProfile = getActivityProfile(healthScore);
+
+    if (actProfile.needsRecovery) {
+      const alreadyInRecovery = !!(twitterDoc?.browseOnlyUntil && new Date(twitterDoc.browseOnlyUntil) > new Date());
+      if (!alreadyInRecovery) {
+        const until = new Date(Date.now() + actProfile.recoveryDays * 86400000);
+        await BrowserCookie.findOneAndUpdate(
+          { userId: CRON_USER_ID, platform: 'twitter' },
+          { $set: { browseOnlyUntil: until } },
+          { upsert: true },
+        );
+        console.warn(`[Health] Score ${healthScore}/100 — starting ${actProfile.recoveryDays}-day browse-only recovery (until ${until.toDateString()})`);
+        await logActivity(CRON_USER_ID, 'twitter', 'warn', 'health_recovery',
+          `Health ${healthScore}/100 — ${actProfile.recoveryDays}-day browse-only recovery: engaging only, no replies`,
+          { healthScore, recoveryDays: actProfile.recoveryDays, until: until.toISOString() },
+        );
+        browseOnlyMode = true;
+      }
+      dailyLimit = 0;
+    } else if (actProfile.commentMultiplier < 1 && dailyLimit > 1) {
+      const throttledLimit = Math.max(1, Math.floor(dailyLimit * actProfile.commentMultiplier));
+      if (throttledLimit < dailyLimit) {
+        console.warn(`[Health] Score ${healthScore}/100 (${actProfile.label}) — daily limit throttled: ${throttledLimit}/${dailyLimit}`);
+        await logActivity(CRON_USER_ID, 'twitter', 'warn', 'health_throttle',
+          `Health throttle: ${throttledLimit}/${dailyLimit} replies/day (${actProfile.label}, health ${healthScore}/100)`,
+        );
+        dailyLimit = throttledLimit;
+      }
+    }
   }
   const autoPostThreshold: number = settings.twitterAutoPostThreshold ?? DEFAULT_AUTO_POST_THRESHOLD;
 
   let accountId = getCurrentAccountId();
 
-  const todayCount = await getTodayReplyCount(accountId);
+  const todayCount = await getTodayReplyCount(accountId, settings.cronTimezone || 'UTC');
   console.log(`Replies posted today: ${todayCount}/${dailyLimit}${accountId ? ` (account: ${accountId})` : ''}`);
 
   // Verify credentials via HTTP (lightweight, no browser)
@@ -1285,7 +1462,7 @@ async function main() {
   }
 
   if (MODE === 'post' || MODE === 'full' || MODE === 'engage') {
-    await socialPhase(settings, accountId, dailyLimit, autoPostThreshold);
+    await socialPhase(settings, accountId, dailyLimit, autoPostThreshold, browseOnlyMode, accountAddedAt);
   }
 
   console.log(`[${new Date().toISOString()}] Twitter Cron: complete`);

@@ -63,10 +63,15 @@ export function buildLaunchArgs(): string[] {
 
 // ─── Stealth page script ──────────────────────────────────────────────────────
 /**
- * The JS injected into every page via addInitScript.
- * Patches common browser automation signals that platforms check for.
+ * Builds the JS init script for a specific viewport.
+ * Injected into every page via context.addInitScript — runs before any page JS.
+ * Patches all common headless/automation signals that Twitter, Meta, etc. check for.
  */
-const STEALTH_SCRIPT = `
+function buildStealthScript(vw: number, vh: number): string {
+  // Bake realistic values at Node time so they're stable per session
+  const downlink = 8 + Math.floor(Math.random() * 42);  // 8–50 Mbps
+  const rtt      = 20 + Math.floor(Math.random() * 55);  // 20–75 ms
+  return `
 (function () {
   // 1. Hide navigator.webdriver
   Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
@@ -80,7 +85,7 @@ const STEALTH_SCRIPT = `
   }
 
   // 3. Override navigator.plugins with realistic values
-  const fakePdf  = { name: 'PDF Viewer',   filename: 'internal-pdf-viewer', description: 'Portable Document Format', length: 1 };
+  const fakePdf   = { name: 'PDF Viewer',   filename: 'internal-pdf-viewer', description: 'Portable Document Format', length: 1 };
   const fakeNaapi = { name: 'Native Client', filename: 'internal-nacl-plugin', description: '', length: 0 };
   Object.defineProperty(navigator, 'plugins', {
     get: () => Object.assign([fakePdf, fakeNaapi], { item: (i) => [fakePdf, fakeNaapi][i] || null, namedItem: () => null, length: 2 }),
@@ -88,11 +93,11 @@ const STEALTH_SCRIPT = `
 
   // 4. Patch navigator.permissions to not reveal automation
   if (navigator.permissions && navigator.permissions.query) {
-    const _query = navigator.permissions.query.bind(navigator.permissions);
-    navigator.permissions.query = (params) =>
-      params.name === 'notifications'
-        ? Promise.resolve({ state: 'default', onchange: null } as unknown as PermissionStatus)
-        : _query(params);
+    const _q = navigator.permissions.query.bind(navigator.permissions);
+    navigator.permissions.query = (p) =>
+      p.name === 'notifications'
+        ? Promise.resolve({ state: 'default', onchange: null })
+        : _q(p);
   }
 
   // 5. Realistic navigator.languages
@@ -112,15 +117,105 @@ const STEALTH_SCRIPT = `
     }
     return _toDataURL.call(this, type, ...args);
   };
+
+  // 7. Realistic hardware fingerprints
+  const hwConcurrency = [4, 6, 8, 10, 12, 16][Math.floor(Math.random() * 6)];
+  Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => hwConcurrency });
+  const deviceMem = [4, 8, 8, 16][Math.floor(Math.random() * 4)];
+  Object.defineProperty(navigator, 'deviceMemory', { get: () => deviceMem });
+
+  // 8. WebGL — headless exposes SwiftShader which is a clear bot signal
+  const _gpSel = [
+    ['UNMASKED_VENDOR_WEBGL',   'Google Inc. (Intel)'],
+    ['UNMASKED_RENDERER_WEBGL', 'ANGLE (Intel, Intel(R) UHD Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)'],
+  ];
+  function patchWebGL(ctx) {
+    if (!ctx) return;
+    const _gp = ctx.getParameter.bind(ctx);
+    ctx.constructor.prototype.getParameter = function(p) {
+      if (p === 37445) return 'Google Inc. (Intel)';
+      if (p === 37446) return 'ANGLE (Intel, Intel(R) UHD Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)';
+      return _gp(p);
+    };
+  }
+  try { patchWebGL(document.createElement('canvas').getContext('webgl')); } catch(_) {}
+  try { patchWebGL(document.createElement('canvas').getContext('webgl2')); } catch(_) {}
+
+  // 9. AudioContext fingerprint noise
+  try {
+    const _createOsc = AudioContext.prototype.createOscillator;
+    AudioContext.prototype.createOscillator = function() {
+      const o = _createOsc.call(this);
+      const _c = o.connect.bind(o);
+      o.connect = function(d, ...a) { try { _c(d, ...a); } catch(_) {} return d; };
+      return o;
+    };
+  } catch(_) {}
+
+  // 10. Notification.permission — headless returns 'denied', real users 'default'
+  try { Object.defineProperty(Notification, 'permission', { get: () => 'default' }); } catch(_) {}
+
+  // 11. screen dimensions — must match the viewport passed at launch
+  try {
+    Object.defineProperty(screen, 'width',       { get: () => ${vw} });
+    Object.defineProperty(screen, 'height',      { get: () => ${vh} });
+    Object.defineProperty(screen, 'availWidth',  { get: () => ${vw} });
+    Object.defineProperty(screen, 'availHeight', { get: () => ${vh - 40} });
+    Object.defineProperty(screen, 'colorDepth',  { get: () => 24 });
+    Object.defineProperty(screen, 'pixelDepth',  { get: () => 24 });
+  } catch(_) {}
+
+  // 12. window.outerWidth / outerHeight — headless returns 0
+  try {
+    Object.defineProperty(window, 'outerWidth',  { get: () => ${vw} });
+    Object.defineProperty(window, 'outerHeight', { get: () => ${vh + 85} }); // + browser chrome UI
+  } catch(_) {}
+
+  // 13. navigator.connection (NetworkInformation API — missing in headless)
+  try {
+    const conn = { effectiveType: '4g', downlink: ${downlink}, rtt: ${rtt}, saveData: false,
+                   type: 'wifi', addEventListener: () => {}, removeEventListener: () => {} };
+    Object.defineProperty(navigator, 'connection',      { get: () => conn });
+    Object.defineProperty(navigator, 'mozConnection',   { get: () => conn });
+    Object.defineProperty(navigator, 'webkitConnection',{ get: () => conn });
+  } catch(_) {}
+
+  // 14. navigator.maxTouchPoints (0 for desktop)
+  try { Object.defineProperty(navigator, 'maxTouchPoints', { get: () => 0 }); } catch(_) {}
+
+  // 15. Object.keys(navigator) — some fingerprinters check for missing keys
+  // Ensure getBattery exists (returns a fake promise)
+  if (!navigator.getBattery) {
+    try {
+      navigator.getBattery = () => Promise.resolve({
+        charging: true, chargingTime: 0, dischargingTime: Infinity, level: 1,
+        addEventListener: () => {}, removeEventListener: () => {},
+      });
+    } catch(_) {}
+  }
 })();
 `;
+}
 
 /**
  * Apply stealth patches to a Playwright BrowserContext.
- * Call this once after launchPersistentContext — it runs on every new page.
+ * Call once after launchPersistentContext — runs on every new page.
+ * Pass the same viewport and UA that were used at launch for consistent fingerprinting.
  */
-export async function applyStealth(context: BrowserContext): Promise<void> {
-  await context.addInitScript(STEALTH_SCRIPT);
+export async function applyStealth(
+  context: BrowserContext,
+  options?: { viewport?: { width: number; height: number }; ua?: string },
+): Promise<void> {
+  const vp = options?.viewport ?? { width: 1920, height: 1080 };
+  const ua = options?.ua ?? '';
+
+  // Extract Chrome version from UA for Sec-CH-UA headers
+  const chromeVer = ua.match(/Chrome\/(\d+)/)?.[1] ?? '134';
+  const isMac = ua.includes('Macintosh');
+  const platform = isMac ? '"macOS"' : '"Windows"';
+  const platformVer = isMac ? '"14.7.4"' : '"10.0.0"';
+
+  await context.addInitScript(buildStealthScript(vp.width, vp.height));
   await context.setExtraHTTPHeaders({
     'Accept-Language': 'en-US,en;q=0.9',
     'Accept-Encoding': 'gzip, deflate, br',
@@ -128,6 +223,15 @@ export async function applyStealth(context: BrowserContext): Promise<void> {
     'Sec-Fetch-Dest': 'document',
     'Sec-Fetch-Mode': 'navigate',
     'Sec-Fetch-Site': 'none',
+    // Client Hints — real Chrome sends all these; missing ones are a detection signal
+    'Sec-CH-UA': `"Not(A:Brand";v="99", "Google Chrome";v="${chromeVer}", "Chromium";v="${chromeVer}"`,
+    'Sec-CH-UA-Mobile': '?0',
+    'Sec-CH-UA-Platform': platform,
+    'Sec-CH-UA-Platform-Version': platformVer,
+    'Sec-CH-UA-Full-Version-List': `"Not(A:Brand";v="99.0.0.0", "Google Chrome";v="${chromeVer}.0.0.0", "Chromium";v="${chromeVer}.0.0.0"`,
+    'Sec-CH-UA-Arch': '"x86"',
+    'Sec-CH-UA-Bitness': '"64"',
+    'Sec-CH-UA-Model': '""',
   });
 }
 
@@ -141,13 +245,20 @@ const VIEWPORTS = [
 ];
 
 const USER_AGENTS = [
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+  // Windows — Chrome 130–134 (current stable range as of early 2025)
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36',
+  // macOS
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36',
+  // Linux
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
 ];
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
@@ -177,8 +288,38 @@ export function randomUserAgent(): string {
 }
 
 /**
- * Human-like click: move the mouse near the element with slight jitter,
- * pause briefly, then click.
+ * Move mouse along a cubic Bézier curve to (toX, toY).
+ * Mimics real human mouse trajectories — avoids straight-line movement that
+ * ML-based bot detectors flag as synthetic.
+ */
+export async function bezierMouseMove(page: Page, toX: number, toY: number): Promise<void> {
+  const vp = page.viewportSize() ?? { width: 1280, height: 800 };
+  // Random start point near the viewport center (estimated current position)
+  const startX = vp.width  / 2 + randInt(-250, 250);
+  const startY = vp.height / 2 + randInt(-200, 200);
+
+  // Two control points with random offsets — creates a natural curve
+  const cp1x = startX + (toX - startX) * 0.25 + randInt(-90, 90);
+  const cp1y = startY + (toY - startY) * 0.25 + randInt(-70, 70);
+  const cp2x = startX + (toX - startX) * 0.75 + randInt(-90, 90);
+  const cp2y = startY + (toY - startY) * 0.75 + randInt(-70, 70);
+
+  const steps = randInt(18, 40);
+  for (let i = 0; i <= steps; i++) {
+    const t  = i / steps;
+    const t1 = 1 - t;
+    // Cubic Bézier formula
+    const x = t1**3 * startX + 3*t1**2*t * cp1x + 3*t1*t**2 * cp2x + t**3 * toX;
+    const y = t1**3 * startY + 3*t1**2*t * cp1y + 3*t1*t**2 * cp2y + t**3 * toY;
+    await page.mouse.move(Math.round(x), Math.round(y));
+    // Variable speed — faster in the middle of the move, slower near target
+    const speedFactor = 1 + Math.sin(Math.PI * t) * 0.8;
+    await new Promise(r => setTimeout(r, Math.round(randInt(8, 20) / speedFactor)));
+  }
+}
+
+/**
+ * Human-like click: move mouse via Bézier curve to element, micro-pause, click.
  */
 export async function humanClick(page: Page, selector: string): Promise<void> {
   const el = await page.$(selector);
@@ -188,8 +329,8 @@ export async function humanClick(page: Page, selector: string): Promise<void> {
   if (box) {
     const x = box.x + box.width  / 2 + randInt(-4, 4);
     const y = box.y + box.height / 2 + randInt(-3, 3);
-    await page.mouse.move(x, y, { steps: randInt(8, 18) });
-    await randomDelay(80, 350);
+    await bezierMouseMove(page, x, y);
+    await randomDelay(60, 220);
   }
   await el.click();
 }
@@ -207,16 +348,49 @@ export async function readingPause(page: Page): Promise<void> {
 }
 
 /**
- * Humanised typing: type each character with a small random delay between
- * keystrokes to mimic natural typing speed.
+ * Humanised typing with realistic cadence:
+ * - Variable speed (faster in word bursts, pauses at spaces/punctuation)
+ * - ~4% typo rate: types wrong char then corrects with Backspace
+ * - Occasional "thinking" pause mid-text
  */
 export async function humanType(page: Page, selector: string, text: string): Promise<void> {
   await page.click(selector);
   await randomDelay(200, 600);
-  for (const char of text) {
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+
+    // Occasional typo — mistype then backspace-correct
+    if (Math.random() < 0.04 && i < text.length - 2) {
+      const wrong = String.fromCharCode(char.charCodeAt(0) + (Math.random() < 0.5 ? 1 : -1));
+      if (wrong !== char && /\w/.test(wrong)) {
+        await page.keyboard.type(wrong);
+        await new Promise(r => setTimeout(r, randInt(90, 220)));
+        await page.keyboard.press('Backspace');
+        await new Promise(r => setTimeout(r, randInt(80, 180)));
+      }
+    }
+
     await page.keyboard.type(char);
-    await randomDelay(28, 110);
+
+    // Speed: fast in bursts, slower after spaces/punctuation, rare thinking pauses
+    const isPunct = /[\s.,!?;:]/.test(char);
+    const base = isPunct ? randInt(80, 220) : randInt(30, 100);
+    const think = Math.random() < 0.04 ? randInt(500, 1400) : 0; // 4% thinking pause
+    await new Promise(r => setTimeout(r, base + think));
   }
+}
+
+/**
+ * Randomly inject a long "distraction" pause (tab switch simulation).
+ * Call this before a posting action — fires ~12% of the time.
+ * Spreads posting times and breaks mechanical regularity.
+ */
+export async function maybeDistractionPause(probability = 0.12): Promise<void> {
+  if (Math.random() > probability) return;
+  const ms = randInt(90_000, 480_000); // 1.5 – 8 minutes
+  console.log(`[humanize] Distraction pause: ${Math.round(ms / 60000)}m (simulating tab switch)`);
+  await new Promise(r => setTimeout(r, ms));
 }
 
 // ─── Warm-up schedule ─────────────────────────────────────────────────────────
@@ -283,4 +457,27 @@ export function checkBackoff(
   if (!backoffUntil) return { blocked: false };
   if (backoffUntil > new Date()) return { blocked: true, retryAt: backoffUntil };
   return { blocked: false };
+}
+
+/**
+ * Parse a proxy URL into the format Playwright's launchPersistentContext expects.
+ * Supports: http://user:pass@host:port  socks5://user:pass@host:port  http://host:port
+ * Returns undefined if proxyUrl is empty — browser launches without a proxy.
+ */
+export function parseProxyConfig(proxyUrl: string | undefined | null):
+  { server: string; username?: string; password?: string } | undefined
+{
+  if (!proxyUrl || !proxyUrl.trim()) return undefined;
+  try {
+    const url = new URL(proxyUrl.trim());
+    const server = `${url.protocol}//${url.hostname}:${url.port}`;
+    const config: { server: string; username?: string; password?: string } = { server };
+    if (url.username) config.username = decodeURIComponent(url.username);
+    if (url.password) config.password = decodeURIComponent(url.password);
+    return config;
+  } catch {
+    // Malformed URL — skip proxy
+    console.warn('[proxy] Invalid proxy URL, skipping:', proxyUrl);
+    return undefined;
+  }
 }

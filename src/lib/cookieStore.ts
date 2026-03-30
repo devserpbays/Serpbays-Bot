@@ -148,15 +148,25 @@ export async function saveCookies(
     await BrowserCookie.findOneAndUpdate(
       { userId, platform },
       {
-        userId,
-        platform,
-        cookies: encryptedCookies,
-        verified: meta.verified ?? true,
-        verifiedAt: new Date(),
-        accountId: meta.accountId || '',
-        username: meta.username || '',
-        displayName: meta.displayName || '',
-        expiresAt,
+        $set: {
+          userId,
+          platform,
+          cookies: encryptedCookies,
+          verified: meta.verified ?? true,
+          verifiedAt: new Date(),
+          accountId: meta.accountId || '',
+          username: meta.username || '',
+          displayName: meta.displayName || '',
+          expiresAt,
+          // Clear auto-pause on cookie re-upload (fresh session)
+          autoPaused: false,
+          autoPausedReason: '',
+        },
+        // Only set accountAddedAt on FIRST creation — never overwrite on re-upload
+        $setOnInsert: {
+          accountAddedAt: new Date(),
+          healthScore: 100,
+        },
       },
       { upsert: true, returnDocument: 'after' },
     );

@@ -10,7 +10,7 @@ import { join } from 'path';
 import { unlinkSync, existsSync, readFileSync } from 'fs';
 import { isValidComment } from './validateComment';
 import { debugScreenshot } from './debugScreenshot';
-import { randomViewport, randomUserAgent, randomDelay, readingPause, buildLaunchArgs, randomTimezone, applyStealth } from './humanize';
+import { randomViewport, randomUserAgent, randomDelay, readingPause, buildLaunchArgs, randomTimezone, applyStealth, parseProxyConfig } from './humanize';
 
 const DEFAULT_PROFILE_DIR = process.env.REDDIT_PROFILE_DIR
   ? join(process.cwd(), process.env.REDDIT_PROFILE_DIR)
@@ -28,6 +28,7 @@ interface RedditPost {
 let _context: BrowserContext | null = null;
 let _page: Page | null = null;
 let _activeProfileDir: string = DEFAULT_PROFILE_DIR;
+let _activeProxyUrl: string = '';
 
 /**
  * Set the profile directory for the next browser session.
@@ -47,6 +48,18 @@ export function setProfileDir(profileDir: string): void {
   }
 }
 
+/** Set the proxy URL for this account's browser session. Call before getPage(). */
+export function setProxy(proxyUrl: string): void {
+  if (proxyUrl !== _activeProxyUrl) {
+    if (_context) {
+      _context.close().catch(() => {});
+      _context = null;
+      _page = null;
+    }
+    _activeProxyUrl = proxyUrl;
+  }
+}
+
 // --- Launch or reuse persistent browser context ---
 async function getPage(): Promise<Page> {
   if (_page && !_page.isClosed()) return _page;
@@ -56,15 +69,20 @@ async function getPage(): Promise<Page> {
   // Remove stale browser lock from previous crash
   try { unlinkSync(join(profileDir, 'SingletonLock')); } catch {}
 
+  const proxyConfig = parseProxyConfig(_activeProxyUrl);
+  const ua = randomUserAgent();
+  const vp = randomViewport();
+  const tz = process.env.ACCOUNT_TIMEZONE || randomTimezone();
   _context = await chromium.launchPersistentContext(profileDir, {
     headless: true,
     args: buildLaunchArgs(),
-    userAgent: randomUserAgent(),
-    viewport: randomViewport(),
+    userAgent: ua,
+    viewport: vp,
     locale: 'en-US',
-    timezoneId: randomTimezone(),
+    timezoneId: tz,
+    ...(proxyConfig && { proxy: proxyConfig }),
   });
-  await applyStealth(_context);
+  await applyStealth(_context, { viewport: vp, ua });
 
   // Inject cookies from cookies.json if available
   const cookiesJsonPath = join(profileDir, 'cookies.json');
@@ -429,10 +447,24 @@ export async function upvoteRedditPost(postUrl: string): Promise<boolean> {
 
     const upBtn = await page.$('.arrow.up:not(.upmod), button[aria-label="upvote"]:not([aria-pressed="true"])');
     if (upBtn) {
-      await upBtn.click({ force: true });
+      // Use native mouse click — Reddit needs real events
+      const upBox = await upBtn.boundingBox();
+      if (upBox) {
+        await page.mouse.move(upBox.x + upBox.width / 2, upBox.y + upBox.height / 2, { steps: 6 });
+        await sleep(200 + Math.random() * 300);
+        await page.mouse.click(upBox.x + upBox.width / 2, upBox.y + upBox.height / 2);
+      } else {
+        await upBtn.click();
+      }
       await sleep(2000);
-      console.log('Upvoted post successfully');
-      return true;
+      // Verify the upvote registered by checking the DOM state changed
+      const confirmed = await page.$('.arrow.upmod, [aria-pressed="true"][aria-label="upvote"]');
+      if (confirmed) {
+        console.log('Upvoted post successfully');
+        return true;
+      }
+      console.warn('Upvote click did not register on platform');
+      return false;
     }
 
     console.warn('Could not find upvote button');
@@ -625,6 +657,41 @@ export async function postRedditComment(
   }
 }
 
+/**
+ * Shadow-removal check: re-visit the post after a delay and verify the comment
+ * is still visible on the page.  Reddit sometimes accepts the submission but
+ * silently removes it (spam filter / mod-queue).  If the snippet we typed is
+ * no longer in the page body, the comment was likely shadow-removed.
+ *
+ * @param postUrl      URL of the Reddit post we commented on
+ * @param commentSnippet  First 30 characters of the comment we posted
+ * @param waitMs       How long to wait before re-checking (default 40 s)
+ * @returns 'visible' | 'removed' | 'unknown'
+ */
+export async function checkCommentShadowRemoved(
+  postUrl: string,
+  commentSnippet: string,
+  waitMs = 40_000,
+): Promise<'visible' | 'removed' | 'unknown'> {
+  try {
+    await sleep(waitMs);
+    const page = await getPage();
+    const url = postUrl.replace('old.reddit.com', 'www.reddit.com');
+    await page.goto(url, { waitUntil: 'domcontentloaded' });
+    await sleep(5000);
+
+    const body = await page.textContent('body').catch(() => '');
+    if (!body) return 'unknown';
+
+    if (body.includes(commentSnippet)) return 'visible';
+
+    // Snippet not found after confirmed successful submission → likely shadow-removed
+    return 'removed';
+  } catch {
+    return 'unknown';
+  }
+}
+
 // ─── Passive engagement ────────────────────────────────────────────────────────
 
 /**
@@ -676,4 +743,183 @@ export async function browseAndUpvote(
   }
 
   return { upvoted };
+}
+
+// --- Join a subreddit if not already a member ---
+export async function joinSubreddit(subreddit: string): Promise<boolean> {
+  try {
+    const page = await getPage();
+    await page.goto(`https://old.reddit.com/r/${subreddit}/`, { waitUntil: 'domcontentloaded' });
+    await sleep(SLOW_WAIT);
+
+    // Already a member?
+    const joined = await page.$('.side .fancy-toggle-button .option.active, .side .unsubscribe-button').catch(() => null);
+    if (joined) { console.log(`[Reddit] Already a member of r/${subreddit}`); return true; }
+
+    // Click subscribe/join
+    const btn = await page.$('.side .fancy-toggle-button .option:not(.active), .side .subscribe-button a, .side [data-testid="subscription-button"]').catch(() => null);
+    if (btn) {
+      await btn.scrollIntoViewIfNeeded().catch(() => {});
+      await randomDelay(500, 1200);
+      await btn.click({ force: true });
+      await sleep(2000);
+      console.log(`[Reddit] Joined r/${subreddit}`);
+      return true;
+    }
+
+    console.log(`[Reddit] Could not find join button for r/${subreddit} (may already be joined)`);
+    return false;
+  } catch (err) {
+    console.warn(`[Reddit] joinSubreddit r/${subreddit} failed:`, (err as Error).message);
+    return false;
+  }
+}
+
+// --- Read subreddit rules before posting — returns rule summaries ---
+export async function readSubredditRules(subreddit: string): Promise<string[]> {
+  try {
+    const page = await getPage();
+    await page.goto(`https://old.reddit.com/r/${subreddit}/about/rules/`, { waitUntil: 'domcontentloaded' });
+    await sleep(SLOW_WAIT);
+
+    const rules = await page.evaluate(() => {
+      const items = document.querySelectorAll('.rules-list li h4, .rule-title, .rules-list li p, .md p');
+      return Array.from(items).map(el => (el.textContent || '').trim()).filter(Boolean).slice(0, 6);
+    });
+
+    // Simulate reading time proportional to rule count
+    await sleep(2000 + rules.length * 800);
+    if (rules.length > 0) console.log(`[Reddit] r/${subreddit} rules: ${rules.slice(0, 2).join(' | ')}`);
+    return rules;
+  } catch (err) {
+    console.warn(`[Reddit] readSubredditRules r/${subreddit} failed:`, (err as Error).message);
+    return [];
+  }
+}
+
+// --- Upvote 1-3 existing comments in a thread (pre-comment warm-up) ---
+export async function upvoteCommentsInThread(postUrl: string, count = 2): Promise<number> {
+  let upvoted = 0;
+  try {
+    const page = await getPage();
+    const oldUrl = postUrl.replace('www.reddit.com', 'old.reddit.com');
+    await page.goto(oldUrl, { waitUntil: 'domcontentloaded' });
+    await sleep(SLOW_WAIT);
+
+    // Scroll through comments to trigger loading
+    await page.evaluate(() => window.scrollBy({ top: 600, behavior: 'smooth' }));
+    await sleep(1500);
+
+    const arrows = await page.$$('.comment .arrow.up:not(.upmod)');
+    const targets = arrows.slice(0, Math.min(count, arrows.length));
+    for (const arrow of targets) {
+      try {
+        const visible = await arrow.isVisible().catch(() => false);
+        if (!visible) continue;
+        await arrow.scrollIntoViewIfNeeded();
+        await randomDelay(400, 900);
+        await arrow.click({ force: true });
+        upvoted++;
+        await randomDelay(800, 1800);
+      } catch { /* continue */ }
+    }
+  } catch (err) {
+    console.warn('[Reddit] upvoteCommentsInThread failed:', (err as Error).message);
+  }
+  return upvoted;
+}
+
+// --- Visit a Reddit user's profile (human-like pre-comment behavior) ---
+export async function visitRedditAuthorProfile(username: string): Promise<void> {
+  if (!username || username === 'Unknown' || username === '[deleted]') return;
+  try {
+    const page = await getPage();
+    await page.goto(`https://old.reddit.com/user/${username}`, { waitUntil: 'domcontentloaded' });
+    await sleep(3000 + Math.random() * 3000);
+    await page.evaluate(() => window.scrollBy({ top: 500 + Math.random() * 400, behavior: 'smooth' }));
+    await sleep(1500 + Math.random() * 1000);
+  } catch (err) {
+    console.warn(`[Reddit] visitAuthorProfile u/${username} failed:`, (err as Error).message);
+  }
+}
+
+/**
+ * Crosspost a Reddit post to a target subreddit.
+ * This is Reddit's equivalent of a retweet — shares an existing post into a new community.
+ *
+ * Uses the old.reddit.com crosspost submission page which is more automation-friendly
+ * than new Reddit. The post title is kept as-is; only the target subreddit changes.
+ */
+export async function crosspostRedditPost(
+  postUrl: string,
+  targetSubreddit: string,
+): Promise<{ success: boolean; error?: string }> {
+  // Validate subreddit name — must be alphanumeric + underscores, no spaces
+  if (!targetSubreddit || /\s/.test(targetSubreddit) || !/^[a-zA-Z0-9_]+$/.test(targetSubreddit)) {
+    return { success: false, error: `Invalid subreddit name: "${targetSubreddit}" (contains spaces or special characters)` };
+  }
+
+  const postId = postUrl.match(/comments\/([a-z0-9]+)/i)?.[1];
+  if (!postId) return { success: false, error: 'Could not extract post ID from URL' };
+
+  try {
+    const page = await getPage();
+
+    // Navigate to the crosspost submission page (t3_ = link/post type in Reddit's fullname system)
+    await page.goto(
+      `https://old.reddit.com/submit?crosspost_fullname=t3_${postId}`,
+      { waitUntil: 'domcontentloaded' },
+    );
+    await sleep(2500 + Math.random() * 1500);
+
+    // Confirm we're on the submit page and not redirected to login
+    const url = page.url();
+    if (url.includes('/login') || url.includes('/register')) {
+      return { success: false, error: 'Redirected to login — session may be expired' };
+    }
+
+    // Fill the subreddit field
+    const subInput = await page.$('#sr-autocomplete, input[name="sr"], input[placeholder*="subreddit" i]');
+    if (!subInput) return { success: false, error: 'Subreddit input not found on crosspost page' };
+
+    await subInput.click({ clickCount: 3 }); // select-all
+    await sleep(200);
+    await page.keyboard.type(targetSubreddit, { delay: 80 + Math.random() * 50 });
+    await sleep(1200 + Math.random() * 500);
+
+    // Dismiss autocomplete and confirm subreddit (Tab out of field)
+    await page.keyboard.press('Tab');
+    await sleep(600);
+
+    // Simulate a human reading the page before submitting
+    await sleep(3000 + Math.random() * 2000);
+
+    // Click submit
+    const submitBtn = await page.$('button[type="submit"].btn, #submit-text-toggle, button[type="submit"]');
+    if (!submitBtn) return { success: false, error: 'Submit button not found on crosspost page' };
+
+    await submitBtn.click();
+    await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
+    await sleep(2000);
+
+    const finalUrl = page.url();
+    // Success = navigated to the new post page
+    const isNewPost = finalUrl.includes('/comments/') &&
+      !finalUrl.includes(`crosspost_fullname=t3_${postId}`);
+
+    if (isNewPost) {
+      console.log(`[Reddit] Crossposted to r/${targetSubreddit}: ${finalUrl}`);
+      return { success: true };
+    }
+
+    // Check for error message on page
+    const errorEl = await page.$('.error, .status-msg.bad');
+    const errorText = errorEl ? await errorEl.textContent() : null;
+    return {
+      success: false,
+      error: errorText?.trim() || `Crosspost may have failed — still on: ${finalUrl}`,
+    };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
 }

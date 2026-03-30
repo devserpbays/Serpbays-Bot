@@ -10,6 +10,7 @@ import { join } from 'path';
 import { unlinkSync, existsSync, readFileSync } from 'fs';
 import { isValidComment } from './validateComment';
 import { debugScreenshot } from './debugScreenshot';
+import { buildLaunchArgs, randomTimezone, applyStealth, randomUserAgent, randomViewport } from './humanize';
 
 const NAVIGATION_TIMEOUT = 30000;
 const SLOW_WAIT = 4000;
@@ -32,19 +33,20 @@ async function getPage(profileDir: string): Promise<Page> {
   // Remove stale browser lock from previous crash
   try { unlinkSync(join(profileDir, 'SingletonLock')); } catch {}
 
+  const ua = randomUserAgent();
+  const vp = randomViewport();
+  const tz = process.env.ACCOUNT_TIMEZONE || randomTimezone();
+
   const context = await chromium.launchPersistentContext(profileDir, {
     headless: true,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-blink-features=AutomationControlled',
-    ],
-    userAgent:
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-    viewport: { width: 1366, height: 768 },
+    args: buildLaunchArgs(),
+    userAgent: ua,
+    viewport: vp,
     locale: 'en-US',
-    timezoneId: 'America/New_York',
+    timezoneId: tz,
   });
+
+  await applyStealth(context, { viewport: vp, ua });
 
   // Inject cookies from cookies.json if available
   const cookiesJsonPath = join(profileDir, 'cookies.json');
@@ -184,11 +186,11 @@ export async function scrapePinterestPins(keywords: string[], profileDir: string
         await sleep(2000);
       }
 
-      // Extract pin elements
-      const pinData = await page.evaluate(() => {
+      // Extract pin elements with better content and author extraction
+      const pinData = await page.evaluate((kw: string) => {
         const results: { url: string; description: string; creator: string; pinId: string }[] = [];
+        const kwLower = kw.toLowerCase();
 
-        // Try data-test-id="pin" selector
         const pinEls = document.querySelectorAll('[data-test-id="pin"], [data-grid-item="true"], div[role="listitem"]');
 
         for (const pin of pinEls) {
@@ -200,27 +202,51 @@ export async function scrapePinterestPins(keywords: string[], profileDir: string
           if (!pinIdMatch) continue;
 
           const pinId = pinIdMatch[1];
-          const imgAlt = pin.querySelector('img')?.getAttribute('alt') || '';
-          const descEl = pin.querySelector('[data-test-id="pin-description"], div[class*="description"]');
-          const description = descEl?.textContent?.trim() || imgAlt.trim();
 
-          if (description.length < 5) continue;
+          // Extract description from multiple sources
+          const imgAlt = pin.querySelector('img')?.getAttribute('alt') || '';
+          const descEl = pin.querySelector('[data-test-id="pin-description"], div[class*="description"], [data-test-id="truncated-description"]');
+          const titleEl = pin.querySelector('[data-test-id="pin-title"], h3, [data-test-id="pinTitle"]');
+          const ariaLabel = linkEl.getAttribute('aria-label') || '';
+
+          // Combine all text sources for richer content
+          const texts = [
+            titleEl?.textContent?.trim(),
+            descEl?.textContent?.trim(),
+            ariaLabel.trim(),
+            imgAlt.trim(),
+          ].filter(Boolean);
+          const description = [...new Set(texts)].join(' — ');
+
+          if (description.length < 10) continue;
+
+          // Extract creator/pinner name
+          const creatorEl = pin.querySelector('[data-test-id="pinner-name"], [data-test-id="creator-name"], a[href*="/"]:not([href*="/pin/"])');
+          let creator = creatorEl?.textContent?.trim() || '';
+          // Clean up — sometimes includes "Saved by" prefix
+          creator = creator.replace(/^(saved by|pinned by|by)\s*/i, '').trim();
+
+          // Relevance filter: description must contain at least one keyword word
+          const kwWords = kwLower.split(/\s+/).filter(w => w.length > 2);
+          const descLower = description.toLowerCase();
+          const isRelevant = kwWords.some(w => descLower.includes(w));
+          if (!isRelevant) continue;
 
           results.push({
             url: `https://www.pinterest.com/pin/${pinId}/`,
             description,
-            creator: '',
+            creator,
             pinId,
           });
         }
         return results;
-      }).catch(() => [] as { url: string; description: string; creator: string; pinId: string }[]);
+      }, keyword).catch(() => [] as { url: string; description: string; creator: string; pinId: string }[]);
 
       for (const p of pinData) {
         pins.push({
           url: p.url,
-          author: p.creator || 'Pinterest User',
-          content: p.description.slice(0, 2000),
+          author: p.creator || 'pinterest_user',
+          content: `${p.description.slice(0, 2000)} — found via Pinterest search for '${keyword}'`,
           platform: 'pinterest',
         });
       }
@@ -238,6 +264,170 @@ export async function scrapePinterestPins(keywords: string[], profileDir: string
     seen.add(p.url);
     return true;
   });
+}
+
+// --- Save (like) a Pinterest pin ---
+export async function savePinterestPin(
+  pinUrl: string,
+  profileDir: string
+): Promise<{ success: boolean }> {
+  try {
+    const page = await getPage(profileDir);
+    // Normalize regional Pinterest domains
+    const normalizedUrl = pinUrl.replace(/^https?:\/\/(in|uk|au|de|fr|br|mx|jp|kr)\.pinterest\./, 'https://www.pinterest.');
+    await page.goto(normalizedUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await sleep(3000 + Math.random() * 2000);
+
+    // Find the Save button on the pin detail page
+    const saveSelectors = [
+      'button[aria-label="Save"]',
+      'button[aria-label="save"]',
+      'div[data-test-id="pin-action-button"] button',
+      'button:has-text("Save")',
+    ];
+
+    for (const sel of saveSelectors) {
+      try {
+        const btn = page.locator(sel).first();
+        if (await btn.isVisible({ timeout: 3000 }).catch(() => false)) {
+          // Check if already saved
+          const text = await btn.textContent().catch(() => '') || '';
+          const label = await btn.getAttribute('aria-label').catch(() => '') || '';
+          if (text.toLowerCase().includes('saved') || label.toLowerCase().includes('saved')) {
+            console.log('[pinterest] Pin already saved');
+            return { success: true };
+          }
+
+          // Human-like: move mouse, pause, native click
+          const box = await btn.boundingBox();
+          if (box) {
+            await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 8 });
+            await sleep(300 + Math.random() * 500);
+            await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+          } else {
+            await btn.click();
+          }
+          await sleep(2000 + Math.random() * 1500);
+
+          // May show a board picker — pick the first board or dismiss
+          const boardBtn = page.locator('[data-test-id="board-row"], [data-test-id="boardPickerSaveButton"], button:has-text("Save")').first();
+          if (await boardBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+            const bbBox = await boardBtn.boundingBox();
+            if (bbBox) await page.mouse.click(bbBox.x + bbBox.width / 2, bbBox.y + bbBox.height / 2);
+            else await boardBtn.click().catch(() => {});
+            await sleep(1500);
+          }
+
+          console.log(`[pinterest] Saved pin: ${pinUrl.slice(0, 60)}`);
+          return { success: true };
+        }
+      } catch { /* try next selector */ }
+    }
+
+    console.warn('[pinterest] Save button not found on:', pinUrl);
+    return { success: false };
+  } catch (err) {
+    console.error('[pinterest] savePinterestPin error:', (err as Error).message);
+    return { success: false };
+  }
+}
+
+// --- Like (heart) a Pinterest pin ---
+export async function likePinterestPin(
+  pinUrl: string,
+  profileDir: string
+): Promise<{ success: boolean }> {
+  try {
+    const page = await getPage(profileDir);
+    const normalizedUrl = pinUrl.replace(/^https?:\/\/(in|uk|au|de|fr|br|mx|jp|kr)\.pinterest\./, 'https://www.pinterest.');
+    await page.goto(normalizedUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await sleep(3000 + Math.random() * 2000);
+
+    // Find the Heart/Like button — Pinterest uses various selectors
+    const heartPositions = await page.evaluate(() => {
+      const positions: { x: number; y: number }[] = [];
+      const allEls = document.querySelectorAll('button, [role="button"], div[data-test-id]');
+      for (const el of allEls) {
+        const label = el.getAttribute('aria-label') || '';
+        const testId = el.getAttribute('data-test-id') || '';
+
+        // Match heart/like/reaction button
+        if (
+          label.toLowerCase().includes('react') ||
+          label.toLowerCase().includes('like') ||
+          label.toLowerCase().includes('heart') ||
+          label.toLowerCase().includes('love') ||
+          testId.includes('react') ||
+          testId.includes('heart')
+        ) {
+          // Skip if already liked
+          const pressed = el.getAttribute('aria-pressed');
+          if (pressed === 'true') continue;
+
+          const rect = (el as HTMLElement).getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0 && rect.top > 0 && rect.top < window.innerHeight) {
+            positions.push({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 });
+          }
+        }
+      }
+      return positions;
+    }).catch(() => []);
+
+    if (heartPositions.length > 0) {
+      const pos = heartPositions[0];
+      await page.mouse.move(pos.x, pos.y, { steps: 8 });
+      await sleep(300 + Math.random() * 400);
+      await page.mouse.click(pos.x, pos.y);
+      await sleep(1500 + Math.random() * 1000);
+      console.log(`[pinterest] Liked pin: ${pinUrl.slice(0, 60)}`);
+      return { success: true };
+    }
+
+    // Fallback: try Playwright selectors
+    const fallbackSelectors = [
+      'button[aria-label*="react" i]',
+      'button[aria-label*="like" i]',
+      '[data-test-id*="react"]',
+      '[data-test-id*="heart"]',
+    ];
+    for (const sel of fallbackSelectors) {
+      try {
+        const btn = page.locator(sel).first();
+        if (await btn.isVisible({ timeout: 2000 }).catch(() => false)) {
+          const pressed = await btn.getAttribute('aria-pressed').catch(() => null);
+          if (pressed === 'true') {
+            console.log('[pinterest] Pin already liked');
+            return { success: true };
+          }
+          const box = await btn.boundingBox();
+          if (box) {
+            const cx = box.x + box.width / 2;
+            const cy = box.y + box.height / 2;
+            await page.mouse.move(cx, cy, { steps: 6 });
+            await sleep(200 + Math.random() * 300);
+            await page.mouse.click(cx, cy);
+          } else {
+            await btn.click();
+          }
+          await sleep(1500 + Math.random() * 1000);
+          // Verify the like registered
+          const afterPressed = await btn.getAttribute('aria-pressed').catch(() => null);
+          if (afterPressed === 'true') {
+            console.log(`[pinterest] Liked pin (fallback verified): ${pinUrl.slice(0, 60)}`);
+            return { success: true };
+          }
+          console.warn(`[pinterest] Fallback like click did not register for: ${pinUrl.slice(0, 60)}`);
+          return { success: false };
+        }
+      } catch { /* try next */ }
+    }
+
+    console.warn('[pinterest] Heart/Like button not found on:', pinUrl);
+    return { success: false };
+  } catch (err) {
+    console.error('[pinterest] likePinterestPin error:', (err as Error).message);
+    return { success: false };
+  }
 }
 
 // --- Post a comment on a Pinterest pin ---
@@ -397,12 +587,27 @@ export async function postPinterestComment(pinUrl: string, comment: string, prof
     await commentBox.click({ force: true });
     await sleep(1000);
 
-    // Human-like typing: variable delay, occasional natural pauses
+    // Human-like typing: variable delay, typos, punctuation pauses
     await sleep(700 + Math.random() * 600);
     for (let i = 0; i < comment.length; i++) {
-      await page.keyboard.type(comment[i]);
-      const isPause = comment[i] === ',' || comment[i] === '.' || comment[i] === '!' || (Math.random() < 0.04);
-      await sleep(isPause ? 320 + Math.random() * 280 : 60 + Math.random() * 110);
+      const char = comment[i];
+      // Occasional typo: wrong char → pause → backspace → retype (4%, not on spaces)
+      if (char !== ' ' && Math.random() < 0.04) {
+        const typo = 'qwertyuiopasdfghjklzxcvbnm'[Math.floor(Math.random() * 26)];
+        await page.keyboard.type(typo);
+        await sleep(120 + Math.random() * 180);
+        await page.keyboard.press('Backspace');
+        await sleep(80 + Math.random() * 100);
+      }
+      await page.keyboard.type(char);
+      if ('.!?,;:'.includes(char)) {
+        await sleep(250 + Math.random() * 400);
+      } else if (char === ' ' && Math.random() < 0.08) {
+        await sleep(300 + Math.random() * 500);
+      } else {
+        const burst = Math.random() < 0.3;
+        await sleep(burst ? 20 + Math.random() * 40 : 50 + Math.random() * 90);
+      }
     }
     await sleep(1800 + Math.random() * 1500);
 

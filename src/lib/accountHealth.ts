@@ -121,6 +121,55 @@ export function computeHealthScore(account: {
 }
 
 /**
+ * Activity profile based on account health score.
+ *
+ * Health 80–100 → Healthy:   full daily limit, 1–3 reacts/session
+ * Health 50–79  → Cautious:  scaled-down limit (20–80%), 2–6 reacts/session
+ * Health  0–49  → Recovery:  0 comments, 4–12 reacts, triggers 3–5 day browse-only
+ *
+ * The recovery period is set once (checked via browseOnlyUntil) so the cron
+ * doesn't reset the timer on every run.
+ */
+export interface ActivityProfile {
+  /** Multiplier applied to the configured daily limit (0 = no commenting) */
+  commentMultiplier: number;
+  /** Min reacts/upvotes per session */
+  minReacts: number;
+  /** Max reacts/upvotes per session */
+  maxReacts: number;
+  /** True when health < 50 and we should start a browse-only recovery window */
+  needsRecovery: boolean;
+  /** How many days the recovery window should last (randomised 3–5) */
+  recoveryDays: number;
+  /** Human-readable label for logs */
+  label: string;
+}
+
+export function getActivityProfile(healthScore: number): ActivityProfile {
+  const score = Math.max(0, Math.min(100, healthScore));
+
+  // Below 50 → recovery: no commenting, heavy upvoting/browsing
+  if (score < 50) {
+    const recoveryDays = 3 + Math.floor(Math.random() * 3); // 3, 4, or 5
+    const minReacts = score < 25 ? 6 : 4;
+    const maxReacts = score < 25 ? 12 : 8;
+    return { commentMultiplier: 0, minReacts, maxReacts, needsRecovery: true, recoveryDays, label: `recovery (${score}/100)` };
+  }
+
+  // 50–100: smooth gradient
+  // At 50:  commentMultiplier=0.20, reacts 4–8
+  // At 70:  commentMultiplier=0.52, reacts 3–6
+  // At 100: commentMultiplier=1.00, reacts 1–3
+  const t = (score - 50) / 50; // 0→1 as score 50→100
+  const commentMultiplier = Math.round((0.2 + t * 0.8) * 100) / 100;
+  const maxReacts = Math.max(3, Math.round(8 - t * 5));
+  const minReacts = Math.max(1, Math.round(maxReacts * 0.4));
+  const label = score >= 80 ? 'healthy' : 'cautious';
+
+  return { commentMultiplier, minReacts, maxReacts, needsRecovery: false, recoveryDays: 0, label };
+}
+
+/**
  * Build the MongoDB $set patch to apply after a successful post.
  * Increments totalPosts, resets errorCount/backoff, updates lastPostedAt,
  * and recomputes healthScore.
@@ -137,15 +186,90 @@ export function buildSuccessPatch(account: Parameters<typeof computeHealthScore>
   const autoPaused = score < AUTO_PAUSE_THRESHOLD ? false : (account.autoPaused ?? false);
   return {
     $set: {
-      totalPosts:   updated.totalPosts,
-      errorCount:   0,
-      backoffUntil: null,
-      lastPostedAt: updated.lastPostedAt,
-      healthScore:  score,
+      totalPosts:          updated.totalPosts,
+      errorCount:          0,
+      backoffUntil:        null,
+      lastPostedAt:        updated.lastPostedAt,
+      healthScore:         score,
       autoPaused,
+      automationBlockCount: 0,
+      browseOnlyUntil:     null,
     },
     $unset: {},
   };
+}
+
+/**
+ * Tiered response to an automation-detection event.
+ *
+ * Keeps a rolling 7-day block counter per account.  Each block escalates:
+ *   Block 1  → 2 h backoff
+ *   Block 2  → 6 h backoff
+ *   Block 3  → browse-only 24 h  (scrape/engage OK, no posting)
+ *   Block 4  → 12 h backoff
+ *   Block 5  → 24 h backoff
+ *   Block 6  → browse-only 24 h
+ *   Block 7  → 48 h backoff
+ *   Block 8  → 48 h backoff
+ *   Block 9  → browse-only 24 h
+ *   Block 10+ → hard pause (requires user action to resume)
+ *
+ * On a successful post (buildSuccessPatch) the counter resets to 0.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function handleAutomationBlock(
+  userId: string,
+  platform: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  BrowserCookieModel: any,
+): Promise<{ action: 'backoff' | 'browse_only' | 'hard_pause'; hours: number; blockCount: number }> {
+  const now = new Date();
+  const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+  const doc = await BrowserCookieModel.findOne({ userId, platform }).lean() as Record<string, unknown> | null;
+  const lastBlockAt = doc?.automationBlockedAt ? new Date(doc.automationBlockedAt as string) : null;
+  const inWindow = !!(lastBlockAt && lastBlockAt >= sevenDaysAgo);
+  const prevCount = inWindow ? ((doc?.automationBlockCount as number) ?? 0) : 0;
+  const blockCount = prevCount + 1;
+
+  // Backoff hours by block index (0 = browse_only or hard_pause, handled below)
+  const BACKOFF_HOURS = [0, 2, 6, 0, 12, 24, 0, 48, 48, 0];
+
+  let action: 'backoff' | 'browse_only' | 'hard_pause';
+  let hours = 0;
+
+  if (blockCount >= 10) {
+    action = 'hard_pause';
+  } else if (blockCount === 3 || blockCount === 6 || blockCount === 9) {
+    action = 'browse_only';
+    hours = 24;
+  } else {
+    action = 'backoff';
+    hours = BACKOFF_HOURS[Math.min(blockCount, 9)] || 2;
+  }
+
+  const update: Record<string, unknown> = {
+    automationBlockCount: blockCount,
+    automationBlockedAt:  inWindow ? doc!.automationBlockedAt : now,
+    lastErrorAt:          now,
+  };
+
+  if (action === 'hard_pause') {
+    update.autoPaused = true;
+    update.autoPausedReason = `Automation detected ${blockCount} times in 7 days — resume from the Accounts page after refreshing cookies`;
+  } else if (action === 'browse_only') {
+    update.browseOnlyUntil = new Date(now.getTime() + hours * 60 * 60 * 1000);
+  } else {
+    update.backoffUntil = new Date(now.getTime() + hours * 60 * 60 * 1000);
+  }
+
+  await BrowserCookieModel.findOneAndUpdate(
+    { userId, platform },
+    { $set: update },
+    { upsert: true },
+  );
+
+  return { action, hours, blockCount };
 }
 
 /**

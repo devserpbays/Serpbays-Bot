@@ -29,10 +29,30 @@ const BrowserCookieSchema = new Schema(
     totalErrors:   { type: Number, default: 0 },
     // Computed health score 0–100. Recalculated after every post.
     healthScore:   { type: Number, default: 100 },
-    // When health < AUTO_PAUSE_THRESHOLD the account is auto-paused.
-    autoPaused:    { type: Boolean, default: false },
+    // When set, the account is paused until the user manually resumes it.
+    autoPaused:       { type: Boolean, default: false },
+    autoPausedReason: { type: String,  default: '' },
     // Timestamp of most recent successful post.
     lastPostedAt:  { type: Date,   default: null },
+
+    // ── Per-account residential proxy ────────────────────────────────────────
+    // Full proxy URL including auth, e.g. http://user:pass@host:port or socks5://...
+    // When set, this proxy is used for all browser sessions for this account.
+    proxyUrl: { type: String, default: '' },
+
+    // ── Consistent timezone fingerprint ──────────────────────────────────────
+    // Assigned once and reused every session — consistency prevents cross-session
+    // timezone mismatch which is a known ML detection signal.
+    assignedTimezone: { type: String, default: '' },
+
+    // ── Tiered automation-block tracking ─────────────────────────────────────
+    // # of consecutive automation blocks in the current 7-day window.
+    automationBlockCount:  { type: Number, default: 0 },
+    // When the current block window started (reset when first block is > 7 days ago).
+    automationBlockedAt:   { type: Date,   default: null },
+    // If set and in the future, the account is in browse-only mode (no posting).
+    // Scraping, evaluating, and social engagement still run normally.
+    browseOnlyUntil:       { type: Date,   default: null },
   },
   { timestamps: true }
 );

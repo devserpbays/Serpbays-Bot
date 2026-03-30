@@ -201,6 +201,22 @@ function humanize(entry: ActivityLogEntry): HumanEntry {
                 isIssue: true,
             };
 
+        case 'ghost_ban':
+            return {
+                category: 'issue',
+                title: 'Ghost ban detected — replies hidden from search',
+                description: `Your replies are not visible to other users in Twitter search. This is usually temporary. The bot has automatically switched to browse-only mode for ${(meta as any).recoveryHours ?? 36}h — only liking and browsing, no replies. This is the safest way to recover.`,
+                isIssue: true,
+            };
+
+        case 'shadow_removal':
+            return {
+                category: 'issue',
+                title: 'Comment shadow-removed — not visible to others',
+                description: `${p.name} accepted the comment but it disappeared shortly after (likely filtered as spam). A 4h backoff has been applied. Reduce posting frequency or warm up the account more before commenting.`,
+                isIssue: true,
+            };
+
         case 'auth_error':
             return {
                 category: 'issue',
@@ -243,7 +259,7 @@ function humanize(entry: ActivityLogEntry): HumanEntry {
         case 'session_start':
             return {
                 category: 'system',
-                title: `Facebook session: ${msg.replace('Session type: ', '')}`,
+                title: `${p.name} session: ${msg.replace('Session type: ', '')}`,
                 description: msg.includes('full')
                     ? 'Peak hours — will browse, react, and comment this session.'
                     : msg.includes('react_only')
@@ -330,6 +346,150 @@ function humanize(entry: ActivityLogEntry): HumanEntry {
 
         case 'duplicate':
             return { category: 'system', title: 'Duplicate reply skipped', description: 'This tweet was already replied to — moved on to the next one.' };
+
+        case 'session_skip':
+            return {
+                category: 'system',
+                title: `${p.name} session skipped`,
+                description: (meta.reason as string)
+                    ? `Skipped this run — ${meta.reason}.`
+                    : 'Randomly skipped this run to maintain unpredictable posting patterns.',
+            };
+
+        case 'browse_only':
+            return {
+                category: 'browsing',
+                title: `${p.name} in browse-only mode`,
+                description: meta.until
+                    ? `Posting paused until ${new Date(meta.until as string).toLocaleString()} — browsing only to stay active without triggering detection.`
+                    : 'Posting paused — browsing activity only this run.',
+            };
+
+        case 'auto_paused':
+            return {
+                category: 'issue',
+                title: `${p.name} account auto-paused`,
+                description: (meta.reason as string) || msg || 'Too many automation signals detected — account paused for protection.',
+                isIssue: true,
+            };
+
+        case 'browse_feed':
+            return {
+                category: 'browsing',
+                title: `Browsed ${p.feed}`,
+                description: `Scrolled the ${p.feed} at session start — natural warm-up behavior before taking actions.`,
+            };
+
+        case 'upvote_answer':
+            return {
+                category: 'engagement',
+                title: `Upvoted ${meta.count != null ? meta.count + ' ' : ''}Quora answer${Number(meta.count) !== 1 ? 's' : ''}`,
+                description: 'Upvoted relevant answers before responding — mimics genuine community participation.',
+            };
+
+        case 'follow_question':
+            return {
+                category: 'engagement',
+                title: 'Followed a Quora question',
+                description: 'Followed the question being answered — signals authentic interest to the platform.',
+            };
+
+        case 'follow_topic':
+            return {
+                category: 'engagement',
+                title: `Followed Quora topic${meta.topic ? ': ' + meta.topic : ''}`,
+                description: 'Followed a relevant topic to build a natural interest graph on the account.',
+            };
+
+        case 'visit_profile':
+            return {
+                category: 'browsing',
+                title: `Visited ${meta.username ? '@' + meta.username + '\'s' : 'an'} ${p.name} profile`,
+                description: 'Checked the author\'s profile before engaging — adds authenticity to the interaction.',
+            };
+
+        case 'upvote_post':
+            return {
+                category: 'engagement',
+                title: 'Upvoted the Reddit post',
+                description: 'Upvoted the post being commented on — natural behaviour before leaving a reply.',
+            };
+
+        case 'upvote_comments':
+            return {
+                category: 'engagement',
+                title: `Upvoted ${meta.count != null ? meta.count + ' ' : 'existing '}comment${Number(meta.count) !== 1 ? 's' : ''} in thread`,
+                description: 'Upvoted top comments before replying — blends activity with genuine engagement.',
+            };
+
+        case 'join_subreddit':
+            return {
+                category: 'engagement',
+                title: `Joined r/${meta.subreddit ?? ''}`,
+                description: 'Joined the subreddit before commenting — required by many communities and looks natural.',
+            };
+
+        case 'read_rules':
+            return {
+                category: 'browsing',
+                title: `Read r/${meta.subreddit ?? ''} rules`,
+                description: 'Visited the subreddit rules page — part of the warm-up before posting.',
+            };
+
+        case 'subreddit_dedup':
+            return {
+                category: 'system',
+                title: 'Already commented in this subreddit today',
+                description: `Skipping — already posted in r/${meta.subreddit ?? 'this subreddit'} today. One comment per subreddit per day keeps activity natural.`,
+            };
+
+        case 'dedup_filtered':
+            return {
+                category: 'system',
+                title: 'All candidates filtered — nothing to post',
+                description: 'Every available post was filtered out (author dedup, subreddit dedup, or already replied). No action taken this run.',
+            };
+
+        case 'warmup_failed':
+            return {
+                category: 'system',
+                title: 'Warm-up step failed — continuing anyway',
+                description: msg || 'A pre-comment warm-up action failed (e.g. join subreddit, upvote). The comment attempt will still proceed.',
+            };
+
+        case 'comment_format_error':
+        case 'comment_safety_error':
+        case 'answer_safety_error':
+            return {
+                category: 'issue',
+                title: 'Reply blocked by safety check',
+                description: msg || 'The AI-generated reply failed an internal quality or safety check — skipped to avoid posting low-quality content.',
+                isIssue: false,
+            };
+
+        case 'crosspost':
+            return {
+                category: 'engagement',
+                title: `Crossposted to r/${meta.targetSubreddit ?? ''}`,
+                description: `Shared a relevant post to r/${meta.targetSubreddit ?? 'another subreddit'} — Reddit's equivalent of a retweet.`,
+                link: meta.url ? { href: meta.url as string, label: 'View crosspost' } : undefined,
+            };
+
+        case 'crosspost_failed':
+            return {
+                category: 'issue',
+                title: 'Crosspost failed',
+                description: msg || 'Could not crosspost this run — will try again next session.',
+                isIssue: false,
+            };
+
+        case 'comment_failed':
+            return {
+                category: 'issue',
+                title: `${p.name} reply failed`,
+                description: msg || 'Reply attempt failed — will retry on the next run.',
+                isIssue: true,
+            };
 
         default:
             return { category: 'system', title: entry.action.replace(/_/g, ' '), description: msg };
@@ -477,6 +637,83 @@ function EntryIcon({ category, level, action }: { category: Category; level: str
             </div>
         );
     }
+    if (action === 'session_skip' || action === 'dedup_filtered') {
+        return (
+            <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(148,163,184,0.10)', border: '1.5px solid rgba(148,163,184,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth={2} width={size} height={size}><polygon points="5,4 15,12 5,20 5,4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>
+            </div>
+        );
+    }
+    if (action === 'browse_only' || action === 'browse_feed') {
+        return (
+            <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(148,163,184,0.10)', border: '1.5px solid rgba(148,163,184,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth={2} width={size} height={size}><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            </div>
+        );
+    }
+    if (action === 'auto_paused') {
+        return (
+            <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(148,163,184,0.12)', border: '1.5px solid rgba(148,163,184,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth={2} width={size} height={size}><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+            </div>
+        );
+    }
+    if (action === 'upvote_answer' || action === 'upvote_post' || action === 'upvote_comments') {
+        return (
+            <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(34,197,94,0.10)', border: '1.5px solid rgba(34,197,94,0.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth={2} width={size} height={size}><path d="M14 9V5a3 3 0 00-3-3l-4 9v11h11.28a2 2 0 002-1.7l1.38-9a2 2 0 00-2-2.3H14z"/><path d="M7 22H4a2 2 0 01-2-2v-7a2 2 0 012-2h3"/></svg>
+            </div>
+        );
+    }
+    if (action === 'follow_question' || action === 'follow_topic') {
+        return (
+            <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(14,165,233,0.10)', border: '1.5px solid rgba(14,165,233,0.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="#0ea5e9" strokeWidth={2} width={size} height={size}><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>
+            </div>
+        );
+    }
+    if (action === 'visit_profile') {
+        return (
+            <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(148,163,184,0.10)', border: '1.5px solid rgba(148,163,184,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth={2} width={size} height={size}><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            </div>
+        );
+    }
+    if (action === 'join_subreddit') {
+        return (
+            <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(255,69,0,0.10)', border: '1.5px solid rgba(255,69,0,0.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="#ff4500" strokeWidth={2} width={size} height={size}><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+            </div>
+        );
+    }
+    if (action === 'read_rules') {
+        return (
+            <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(148,163,184,0.10)', border: '1.5px solid rgba(148,163,184,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth={2} width={size} height={size}><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+            </div>
+        );
+    }
+    if (action === 'subreddit_dedup') {
+        return (
+            <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(14,165,233,0.10)', border: '1.5px solid rgba(14,165,233,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="#0ea5e9" strokeWidth={2} width={size} height={size}><polygon points="22,3 2,3 10,12.46 10,19 14,21 14,12.46 22,3"/></svg>
+            </div>
+        );
+    }
+    if (action === 'crosspost') {
+        return (
+            <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(255,69,0,0.10)', border: '1.5px solid rgba(255,69,0,0.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="#ff4500" strokeWidth={2} width={size} height={size}><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+            </div>
+        );
+    }
+    if (action === 'warmup_failed' || action === 'crosspost_failed' || action === 'comment_format_error' || action === 'comment_safety_error' || action === 'answer_safety_error') {
+        return (
+            <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(245,158,11,0.10)', border: '1.5px solid rgba(245,158,11,0.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth={2} width={size} height={size}><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            </div>
+        );
+    }
     // default system
     return (
         <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(148,163,184,0.08)', border: '1.5px solid rgba(148,163,184,0.20)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -522,13 +759,14 @@ const FILTER_TABS: { key: string; label: string; match: (e: ActivityLogEntry, h:
 
 // ── Main page ──────────────────────────────────────────────────────────────
 export default function LogsPage() {
-    const [activeTab,      setActiveTab]      = useState<'feed' | 'replies'>('feed');
-    const [filterKey,      setFilterKey]      = useState('all');
-    const [platformFilter, setPlatformFilter] = useState('all');
-    const [logs,           setLogs]           = useState<ActivityLogEntry[]>([]);
-    const [postedComments, setPostedComments] = useState<PostedComment[]>([]);
-    const [loading,        setLoading]        = useState(true);
-    const [autoRefresh,    setAutoRefresh]    = useState(false);
+    const [activeTab,         setActiveTab]         = useState<'feed' | 'replies'>('feed');
+    const [filterKey,         setFilterKey]         = useState('all');
+    const [platformFilter,    setPlatformFilter]    = useState('all');
+    const [logs,              setLogs]              = useState<ActivityLogEntry[]>([]);
+    const [postedComments,    setPostedComments]    = useState<PostedComment[]>([]);
+    const [loading,           setLoading]           = useState(true);
+    const [autoRefresh,       setAutoRefresh]       = useState(false);
+    const [connectedPlatforms, setConnectedPlatforms] = useState<string[]>([]);
     const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     const fetchLogs = useCallback(async () => {
@@ -551,7 +789,14 @@ export default function LogsPage() {
 
     useEffect(() => {
         setLoading(true);
-        Promise.all([fetchLogs(), fetchPostedComments()]).finally(() => setLoading(false));
+        Promise.all([
+            fetchLogs(),
+            fetchPostedComments(),
+            fetch('/api/social-accounts').then(r => r.json()).then(d => {
+                const platforms = (d.accounts ?? []).map((a: { platform: string }) => a.platform);
+                setConnectedPlatforms([...new Set<string>(platforms)]);
+            }).catch(() => {}),
+        ]).finally(() => setLoading(false));
     }, [fetchLogs, fetchPostedComments]);
 
     useEffect(() => {
@@ -689,7 +934,7 @@ export default function LogsPage() {
                             {/* Platform filter */}
                             <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' as any, flexShrink: 0, maxWidth: '100%' }}>
                                 <div style={{ display: 'flex', gap: 2, background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 10, padding: 3, width: 'max-content' }}>
-                                    {['all', 'twitter', 'reddit', 'facebook', 'quora'].map(p => (
+                                    {['all', ...connectedPlatforms].map(p => (
                                         <button key={p} onClick={() => setPlatformFilter(p)} style={{
                                             padding: '5px 10px', borderRadius: 7, border: 'none', fontSize: 11, fontWeight: 600, cursor: 'pointer',
                                             background: platformFilter === p ? (PLATFORM_COLORS[p] || 'var(--accent)') : 'transparent',

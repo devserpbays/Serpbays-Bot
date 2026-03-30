@@ -79,12 +79,25 @@ export async function POST(req: NextRequest) {
       return { name: name.trim(), value: rest.join('=').trim(), domain: '.youtube.com', path: '/', expires: FALLBACK_EXPIRES(), secure: true };
     }).filter((c) => c.name && c.value);
   } else if (Array.isArray(cookiesInput)) {
+    // Google auth cookies (SID, SSID, SAPISID, etc.) MUST use .google.com domain.
+    // YouTube-specific cookies use .youtube.com. Preserve original domains when provided.
+    const GOOGLE_AUTH_COOKIES = new Set([
+      'SID', 'HSID', 'SSID', 'APISID', 'SAPISID', 'NID',
+      '__Secure-1PSID', '__Secure-3PSID', '__Secure-1PAPISID', '__Secure-3PAPISID',
+      '__Secure-1PSIDTS', '__Secure-3PSIDTS', '__Secure-1PSIDCC', '__Secure-3PSIDCC',
+      'SIDCC', '__Secure-ENID', '1P_JAR', 'AEC', 'SOCS',
+    ]);
     cookieList = (cookiesInput as Record<string, unknown>[]).map((c) => {
+      const name = String(c.name);
       const rawExpiry = Number(c.expirationDate ?? c.expires ?? 0);
+      // Use original domain if provided; fallback: Google auth cookies → .google.com, others → .youtube.com
+      const domain = c.domain
+        ? String(c.domain)
+        : GOOGLE_AUTH_COOKIES.has(name) ? '.google.com' : '.youtube.com';
       return {
-        name: String(c.name),
+        name,
         value: String(c.value),
-        domain: String(c.domain || '.youtube.com'),
+        domain,
         path: String(c.path || '/'),
         expires: rawExpiry > 0 ? Math.floor(rawExpiry) : FALLBACK_EXPIRES(),
         secure: Boolean(c.secure ?? true),

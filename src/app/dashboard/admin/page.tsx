@@ -33,7 +33,7 @@ interface UserRow {
 interface UserDetail {
   settings: Record<string, unknown>;
   subscription: { plan: string; status: string; currentPeriodEnd?: string };
-  recentPosts: { _id: string; platform: string; status: string; content: string; postedAt?: string; createdAt: string }[];
+  recentPosts: { _id: string; platform: string; status: string; content: string; editedReply?: string; aiReply?: string; postedAt?: string; createdAt: string }[];
   recentLogs: { _id: string; platform: string; level: string; action: string; message: string; createdAt: string }[];
   totalPosts: number;
   postedCount: number;
@@ -682,7 +682,7 @@ export default function AdminPage() {
                   <div>User / Email</div>
                   <div className="admin-col-hide-sm">Platforms</div>
                   <div className="admin-col-hide-md">Plan</div>
-                  <div style={{ textAlign: 'right' }}>Total</div>
+                  <div style={{ textAlign: 'right' }}>Posted</div>
                   <div style={{ textAlign: 'right' }}>Today</div>
                 </div>
 
@@ -1156,33 +1156,37 @@ export default function AdminPage() {
                           Recent Comments ({userDetail.recentPosts.length})
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                          {userDetail.recentPosts.slice(0, 8).map(post => (
-                            <div key={post._id} style={{
-                              padding: '8px 10px', borderRadius: 6,
-                              background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-subtle)',
-                              fontSize: 12,
-                            }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                                <span style={{
-                                  fontSize: 10, fontWeight: 700, textTransform: 'capitalize',
-                                  color: PLATFORM_COLORS[post.platform] || 'var(--accent)',
-                                  background: `${PLATFORM_COLORS[post.platform] || 'var(--accent)'}18`,
-                                  padding: '1px 6px', borderRadius: 4,
-                                }}>{post.platform}</span>
-                                <span style={{
-                                  fontSize: 10, padding: '1px 6px', borderRadius: 4,
-                                  background: post.status === 'posted' ? 'rgba(16,185,129,0.1)' : 'rgba(255,255,255,0.04)',
-                                  color: post.status === 'posted' ? '#10b981' : 'var(--text-muted)',
-                                }}>{post.status}</span>
-                                <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--text-muted)' }}>{formatDate(post.createdAt)}</span>
+                          {userDetail.recentPosts.slice(0, 8).map(post => {
+                            const reply = post.editedReply || post.aiReply || '';
+                            return (
+                              <div key={post._id} style={{
+                                padding: '8px 10px', borderRadius: 6,
+                                background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-subtle)',
+                                fontSize: 12,
+                              }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                                  <span style={{
+                                    fontSize: 10, fontWeight: 700, textTransform: 'capitalize',
+                                    color: PLATFORM_COLORS[post.platform] || 'var(--accent)',
+                                    background: `${PLATFORM_COLORS[post.platform] || 'var(--accent)'}18`,
+                                    padding: '1px 6px', borderRadius: 4,
+                                  }}>{post.platform}</span>
+                                  <span style={{
+                                    fontSize: 10, padding: '1px 6px', borderRadius: 4,
+                                    background: 'rgba(16,185,129,0.1)', color: '#10b981',
+                                  }}>posted</span>
+                                  <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--text-muted)' }}>
+                                    {formatDate(post.postedAt || post.createdAt)}
+                                  </span>
+                                </div>
+                                <div style={{ color: 'var(--text-secondary)', lineHeight: 1.4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {reply.slice(0, 90) || post.content?.slice(0, 90) || '—'}
+                                </div>
                               </div>
-                              <div style={{ color: 'var(--text-muted)', lineHeight: 1.4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                {post.content?.slice(0, 70) || '—'}
-                              </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                           {userDetail.recentPosts.length === 0 && (
-                            <div style={{ color: 'var(--text-muted)', fontSize: 12, textAlign: 'center', padding: '12px 0' }}>No comments yet</div>
+                            <div style={{ color: 'var(--text-muted)', fontSize: 12, textAlign: 'center', padding: '12px 0' }}>No posted comments yet</div>
                           )}
                         </div>
                       </div>

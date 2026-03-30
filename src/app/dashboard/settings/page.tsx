@@ -210,7 +210,7 @@ export default function SettingsPage() {
             const res = await fetch(`${API_BASE}/api/settings`);
             const data = await res.json();
             if (data.settings) {
-                setSettings((prev) => ({ ...prev, ...data.settings }));
+                setSettings((prev) => ({ ...prev, ...data.settings, cronTimezone: data.settings.cronTimezone || '' }));
                 settingsLoaded.current = true;
             }
         } catch { /* silent */ }

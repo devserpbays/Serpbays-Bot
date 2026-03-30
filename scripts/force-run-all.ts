@@ -27,30 +27,19 @@ import { writeFileSync } from 'fs';
 import { join } from 'path';
 import Post from '../src/models/Post';
 import Settings from '../src/models/Settings';
+import { getTodayStartUTC } from '../src/lib/schedule';
 
 const DEFAULT_TWITTER_DAILY_LIMIT = 10;
 const DEFAULT_FB_DAILY_LIMIT = 5;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-async function getTwitterTodayCount(): Promise<number> {
-  const now = new Date();
-  const istOffset = 5.5 * 60 * 60000;
-  const istNow = new Date(now.getTime() + istOffset);
-  const startOfDay = new Date(istNow);
-  startOfDay.setHours(0, 0, 0, 0);
-  const startOfDayUTC = new Date(startOfDay.getTime() - istOffset);
-  return Post.countDocuments({ platform: 'twitter', status: 'posted', postedAt: { $gte: startOfDayUTC } });
+async function getTwitterTodayCount(timezone = 'America/New_York'): Promise<number> {
+  return Post.countDocuments({ platform: 'twitter', status: 'posted', postedAt: { $gte: getTodayStartUTC(timezone) } });
 }
 
-async function getFBTodayCount(): Promise<number> {
-  const now = new Date();
-  const istOffset = 5.5 * 60 * 60000;
-  const istNow = new Date(now.getTime() + istOffset);
-  const startOfDay = new Date(istNow);
-  startOfDay.setHours(0, 0, 0, 0);
-  const startOfDayUTC = new Date(startOfDay.getTime() - istOffset);
-  return Post.countDocuments({ platform: 'facebook', status: 'posted', postedAt: { $gte: startOfDayUTC } });
+async function getFBTodayCount(timezone = 'America/New_York'): Promise<number> {
+  return Post.countDocuments({ platform: 'facebook', status: 'posted', postedAt: { $gte: getTodayStartUTC(timezone) } });
 }
 
 async function generateTweetReply(postContent: string, companyName: string, companyDescription: string): Promise<string> {

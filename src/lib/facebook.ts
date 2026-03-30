@@ -12,7 +12,7 @@ import { join } from 'path';
 import { unlinkSync, existsSync, readFileSync } from 'fs';
 import { isValidComment } from './validateComment';
 import { debugScreenshot } from './debugScreenshot';
-import { randomViewport, randomUserAgent, randomDelay, readingPause, buildLaunchArgs, randomTimezone, applyStealth } from './humanize';
+import { randomViewport, randomUserAgent, randomDelay, readingPause, buildLaunchArgs, randomTimezone, applyStealth, parseProxyConfig } from './humanize';
 
 const PROFILE_DIR = process.env.FACEBOOK_PROFILE_DIR
   ? join(process.cwd(), process.env.FACEBOOK_PROFILE_DIR)
@@ -30,6 +30,7 @@ interface FacebookPost {
 let _context: BrowserContext | null = null;
 let _page: Page | null = null;
 let _activeProfileDir: string = PROFILE_DIR;
+let _activeProxyUrl: string = '';
 
 /**
  * Set the profile directory for the next browser session.
@@ -47,6 +48,18 @@ export function setProfileDir(profileDir: string): void {
   }
 }
 
+/** Set the proxy URL for this account's browser session. Call before getPage(). */
+export function setProxy(proxyUrl: string): void {
+  if (proxyUrl !== _activeProxyUrl) {
+    if (_context) {
+      _context.close().catch(() => {});
+      _context = null;
+      _page = null;
+    }
+    _activeProxyUrl = proxyUrl;
+  }
+}
+
 // --- Launch or reuse persistent browser context ---
 async function getPage(): Promise<Page> {
   if (_page && !_page.isClosed()) return _page;
@@ -56,15 +69,21 @@ async function getPage(): Promise<Page> {
   // Remove stale browser lock from previous crash
   try { unlinkSync(join(profileDir, 'SingletonLock')); } catch {}
 
+  const proxyConfig = parseProxyConfig(_activeProxyUrl);
+  // Choose UA and viewport once — pass them to applyStealth so fingerprints match
+  const ua = randomUserAgent();
+  const vp = randomViewport();
+  const tz = process.env.ACCOUNT_TIMEZONE || randomTimezone();
   _context = await chromium.launchPersistentContext(profileDir, {
     headless: true,
     args: buildLaunchArgs(),
-    userAgent: randomUserAgent(),
-    viewport: randomViewport(),
+    userAgent: ua,
+    viewport: vp,
     locale: 'en-US',
-    timezoneId: randomTimezone(),
+    timezoneId: tz,
+    ...(proxyConfig && { proxy: proxyConfig }),
   });
-  await applyStealth(_context);
+  await applyStealth(_context, { viewport: vp, ua });
 
   // Inject cookies from cookies.json if available (normalize sameSite for Playwright)
   const cookiesJsonPath = join(profileDir, 'cookies.json');
@@ -416,21 +435,76 @@ export async function scrapeCommentEngagement(
 }
 
 // --- Visit home news feed (simulates real user checking their feed) ---
-export async function visitNewsFeed(): Promise<void> {
+/**
+ * Visit the home news feed, scroll naturally, and optionally react to a few posts.
+ * Real users almost always like 1–3 things when they open Facebook — this simulates that.
+ * maxReactions=0 means scroll-only (no reactions), which is the safe minimum.
+ */
+export async function visitNewsFeed(maxReactions = 0): Promise<{ reacted: number }> {
+  let reacted = 0;
   try {
     const page = await getPage();
     await page.goto('https://www.facebook.com/', { waitUntil: 'domcontentloaded', timeout: 30000 });
     await humanDelay(3000, 6000);
-    // Scroll through feed naturally — real users skim before acting
-    const scrolls = 2 + Math.floor(Math.random() * 3);
+
+    const scrolls = 3 + Math.floor(Math.random() * 4); // 3–6 scrolls (more thorough)
     for (let i = 0; i < scrolls; i++) {
-      await page.mouse.wheel(0, 600 + Math.random() * 400);
-      await humanDelay(1500, 3500);
+      await page.mouse.wheel(0, 500 + Math.random() * 500);
+      await humanDelay(1200, 3000);
+
+      // After each scroll, occasionally react to a visible post (if budget allows)
+      if (maxReactions > 0 && reacted < maxReactions && Math.random() < 0.45) {
+        try {
+          // Find all un-reacted Like buttons currently visible in the feed
+          let likeBtns: import('playwright').ElementHandle<Element>[] = [];
+          for (const sel of FB_LIKE_SELECTORS) {
+            const found = await page.$$(sel).catch(() => []);
+            if (found.length > 0) { likeBtns = found; break; }
+          }
+
+          // Pick a random visible, un-pressed button from the visible set
+          const candidates = [];
+          for (const btn of likeBtns) {
+            const visible = await btn.isVisible().catch(() => false);
+            const pressed = await btn.getAttribute('aria-pressed').catch(() => null);
+            if (visible && pressed !== 'true') candidates.push(btn);
+            if (candidates.length >= 5) break; // don't scan entire DOM
+          }
+
+          if (candidates.length > 0) {
+            const btn = candidates[Math.floor(Math.random() * candidates.length)];
+            const reaction = pickReaction();
+
+            if (reaction === 'Like') {
+              await btn.click({ force: true }).catch(() => {});
+            } else {
+              // Hover to open reaction picker, fall back to Like if picker doesn't appear
+              const box = await btn.boundingBox().catch(() => null);
+              if (box) {
+                await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 8 });
+                await humanDelay(700, 1200);
+                const picker = await page.$(`[aria-label="${reaction}"][role="button"]`).catch(() => null);
+                if (picker && await picker.isVisible().catch(() => false)) {
+                  await picker.click({ force: true }).catch(() => {});
+                } else {
+                  await btn.click({ force: true }).catch(() => {});
+                }
+              }
+            }
+
+            reacted++;
+            await humanDelay(1500, 3500);
+            console.log(`[FB] Reacted ${reaction} to news feed post (${reacted}/${maxReactions})`);
+          }
+        } catch { /* silent — feed reactions are best-effort */ }
+      }
     }
-    console.log('[FB] Visited news feed');
+
+    console.log(`[FB] News feed visit complete — scrolled ${scrolls}x, reacted ${reacted}/${maxReactions}`);
   } catch (err) {
     console.warn('[FB] visitNewsFeed failed:', (err as Error).message);
   }
+  return { reacted };
 }
 
 // --- View 2–3 Facebook Stories at session start ---
@@ -1105,6 +1179,28 @@ export type FbReaction = 'Like' | 'Love' | 'Care' | 'Haha' | 'Wow' | 'Sad' | 'An
  * To use non-Like reactions: hover over the Like button to reveal the picker,
  * wait for it to appear, then click the desired reaction.
  */
+// Selectors for the Like button across Facebook DOM versions
+const FB_LIKE_SELECTORS = [
+  '[aria-label="Like"][role="button"]',
+  'div[aria-label="Like"][role="button"]',
+  // 2024–2025 Facebook layout uses data-testid
+  '[data-testid="like-button"]',
+  // Span-based reaction bar
+  'span[data-testid="UFI2ReactionLink"]',
+  // Generic fallback — first reaction button in the post actions bar
+  'div[data-ft] [role="button"][aria-label*="Like" i]',
+];
+
+async function findLikeButton(page: import('playwright').Page) {
+  for (const sel of FB_LIKE_SELECTORS) {
+    try {
+      const btn = await page.$(sel);
+      if (btn && await btn.isVisible().catch(() => false)) return btn;
+    } catch {}
+  }
+  return null;
+}
+
 export async function reactToPost(
   postUrl: string,
   reaction: FbReaction = 'Like'
@@ -1115,58 +1211,124 @@ export async function reactToPost(
     await randomDelay(3000, 6000);
     await readingPause(page);
 
-    if (reaction === 'Like') {
-      // Simple like — find Like button and click
-      const likeBtn = await page.$('[aria-label="Like"][role="button"], div[aria-label="Like"]');
-      if (likeBtn && await likeBtn.isVisible().catch(() => false)) {
-        const pressed = await likeBtn.getAttribute('aria-pressed').catch(() => null);
-        if (pressed !== 'true') {
-          await likeBtn.click({ force: true });
-          await randomDelay(1000, 2500);
-        }
-      }
-    } else {
-      // Non-Like reaction: hover over Like button to trigger reaction picker
-      const likeBtn = await page.$('[aria-label="Like"][role="button"], div[aria-label="Like"]');
-      if (!likeBtn || !await likeBtn.isVisible().catch(() => false)) {
-        return { success: false, reaction };
-      }
+    // Scroll down slightly — Like bar is below the post header
+    await page.mouse.wheel(0, 300 + Math.random() * 200);
+    await randomDelay(800, 1500);
 
-      // Hover and hold to trigger reaction picker (Facebook shows it after ~0.6s)
+    const likeBtn = await findLikeButton(page);
+    if (!likeBtn) {
+      console.warn('[facebook] Like button not found, skipping reaction');
+      return { success: false, reaction };
+    }
+
+    // Check if already reacted
+    const pressed = await likeBtn.getAttribute('aria-pressed').catch(() => null);
+    if (pressed === 'true') return { success: true, reaction }; // already reacted
+
+    if (reaction === 'Like') {
+      // Use real mouse click (not force:true) — Facebook's React handlers need native events
       const box = await likeBtn.boundingBox();
       if (box) {
-        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 8 });
-        await randomDelay(700, 1200); // wait for picker to appear
+        // Move mouse to button center with human-like steps
+        const cx = box.x + box.width / 2;
+        const cy = box.y + box.height / 2;
+        await page.mouse.move(cx, cy, { steps: 8 });
+        await randomDelay(200, 500);
+        await page.mouse.click(cx, cy);
+      } else {
+        // Fallback: try regular click without force
+        await likeBtn.click();
       }
+      await randomDelay(1500, 3000);
+      // Verify reaction registered
+      const likeConfirmed = await likeBtn.getAttribute('aria-pressed').catch(() => null);
+      if (likeConfirmed === 'true') {
+        console.log(`[facebook] Liked (verified): ${postUrl.slice(0, 60)}`);
+        return { success: true, reaction };
+      }
+      // Double-check: sometimes Facebook updates a different element
+      const anyPressed = await page.$('[aria-label="Like"][aria-pressed="true"], [aria-label="Remove Like"][role="button"]').catch(() => null);
+      if (anyPressed) {
+        console.log(`[facebook] Liked (verified via alt selector): ${postUrl.slice(0, 60)}`);
+        return { success: true, reaction };
+      }
+      console.warn(`[facebook] Like click may not have registered: ${postUrl.slice(0, 60)}`);
+      return { success: false, reaction };
+    }
 
-      // Reaction picker aria-labels: Love, Care, Haha, Wow, Sad, Angry
-      const reactionBtn = await page.$(`[aria-label="${reaction}"][role="button"]`);
+    // Non-Like: hover to open reaction picker
+    const box = await likeBtn.boundingBox();
+    if (box) {
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 10 });
+      await randomDelay(800, 1400); // wait for picker to appear
+    }
+
+    // Try multiple reaction picker selectors
+    const pickerSelectors = [
+      `[aria-label="${reaction}"][role="button"]`,
+      `[data-testid="UFI2ReactionsCount/like/${reaction.toLowerCase()}"]`,
+      `[aria-label*="${reaction}" i][role="button"]`,
+    ];
+
+    for (const sel of pickerSelectors) {
+      const reactionBtn = await page.$(sel).catch(() => null);
       if (reactionBtn && await reactionBtn.isVisible().catch(() => false)) {
-        await reactionBtn.click({ force: true });
-        await randomDelay(1000, 2500);
-        console.log(`[facebook] Reacted with ${reaction} on: ${postUrl}`);
-        return { success: true, reaction };
-      }
-
-      // Fallback: try text-based search for reaction
-      const fallback = await page.evaluate((label: string) => {
-        const els = Array.from(document.querySelectorAll('[role="button"]'));
-        for (const el of els) {
-          if (el.getAttribute('aria-label') === label) {
-            (el as HTMLElement).click();
-            return true;
-          }
+        const rBox = await reactionBtn.boundingBox();
+        if (rBox) {
+          await page.mouse.move(rBox.x + rBox.width / 2, rBox.y + rBox.height / 2, { steps: 6 });
+          await randomDelay(150, 400);
+          await page.mouse.click(rBox.x + rBox.width / 2, rBox.y + rBox.height / 2);
+        } else {
+          await reactionBtn.click();
         }
-        return false;
-      }, reaction);
-
-      if (fallback) {
-        await randomDelay(1000, 2000);
-        return { success: true, reaction };
+        await randomDelay(1000, 2500);
+        // Verify reaction registered
+        const afterPressed = await likeBtn.getAttribute('aria-pressed').catch(() => null);
+        if (afterPressed === 'true') {
+          console.log(`[facebook] Reacted ${reaction} (verified) on: ${postUrl.slice(0, 60)}`);
+          return { success: true, reaction };
+        }
+        console.warn(`[facebook] Reaction ${reaction} may not have registered: ${postUrl.slice(0, 60)}`);
+        return { success: false, reaction };
       }
     }
 
-    return { success: true, reaction };
+    // Fallback: evaluate-based click
+    const fallback = await page.evaluate((label: string) => {
+      const els = Array.from(document.querySelectorAll('[role="button"]'));
+      for (const el of els) {
+        const lbl = el.getAttribute('aria-label') || '';
+        if (lbl === label || lbl.toLowerCase().includes(label.toLowerCase())) {
+          (el as HTMLElement).click();
+          return true;
+        }
+      }
+      return false;
+    }, reaction);
+
+    if (fallback) {
+      await randomDelay(1000, 2000);
+      console.log(`[facebook] Reacted ${reaction} (fallback) on: ${postUrl.slice(0, 60)}`);
+      return { success: true, reaction };
+    }
+
+    // Picker didn't open — fall back to plain Like with native click
+    const fbBox = await likeBtn.boundingBox();
+    if (fbBox) {
+      await page.mouse.move(fbBox.x + fbBox.width / 2, fbBox.y + fbBox.height / 2, { steps: 8 });
+      await randomDelay(200, 500);
+      await page.mouse.click(fbBox.x + fbBox.width / 2, fbBox.y + fbBox.height / 2);
+    } else {
+      await likeBtn.click();
+    }
+    await randomDelay(1000, 2000);
+    const fbConfirmed = await likeBtn.getAttribute('aria-pressed').catch(() => null);
+    if (fbConfirmed === 'true') {
+      console.log(`[facebook] Liked (fallback verified) on: ${postUrl.slice(0, 60)}`);
+      return { success: true, reaction: 'Like' };
+    }
+    console.warn(`[facebook] Fallback like did not register: ${postUrl.slice(0, 60)}`);
+    return { success: false, reaction: 'Like' };
   } catch (err) {
     console.error(`[facebook] reactToPost error:`, (err as Error).message);
     return { success: false, reaction };
@@ -1195,6 +1357,96 @@ export function pickReaction(): FbReaction {
 }
 
 /**
+ * Share a Facebook post to the user's own timeline.
+ * Uses "Share now" (no extra text) — keeps it natural and rare.
+ * Only ~10% of reacted posts should be shared; call site enforces this.
+ */
+export async function sharePost(postUrl: string): Promise<{ success: boolean }> {
+  try {
+    const page = await getPage();
+    await page.goto(postUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+    await randomDelay(3000, 6000);
+    await readingPause(page);
+
+    await page.mouse.wheel(0, 300 + Math.random() * 200);
+    await randomDelay(800, 1500);
+
+    // Find the Share button — try multiple selector patterns
+    const shareSelectors = [
+      '[aria-label="Send this to friends or post it on your profile."]',
+      '[aria-label="Share"]',
+      '[data-testid="ufi_share_button"]',
+    ];
+
+    let shareBtn = null;
+    for (const sel of shareSelectors) {
+      shareBtn = await page.$(sel).catch(() => null);
+      if (shareBtn && await shareBtn.isVisible().catch(() => false)) break;
+      shareBtn = null;
+    }
+
+    // Evaluate-based fallback
+    if (!shareBtn) {
+      const clicked = await page.evaluate(() => {
+        const btns = Array.from(document.querySelectorAll('[role="button"]'));
+        const btn = btns.find(b => {
+          const lbl = (b.getAttribute('aria-label') || '').toLowerCase();
+          const txt = (b.textContent || '').trim().toLowerCase();
+          return lbl === 'share' || txt === 'share';
+        });
+        if (btn) { (btn as HTMLElement).click(); return true; }
+        return false;
+      });
+      if (!clicked) {
+        console.warn('[facebook] sharePost: Share button not found on', postUrl.slice(0, 60));
+        return { success: false };
+      }
+    } else {
+      await shareBtn.click({ force: true });
+    }
+
+    await randomDelay(1500, 2500);
+
+    // Look for "Share now" option in the dropdown/dialog
+    const shareNowSelectors = [
+      '[aria-label="Share now"]',
+      '[role="menuitem"]:has-text("Share now")',
+      '[role="button"]:has-text("Share now")',
+    ];
+
+    let shareNowBtn = null;
+    for (const sel of shareNowSelectors) {
+      shareNowBtn = await page.$(sel).catch(() => null);
+      if (shareNowBtn && await shareNowBtn.isVisible().catch(() => false)) break;
+      shareNowBtn = null;
+    }
+
+    if (!shareNowBtn) {
+      const clicked = await page.evaluate(() => {
+        const items = Array.from(document.querySelectorAll('[role="menuitem"], [role="button"], [role="option"]'));
+        const item = items.find(i => (i.textContent || '').trim().toLowerCase() === 'share now');
+        if (item) { (item as HTMLElement).click(); return true; }
+        return false;
+      });
+      if (!clicked) {
+        await page.keyboard.press('Escape');
+        console.warn('[facebook] sharePost: Share now button not found');
+        return { success: false };
+      }
+    } else {
+      await shareNowBtn.click({ force: true });
+    }
+
+    await randomDelay(2000, 4000);
+    console.log(`[facebook] Shared post: ${postUrl.slice(0, 60)}`);
+    return { success: true };
+  } catch (err) {
+    console.error('[facebook] sharePost error:', (err as Error).message);
+    return { success: false };
+  }
+}
+
+/**
  * Browse a Facebook group feed and react to a few posts without commenting.
  * Picks reactions based on weighted probability matching real user distribution.
  */
@@ -1219,8 +1471,14 @@ export async function browseFeedAndReact(
         await randomDelay(1500, 3000);
       }
 
-      // Find Like buttons on visible posts
-      const likeBtns = await page.$$('[aria-label="Like"][role="button"]');
+      // Find Like buttons on visible posts — try multiple selectors for current FB DOM
+      let likeBtns: import('playwright').ElementHandle<Element>[] = [];
+      for (const sel of FB_LIKE_SELECTORS) {
+        try {
+          const found = await page.$$(sel);
+          if (found.length > 0) { likeBtns = found; break; }
+        } catch {}
+      }
 
       for (const btn of likeBtns) {
         if (reacted >= maxReactions) break;
@@ -1230,28 +1488,46 @@ export async function browseFeedAndReact(
         if (pressed === 'true') continue; // already reacted
 
         const reaction = pickReaction();
-        if (reaction === 'Like') {
-          await btn.click({ force: true });
-        } else {
-          // Hover to open picker
-          const box = await btn.boundingBox();
-          if (box) {
-            await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 8 });
-            await randomDelay(700, 1200);
-            const picker = await page.$(`[aria-label="${reaction}"][role="button"]`);
+        try {
+          // Use coordinate-based mouse click — Facebook needs native events, not force:true
+          const btnBox = await btn.boundingBox();
+          if (!btnBox) continue;
+          const bx = btnBox.x + btnBox.width / 2;
+          const by = btnBox.y + btnBox.height / 2;
+
+          if (reaction === 'Like') {
+            await page.mouse.move(bx, by, { steps: 8 });
+            await randomDelay(200, 400);
+            await page.mouse.click(bx, by);
+          } else {
+            // Hover to open picker
+            await page.mouse.move(bx, by, { steps: 10 });
+            await randomDelay(800, 1400);
+            const picker = await page.$(`[aria-label="${reaction}"][role="button"]`).catch(() => null);
             if (picker && await picker.isVisible().catch(() => false)) {
-              await picker.click({ force: true });
+              const pickerBox = await picker.boundingBox();
+              if (pickerBox) {
+                await page.mouse.click(pickerBox.x + pickerBox.width / 2, pickerBox.y + pickerBox.height / 2);
+              }
             } else {
-              // Picker didn't show — fall back to like
-              await btn.click({ force: true });
+              // Picker didn't show — fall back to like click
+              await page.mouse.click(bx, by);
             }
           }
+          await randomDelay(800, 1500);
+          // Verify the reaction actually registered
+          const confirmed = await btn.getAttribute('aria-pressed').catch(() => null);
+          if (confirmed !== 'true') {
+            console.warn('[facebook] Feed reaction click may not have registered');
+            continue; // Don't count unconfirmed reactions
+          }
+          reacted++;
+          reactions.push(reaction);
+          await randomDelay(2000, 5000);
+          await readingPause(page);
+        } catch (e) {
+          console.warn('[facebook] browseFeedAndReact click error:', (e as Error).message);
         }
-
-        reacted++;
-        reactions.push(reaction);
-        await randomDelay(2000, 5000);
-        await readingPause(page);
       }
     } catch (err) {
       console.error(`[facebook] browseFeedAndReact error on ${groupUrl}:`, (err as Error).message);

@@ -33,8 +33,9 @@ export async function GET() {
     createdAt: 1,
   }).lean();
 
-  // Get post counts per user (total)
+  // Get posted comment counts per user
   const postCountsAgg = await Post.aggregate([
+    { $match: { status: 'posted' } },
     { $group: { _id: '$userId', total: { $sum: 1 } } },
   ]);
   const postCountMap = new Map<string, number>();

@@ -36,7 +36,35 @@ interface StatsData {
     byStatus: Record<string, number>;
     byPlatform: Record<string, number>;
     postedByPlatform: Record<string, number>;
+    likedByPlatform: Record<string, number>;
 }
+
+interface ActivityLogEntry {
+    _id: string; platform: string; level: string;
+    action: string; message: string; timestamp: string;
+}
+
+/* ── Log helpers ── */
+const LOG_TITLES: Record<string, string> = {
+    post: 'Reply posted', original_tweet: 'Original tweet',
+    react: 'Reacted', engage: 'Engaged', like: 'Liked',
+    upvote_post: 'Upvoted', upvote_answer: 'Upvoted answers',
+    save_pin: 'Saved pin', share: 'Shared',
+    automation_block: 'Automation detected', backoff: 'In cooldown',
+    auth_error: 'Session expired', cron_start: 'Session started',
+    cron_end: 'Session finished', skip: 'Skipped',
+    browse_feed: 'Browsed feed', feed_browse: 'Browsed feed',
+    scrape: 'Scraped posts', evaluate: 'Evaluated',
+    warmup: 'Warmup mode', limit: 'Limit reached',
+    social: 'Social phase', session_start: 'Session opened',
+};
+function miniLog(e: ActivityLogEntry): string { return LOG_TITLES[e.action] || e.message?.slice(0, 40) || e.action; }
+function logColor(level: string): string { return level === 'error' ? '#ef4444' : level === 'warn' ? '#f59e0b' : level === 'success' ? '#10b981' : '#6b7280'; }
+
+const ENGAGE_LABELS: Record<string, string> = {
+    twitter: 'Liked', reddit: 'Upvoted', facebook: 'Reacted',
+    quora: 'Upvoted', youtube: 'Liked', pinterest: 'Saved',
+};
 
 const ALL_PLATFORMS = [
     { id: 'twitter', label: 'Twitter / X', icon: 'X' },
@@ -77,6 +105,7 @@ const PLATFORM_LABELS: Record<string, string> = {
 function formatDuration(start: string, end: string): string {
     if (!start || !end) return '—';
     const ms = new Date(end).getTime() - new Date(start).getTime();
+    if (ms < 0 || ms > 30 * 60 * 1000) return '—'; // ignore stale/invalid durations (> 30min)
     const secs = Math.round(ms / 1000);
     if (secs < 60) return `${secs}s`;
     const mins = Math.floor(secs / 60);
@@ -87,7 +116,6 @@ function formatDuration(start: string, end: string): string {
 export default function PipelinePage() {
     const [cronPaused, setCronPaused] = useState(false);
     const [cronToggling, setCronToggling] = useState(false);
-    const [cronStatus, setCronStatus] = useState<CronStatusData | null>(null);
     const [stats, setStats] = useState<StatsData | null>(null);
 
     const [pipelineRunning, setPipelineRunning] = useState(false);
@@ -103,13 +131,21 @@ export default function PipelinePage() {
     const [connectedPlatforms, setConnectedPlatforms] = useState<string[]>([]);
     const [upgradeMessage, setUpgradeMessage] = useState('');
     const [platformConfig, setPlatformConfig] = useState<Record<string, any>>({});
+    const [errorMsg, setErrorMsg] = useState<string | null>(null);
+    const [recentLogs, setRecentLogs] = useState<Record<string, ActivityLogEntry>>({});
+    const [logEngageCounts, setLogEngageCounts] = useState<Record<string, number>>({}); // platform → engagement count from logs
+    const [accountAges, setAccountAges] = useState<Record<string, number>>({}); // platform → days old
 
     const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     const fetchSettings = useCallback(async () => {
         try {
-            const res = await fetch(`${API_BASE}/api/settings`);
-            const data = await res.json();
+            const [settRes, accRes] = await Promise.all([
+                fetch(`${API_BASE}/api/settings`),
+                fetch(`${API_BASE}/api/social-accounts`),
+            ]);
+            const data = await settRes.json();
+            const accData = await accRes.json();
             if (data.settings?.socialAccounts) {
                 const connected = data.settings.socialAccounts
                     .filter((a: any) => a.active !== false)
@@ -117,6 +153,57 @@ export default function PipelinePage() {
                 setConnectedPlatforms([...new Set(connected)] as string[]);
             }
             if (data.settings) setPlatformConfig(data.settings);
+            // Extract account ages for warmup indicator
+            if (accData.accounts) {
+                const ages: Record<string, number> = {};
+                for (const acc of accData.accounts) {
+                    const addedAt = acc.accountAddedAt || acc.createdAt;
+                    if (addedAt) {
+                        const days = (Date.now() - new Date(addedAt).getTime()) / 86400000;
+                        ages[acc.platform] = Math.min(ages[acc.platform] ?? Infinity, days);
+                    }
+                }
+                setAccountAges(ages);
+            }
+        } catch { /* silent */ }
+    }, []);
+
+    const fetchStats = useCallback(async () => {
+        try {
+            const res = await fetch(`${API_BASE}/api/stats`);
+            const data = await res.json();
+            setStats({
+                total: data.total ?? 0,
+                byStatus: data.byStatus ?? {},
+                byPlatform: data.byPlatform ?? {},
+                postedByPlatform: data.postedByPlatform ?? {},
+                likedByPlatform: data.likedByPlatform ?? {},
+            });
+        } catch { /* silent */ }
+    }, []);
+
+    const fetchRecentLogs = useCallback(async () => {
+        try {
+            // Fetch recent logs for display (last log per platform)
+            const res = await fetch(`${API_BASE}/api/logs?limit=18`);
+            const data = await res.json();
+            const logs: ActivityLogEntry[] = data.logs ?? [];
+            const grouped: Record<string, ActivityLogEntry> = {};
+            for (const log of logs) {
+                if (!grouped[log.platform]) grouped[log.platform] = log;
+            }
+            setRecentLogs(grouped);
+
+            // Fetch engagement counts per platform (larger set for accurate counts)
+            const engageRes = await fetch(`${API_BASE}/api/logs?limit=500`);
+            const engageData = await engageRes.json();
+            const allLogs: ActivityLogEntry[] = engageData.logs ?? [];
+            const engageActions = new Set(['react', 'upvote_post', 'upvote_answer', 'like', 'save_pin', 'engage']);
+            const counts: Record<string, number> = {};
+            for (const log of allLogs) {
+                if (engageActions.has(log.action)) counts[log.platform] = (counts[log.platform] ?? 0) + 1;
+            }
+            setLogEngageCounts(counts);
         } catch { /* silent */ }
     }, []);
 
@@ -144,10 +231,17 @@ export default function PipelinePage() {
     useEffect(() => {
         fetchSettings();
         fetchCronControl();
-        // Poll cron status every 5s
-        pollingRef.current = setInterval(fetchCronControl, 5000);
+        fetchStats();
+        fetchRecentLogs();
+        // Poll cron status + stats every 5s
+        pollingRef.current = setInterval(() => { fetchCronControl(); fetchStats(); fetchRecentLogs(); }, 5000);
         return () => { if (pollingRef.current) clearInterval(pollingRef.current); };
-    }, [fetchSettings, fetchCronControl]);
+    }, [fetchSettings, fetchCronControl, fetchStats, fetchRecentLogs]);
+
+    // Auto-dismiss error toast
+    useEffect(() => {
+        if (errorMsg) { const t = setTimeout(() => setErrorMsg(null), 5000); return () => clearTimeout(t); }
+    }, [errorMsg]);
 
     /* ── Handlers ── */
     const handleToggleCron = async () => {
@@ -156,7 +250,7 @@ export default function PipelinePage() {
             const res = await fetch(`${API_BASE}/api/cron-control`, { method: 'POST' });
             const data = await res.json();
             setCronPaused(data.paused ?? false);
-        } catch { /* silent */ }
+        } catch { setErrorMsg('Failed to toggle automation — check connection'); }
         setCronToggling(false);
     };
 
@@ -176,8 +270,7 @@ export default function PipelinePage() {
                     return;
                 }
             }
-        } catch { /* silent */ }
-        // Poll will pick up the running state
+        } catch { setErrorMsg(`Failed to run ${platform} — check connection`); }
         setTimeout(fetchCronControl, 1000);
     };
 
@@ -353,6 +446,19 @@ export default function PipelinePage() {
 
                 {upgradeMessage && <UpgradeBanner message={upgradeMessage} />}
 
+                {/* Error toast */}
+                {errorMsg && (
+                    <div style={{
+                        padding: '10px 16px', background: 'rgba(239,68,68,0.1)',
+                        border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8,
+                        color: '#f87171', fontSize: 13, fontWeight: 500,
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    }}>
+                        <span>{errorMsg}</span>
+                        <button onClick={() => setErrorMsg(null)} style={{ background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', fontSize: 16, padding: '0 4px' }}>×</button>
+                    </div>
+                )}
+
                 {/* ── Guidance for new users ── */}
                 {connectedPlatforms.length === 0 && (
                     <div style={{
@@ -459,47 +565,87 @@ export default function PipelinePage() {
                         </p>
 
                         {/* Per-platform status grid */}
-                        {cronStatus && (
-                            <div style={{
-                                display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                                gap: 10,
-                            }}>
-                                {Object.entries(cronStatus.crons).map(([platform, info]) => (
+                        <div style={{
+                            display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                            gap: 10,
+                        }}>
+                            {ALL_PLATFORMS.map(({ id: platform }) => {
+                                const info = cronStatuses[platform];
+                                const isConnected = connectedPlatforms.includes(platform);
+                                const posted = stats?.postedByPlatform?.[platform] ?? 0;
+                                const liked = stats?.likedByPlatform?.[platform] ?? 0;
+                                const log = recentLogs[platform];
+                                const warmupDays = accountAges[platform];
+                                const isWarmup = isConnected && warmupDays !== undefined && warmupDays < 7;
+
+                                let badge: { text: string; bg: string; color: string };
+                                if (!isConnected) badge = { text: 'Not Connected', bg: 'rgba(255,255,255,0.04)', color: 'var(--text-muted)' };
+                                else if (cronPaused) badge = { text: 'Paused', bg: 'var(--status-rejected-bg)', color: 'var(--status-rejected)' };
+                                else if (info?.running) badge = { text: 'Running', bg: 'var(--accent)', color: '#fff' };
+                                else if (info?.lastExitCode === 0) badge = { text: 'OK', bg: 'var(--status-approved-bg)', color: 'var(--status-approved)' };
+                                else if (info?.lastExitCode != null && info.lastExitCode !== 0) badge = { text: 'Error', bg: 'var(--status-rejected-bg)', color: 'var(--status-rejected)' };
+                                else badge = { text: 'Ready', bg: 'rgba(255,255,255,0.04)', color: 'var(--text-secondary)' };
+
+                                return (
                                     <div key={platform} style={{
                                         background: 'rgba(255,255,255,0.03)', borderRadius: 'var(--radius-sm)',
                                         padding: '12px 14px', border: '1px solid var(--border-subtle)',
                                         display: 'flex', flexDirection: 'column', gap: 6,
+                                        opacity: isConnected ? 1 : 0.5,
                                     }}>
                                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                                             <span style={{ fontWeight: 600, fontSize: 13 }}>
                                                 {PLATFORM_ICONS[platform] ?? '●'} {PLATFORM_LABELS[platform] ?? platform}
                                             </span>
-                                            <span style={{
-                                                fontSize: 10, padding: '2px 8px', borderRadius: 12, fontWeight: 600,
-                                                background: info.running
-                                                    ? 'var(--accent)'
-                                                    : info.lastExitCode === 0 ? 'var(--status-approved-bg)' : 'var(--status-rejected-bg)',
-                                                color: info.running
-                                                    ? '#fff'
-                                                    : info.lastExitCode === 0 ? 'var(--status-approved)' : 'var(--status-rejected)',
-                                            }}>
-                                                {info.running ? 'Running' : info.lastExitCode === 0 ? 'OK' : 'Failed'}
-                                            </span>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                                {isWarmup && (
+                                                    <span title={`Day ${Math.floor(warmupDays)}/7 — browse + react only`} style={{
+                                                        fontSize: 9, fontWeight: 600, padding: '1px 6px',
+                                                        borderRadius: 10, background: 'rgba(251,191,36,0.12)', color: '#fbbf24',
+                                                        border: '1px solid rgba(251,191,36,0.3)',
+                                                    }}>Warmup</span>
+                                                )}
+                                                <span style={{
+                                                    fontSize: 10, padding: '2px 8px', borderRadius: 12, fontWeight: 600,
+                                                    background: badge.bg, color: badge.color,
+                                                }}>
+                                                    {badge.text}
+                                                </span>
+                                            </div>
                                         </div>
-                                        <div style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between' }}>
-                                            <span>Last: {timeAgo(info.lastFinished)}</span>
-                                            <span>{info.lastStarted && info.lastFinished ? formatDuration(info.lastStarted, info.lastFinished) : '—'}</span>
-                                        </div>
-                                        {/* Posted count from stats */}
-                                        {stats?.postedByPlatform?.[platform] !== undefined && (
-                                            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                                                Posted: <strong style={{ color: 'var(--status-approved)' }}>{stats.postedByPlatform[platform]}</strong>
+                                        {info && (
+                                            <div style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between' }}>
+                                                <span>Last: {timeAgo(info.lastFinished)} {info.lastTrigger ? `(${info.lastTrigger})` : ''}</span>
+                                                <span>{info.lastStarted && info.lastFinished ? formatDuration(info.lastStarted, info.lastFinished) : '—'}</span>
                                             </div>
                                         )}
+                                        {/* Stats: posted + engagement */}
+                                        {(() => {
+                                            const engageFromLogs = logEngageCounts[platform] ?? 0;
+                                            const engageCount = liked > 0 ? liked : engageFromLogs;
+                                            return (posted > 0 || engageCount > 0) ? (
+                                                <div style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', gap: 8 }}>
+                                                    {posted > 0 && <span>Posted: <strong style={{ color: 'var(--status-approved)' }}>{posted}</strong></span>}
+                                                    {engageCount > 0 && <span>{ENGAGE_LABELS[platform] || 'Engaged'}: <strong style={{ color: '#f59e0b' }}>{engageCount}</strong></span>}
+                                                </div>
+                                            ) : null;
+                                        })()}
+                                        {/* Last activity or connect hint */}
+                                        {log ? (
+                                            <div style={{ fontSize: 10, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 5 }}>
+                                                <span style={{ width: 5, height: 5, borderRadius: '50%', background: logColor(log.level), flexShrink: 0 }} />
+                                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{miniLog(log)}</span>
+                                                <span style={{ flexShrink: 0 }}>{timeAgo(log.timestamp)}</span>
+                                            </div>
+                                        ) : !isConnected ? (
+                                            <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>Connect account to start</div>
+                                        ) : (
+                                            <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>Waiting for first run...</div>
+                                        )}
                                     </div>
-                                ))}
-                            </div>
-                        )}
+                                );
+                            })}
+                        </div>
                     </div>
                 </div>
 
@@ -606,13 +752,20 @@ export default function PipelinePage() {
                                                     )}
                                                     {statusBadge.text}
                                                 </span>
+                                                {(accountAges[id] ?? 999) < 7 && isConnected && (
+                                                    <span title="Browse + react only for first 7 days — no posting" style={{
+                                                        marginLeft: 6, fontSize: 10, fontWeight: 600, padding: '2px 7px',
+                                                        borderRadius: 12, background: 'rgba(251,191,36,0.12)', color: '#fbbf24',
+                                                        border: '1px solid rgba(251,191,36,0.3)',
+                                                    }}>Warmup</span>
+                                                )}
                                             </td>
                                             <td style={{ padding: '12px 16px', fontSize: 12, color: 'var(--text-secondary)' }}>
                                                 {lastFinished ? (
                                                     <span title={new Date(lastFinished).toLocaleString()}>
                                                         {timeAgo(lastFinished)}
-                                                        {status?.lastTrigger === 'manual' && (
-                                                            <span style={{ marginLeft: 4, fontSize: 10, color: 'var(--text-muted)' }}>(manual)</span>
+                                                        {status?.lastTrigger && (
+                                                            <span style={{ marginLeft: 4, fontSize: 10, color: status.lastTrigger === 'manual' ? 'var(--accent-light)' : 'var(--text-muted)' }}>({status.lastTrigger})</span>
                                                         )}
                                                     </span>
                                                 ) : (

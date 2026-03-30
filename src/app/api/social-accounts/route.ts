@@ -26,11 +26,11 @@ export async function GET() {
   const BrowserCookie = (await import('@/models/BrowserCookie')).default;
   const allCookies = await BrowserCookie.find(
     { userId },
-    { platform: 1, accountId: 1, username: 1, displayName: 1, verified: 1, verifiedAt: 1, createdAt: 1, healthScore: 1, autoPaused: 1, totalPosts: 1, totalErrors: 1, errorCount: 1, backoffUntil: 1, lastPostedAt: 1 },
+    { platform: 1, accountId: 1, username: 1, displayName: 1, verified: 1, verifiedAt: 1, createdAt: 1, healthScore: 1, autoPaused: 1, totalPosts: 1, totalErrors: 1, errorCount: 1, backoffUntil: 1, lastPostedAt: 1, proxyUrl: 1 },
   ).lean();
 
   // Build a map: platform → cookie metadata
-  const cookieMap = new Map<string, { verified: boolean; verifiedAt?: string; username?: string; displayName?: string; accountId?: string; connectedAt?: string; healthScore?: number; autoPaused?: boolean; totalPosts?: number; totalErrors?: number }>();
+  const cookieMap = new Map<string, { verified: boolean; verifiedAt?: string; username?: string; displayName?: string; accountId?: string; connectedAt?: string; healthScore?: number; autoPaused?: boolean; totalPosts?: number; totalErrors?: number; proxyUrl?: string }>();
   for (const c of allCookies) {
     // Always recompute from live BrowserCookie fields — never serve stale default 100
     const liveHealth = computeHealthScore({
@@ -53,6 +53,7 @@ export async function GET() {
       autoPaused: c.autoPaused ?? false,
       totalPosts: c.totalPosts ?? 0,
       totalErrors: c.totalErrors ?? 0,
+      proxyUrl: (c as typeof c & { proxyUrl?: string }).proxyUrl || '',
     });
   }
 
@@ -72,6 +73,7 @@ export async function GET() {
       (acc as SocialAccount & { healthScore?: number; autoPaused?: boolean; totalPosts?: number; totalErrors?: number }).autoPaused = cookie.autoPaused ?? false;
       (acc as SocialAccount & { healthScore?: number; autoPaused?: boolean; totalPosts?: number; totalErrors?: number }).totalPosts = cookie.totalPosts ?? 0;
       (acc as SocialAccount & { healthScore?: number; autoPaused?: boolean; totalPosts?: number; totalErrors?: number }).totalErrors = cookie.totalErrors ?? 0;
+      acc.proxyUrl = cookie.proxyUrl || '';
       (acc as SocialAccount & { warmup?: ReturnType<typeof getWarmupStatus> }).warmup =
         getWarmupStatus(cookie.connectedAt ? new Date(cookie.connectedAt) : null);
       validAccounts.push(acc);
@@ -87,10 +89,11 @@ export async function GET() {
     await settings.save().catch(() => {});
   }
 
-  // Add any verified cookie entries not yet in socialAccounts
+  // Add any cookie entries (verified or expired) not yet in socialAccounts
+  // This ensures expired accounts still show up with an "Expired" badge rather than disappearing
   const existingPlatforms = new Set(validAccounts.map((a: SocialAccount) => a.platform));
   for (const [platform, cookie] of cookieMap.entries()) {
-    if (!existingPlatforms.has(platform) && cookie.verified) {
+    if (!existingPlatforms.has(platform)) {
       const newAcc: SocialAccount & { warmup?: ReturnType<typeof getWarmupStatus> } = {
         id: cookie.accountId || `${platform.slice(0, 2)}_${userId}`,
         platform,
@@ -98,9 +101,9 @@ export async function GET() {
         displayName: cookie.displayName || '',
         profileDir: `profiles/${userId}/${platform}`,
         accountIndex: 0,
-        addedAt: cookie.verifiedAt || new Date().toISOString(),
+        addedAt: cookie.verifiedAt || cookie.connectedAt || new Date().toISOString(),
         active: true,
-        cookieVerified: true,
+        cookieVerified: cookie.verified,
         verifiedAt: cookie.verifiedAt,
         warmup: getWarmupStatus(cookie.connectedAt ? new Date(cookie.connectedAt) : null),
       };
@@ -171,4 +174,25 @@ export async function DELETE(req: NextRequest) {
     accounts: settings.socialAccounts,
     removed: removedAccount ? { platform: removedAccount.platform, username: removedAccount.username } : null,
   });
+}
+
+// PATCH — update proxy URL for a specific platform account
+export async function PATCH(req: NextRequest) {
+  const userId = await getAuthUserId();
+  if (userId instanceof NextResponse) return userId;
+
+  await connectDB();
+  let body: { platform?: string; proxyUrl?: string };
+  try { body = await req.json(); } catch { body = {}; }
+
+  const { platform, proxyUrl } = body;
+  if (!platform) return NextResponse.json({ error: 'platform required' }, { status: 400 });
+
+  const BrowserCookie = (await import('@/models/BrowserCookie')).default;
+  await BrowserCookie.findOneAndUpdate(
+    { userId, platform },
+    { $set: { proxyUrl: (proxyUrl || '').trim() } },
+  );
+
+  return NextResponse.json({ success: true });
 }

@@ -14,7 +14,7 @@ import { join } from 'path';
 import { unlinkSync, readFileSync, existsSync } from 'fs';
 import { execSync } from 'child_process';
 import { detectChromiumPath } from './browserPath';
-import { randomViewport, randomUserAgent, randomDelay, readingPause, buildLaunchArgs, randomTimezone, applyStealth } from './humanize';
+import { randomViewport, randomUserAgent, randomDelay, readingPause, buildLaunchArgs, randomTimezone, applyStealth, parseProxyConfig } from './humanize';
 
 const TWITTER_GRAPHQL_BASE = 'https://x.com/i/api/graphql';
 const BEARER =
@@ -35,6 +35,7 @@ interface TweetResponse {
 let _context: BrowserContext | null = null;
 let _page: Page | null = null;
 let _activeProfileDir: string = PROFILE_DIR;
+let _activeProxyUrl: string = '';
 
 /**
  * Set the profile directory for the next browser session.
@@ -49,6 +50,18 @@ export function setProfileDir(profileDir: string): void {
       _page = null;
     }
     _activeProfileDir = resolved;
+  }
+}
+
+/** Set the proxy URL for this account's browser session. Call before getPage(). */
+export function setProxy(proxyUrl: string): void {
+  if (proxyUrl !== _activeProxyUrl) {
+    if (_context) {
+      _context.close().catch(() => {});
+      _context = null;
+      _page = null;
+    }
+    _activeProxyUrl = proxyUrl;
   }
 }
 
@@ -84,16 +97,22 @@ async function getPage(): Promise<Page> {
   try { unlinkSync(join(profileDir, 'SingletonLock')); } catch {}
 
   const execPath = detectChromiumPath();
+  const proxyConfig = parseProxyConfig(_activeProxyUrl);
+  // Choose UA and viewport once — pass them to applyStealth so fingerprints match
+  const ua = randomUserAgent();
+  const vp = randomViewport();
+  const tz = process.env.ACCOUNT_TIMEZONE || randomTimezone();
   _context = await chromium.launchPersistentContext(profileDir, {
     ...(execPath && { executablePath: execPath }),
     headless: true,
     args: buildLaunchArgs(),
-    userAgent: randomUserAgent(),
-    viewport: randomViewport(),
+    userAgent: ua,
+    viewport: vp,
     locale: 'en-US',
-    timezoneId: randomTimezone(),
+    timezoneId: tz,
+    ...(proxyConfig && { proxy: proxyConfig }),
   });
-  await applyStealth(_context);
+  await applyStealth(_context, { viewport: vp, ua });
 
   // Inject cookies: prefer cookies.json from profile dir, fall back to env vars
   const cookiesJsonPath = join(profileDir, 'cookies.json');
@@ -609,7 +628,17 @@ export async function postTweet(text: string): Promise<TweetResponse> {
 }
 
 // --- Post a reply to a specific tweet ---
-export async function replyToTweet(text: string, inReplyToTweetId: string): Promise<TweetResponse> {
+// Pass communityId when replying inside a community so the reply is visible to members.
+// Also navigates to the tweet page first to warm up the session (avoids cold-API 226 blocks).
+export async function replyToTweet(text: string, inReplyToTweetId: string, communityId?: string): Promise<TweetResponse> {
+  const page = await getPage();
+  // Warm-up: visit the tweet page so the session looks like a real user reading before replying
+  try {
+    await page.goto(`https://x.com/i/status/${inReplyToTweetId}`, { waitUntil: 'domcontentloaded', timeout: NAVIGATION_TIMEOUT });
+    // Simulate reading the tweet (8–20s)
+    await randomDelay(8000, 20000);
+  } catch { /* non-fatal — proceed with post anyway */ }
+
   return createTweet({
     tweet_text: text,
     reply: {
@@ -619,6 +648,7 @@ export async function replyToTweet(text: string, inReplyToTweetId: string): Prom
     dark_request: false,
     media: { media_entities: [], possibly_sensitive: false },
     semantic_annotation_ids: [],
+    ...(communityId ? { community_id: communityId } : {}),
   });
 }
 

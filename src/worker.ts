@@ -199,6 +199,11 @@ async function handleValidateTwitter(data: ValidateCookiesJob) {
     try {
       const Settings = (await import('./models/Settings')).default;
       const profileDirRelative = `profiles/${userId}/${platform}`;
+      let settings = await Settings.findOne({ userId });
+      // Preserve original addedAt if this platform was already connected
+      const existingAccount = (settings?.socialAccounts || []).find(
+        (a: { platform: string }) => a.platform === platform
+      );
       const newAccount = {
         id: accountId,
         platform,
@@ -206,10 +211,9 @@ async function handleValidateTwitter(data: ValidateCookiesJob) {
         displayName: displayName || username || '',
         profileDir: profileDirRelative,
         accountIndex: 0,
-        addedAt: new Date().toISOString(),
+        addedAt: existingAccount?.addedAt || new Date().toISOString(), // preserve original date
         active: true,
       };
-      let settings = await Settings.findOne({ userId });
       if (!settings) {
         settings = await Settings.create({ userId, companyName: '', companyDescription: '', socialAccounts: [newAccount] });
       } else {

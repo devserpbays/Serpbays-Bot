@@ -17,8 +17,10 @@ config({ path: '.env.local' });
 
 import { connectDB } from '../src/lib/mongodb';
 import Settings from '../src/models/Settings';
+import BrowserCookie from '../src/models/BrowserCookie';
 import { isWithinSchedule } from '../src/lib/schedule';
 import { checkAndNotifyCookieExpiry } from '../src/lib/cookieExpiryChecker';
+import { cronStart, cronFinish } from '../src/lib/cronState';
 import { spawn } from 'child_process';
 import { join } from 'path';
 
@@ -47,7 +49,13 @@ const PLATFORM_ENV_KEYS: Record<string, string> = {
 
 const MAX_CONCURRENT = parseInt(process.env.MAX_CONCURRENT_TASKS || '8', 10);
 const MAX_BROWSER = parseInt(process.env.MAX_BROWSER_TASKS || '3', 10);
-const INTER_PLATFORM_GAP_MS = 2 * 60 * 1000; // 2 min gap between platforms per user
+const INTER_PLATFORM_GAP_MS = 30 * 1000; // 30s gap between platforms per user (was 2 min — too slow, caused hour-long gaps)
+
+// Timezone pool for auto-assigning consistent per-account timezones
+const TIMEZONE_POOL = [
+  'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
+  'America/Toronto', 'Europe/London', 'Australia/Sydney', 'Asia/Kolkata', 'Asia/Singapore',
+];
 
 // --- Semaphore for controlling concurrency ---
 class Semaphore {
@@ -82,12 +90,19 @@ interface CronTask {
   mode: string;
 }
 
+const TASK_TIMEOUT_MS = 12 * 60 * 1000; // 12 min max per platform task
+
 // Run a cron script for a specific user+platform
-function runCronForUser(
+async function runCronForUser(
   task: CronTask,
 ): Promise<{ userId: string; platform: string; exitCode: number; durationMs: number }> {
+  // Register cron start in Redis so pipeline page shows accurate last-run time
+  let entryId = '';
+  try { entryId = await cronStart(task.platform, 'auto', task.userId); } catch { /* best effort */ }
+
   return new Promise((resolve) => {
     const start = Date.now();
+    let settled = false;
     const scriptPath = join(process.cwd(), PLATFORM_SCRIPTS[task.platform]);
 
     const child = spawn('npx', ['tsx', scriptPath, ...(task.mode !== 'full' ? [`--mode=${task.mode}`] : [])], {
@@ -105,19 +120,39 @@ function runCronForUser(
     child.stdout?.on('data', (d) => { stdout += d.toString(); });
     child.stderr?.on('data', (d) => { stderr += d.toString(); });
 
-    child.on('close', (code) => {
+    // 12-minute timeout — kill if stuck
+    const timeout = setTimeout(async () => {
+      if (!settled) {
+        settled = true;
+        child.kill('SIGTERM');
+        setTimeout(() => { try { child.kill('SIGKILL'); } catch {} }, 5000);
+        const msg = `Cron timed out after ${TASK_TIMEOUT_MS / 1000}s`;
+        console.warn(`[${task.userId.slice(-8)}/${task.platform}] ${msg}`);
+        try { await cronFinish(entryId, task.platform, 1, msg, task.userId); } catch {}
+        resolve({ userId: task.userId, platform: task.platform, exitCode: 1, durationMs: Date.now() - start });
+      }
+    }, TASK_TIMEOUT_MS);
+
+    child.on('close', async (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
       const durationMs = Date.now() - start;
-      // Log condensed output (last 5 lines) to avoid flooding
       const lines = (stdout + stderr).trim().split('\n');
       const summary = lines.slice(-3).join(' | ');
       if (code !== 0 && stderr) {
         console.error(`[${task.userId.slice(-8)}/${task.platform}] FAILED (${code}): ${summary}`);
       }
+      try { await cronFinish(entryId, task.platform, code ?? 1, summary.slice(0, 200), task.userId); } catch {}
       resolve({ userId: task.userId, platform: task.platform, exitCode: code ?? 1, durationMs });
     });
 
-    child.on('error', (err) => {
+    child.on('error', async (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
       console.error(`[master-cron] Spawn error ${task.platform}/${task.userId}:`, err.message);
+      try { await cronFinish(entryId, task.platform, 1, err.message.slice(0, 200), task.userId); } catch {}
       resolve({ userId: task.userId, platform: task.platform, exitCode: 1, durationMs: Date.now() - start });
     });
   });
@@ -145,6 +180,60 @@ async function main() {
     autoPostingPaused: { $ne: true },
   }).lean();
 
+  // Auto-assign cronJitterSeconds to users that don't have it yet (0–840s = 0–14min)
+  const jitterUpdates = allSettings
+    .filter(s => (s as any).cronJitterSeconds == null)
+    .map(s => Settings.updateOne(
+      { userId: s.userId },
+      { $set: { cronJitterSeconds: Math.floor(Math.random() * 840) } }
+    ));
+  if (jitterUpdates.length > 0) {
+    await Promise.all(jitterUpdates);
+    console.log(`[master-cron] Auto-assigned cron jitter to ${jitterUpdates.length} users`);
+    // Re-fetch to get the assigned values
+    Object.assign(allSettings, await Settings.find({
+      userId: { $exists: true, $nin: [null, ''] },
+      autoPostingPaused: { $ne: true },
+    }).lean());
+  }
+
+  // Load per-account assigned timezones from BrowserCookie
+  const allUserIds = allSettings.map(s => s.userId as string).filter(Boolean);
+  const cookieDocs = await BrowserCookie.find({ userId: { $in: allUserIds } }, {
+    userId: 1, platform: 1, assignedTimezone: 1, proxyUrl: 1,
+  }).lean();
+
+  // Auto-assign timezone to accounts that don't have one
+  const tzAssignUpdates: Promise<any>[] = [];
+  for (const doc of cookieDocs) {
+    const d = doc as any;
+    if (!d.assignedTimezone) {
+      const tz = TIMEZONE_POOL[Math.floor(Math.random() * TIMEZONE_POOL.length)];
+      tzAssignUpdates.push(
+        BrowserCookie.updateOne({ _id: d._id }, { $set: { assignedTimezone: tz } })
+      );
+      d.assignedTimezone = tz; // update in-memory too
+    }
+  }
+  if (tzAssignUpdates.length > 0) {
+    await Promise.all(tzAssignUpdates);
+    console.log(`[master-cron] Auto-assigned timezones to ${tzAssignUpdates.length} accounts`);
+  }
+
+  // Build userId → platform → timezone map
+  const tzMap = new Map<string, Map<string, string>>();
+  for (const doc of cookieDocs) {
+    const d = doc as any;
+    if (!tzMap.has(d.userId)) tzMap.set(d.userId, new Map());
+    if (d.assignedTimezone) tzMap.get(d.userId)!.set(d.platform, d.assignedTimezone);
+  }
+
+  // Build userId → jitter seconds map
+  const jitterMap = new Map<string, number>();
+  for (const s of allSettings) {
+    jitterMap.set(s.userId as string, (s as any).cronJitterSeconds ?? 0);
+  }
+
   if (allSettings.length === 0) {
     console.log('[master-cron] No active user settings found');
     process.exit(0);
@@ -157,12 +246,12 @@ async function main() {
     const userId = settings.userId as string;
 
     // Check user's cron schedule — skip if outside their configured hours/days
+    // Only check schedule if user has explicitly set a timezone (otherwise run anytime)
     const userTz = (settings.cronTimezone as string) || '';
     const userStartHour = (settings.cronStartHour as number) ?? 9;
     const userEndHour = (settings.cronEndHour as number) ?? 18;
     const userDays = (settings.cronDays as number[]) ?? [0, 1, 2, 3, 4, 5, 6];
 
-    // Only check schedule if user has set a timezone (otherwise run anytime)
     if (userTz) {
       const inSchedule = isWithinSchedule({
         timezone: userTz,
@@ -189,12 +278,18 @@ async function main() {
     }
 
     const accounts = (settings.socialAccounts as Array<{ platform: string; profileDir?: string; active?: boolean }>) || [];
+    const userTzMap = tzMap.get(userId) || new Map<string, string>();
 
     const profileDirEnv: Record<string, string> = {};
     for (const acc of accounts) {
       const envKey = PLATFORM_ENV_KEYS[acc.platform];
       if (envKey && acc.profileDir && acc.active !== false) {
         profileDirEnv[envKey] = acc.profileDir;
+      }
+      // Inject consistent timezone for this account
+      const accTz = userTzMap.get(acc.platform);
+      if (accTz) {
+        profileDirEnv['ACCOUNT_TIMEZONE'] = accTz; // last platform's tz wins — typically same for a user
       }
     }
 
@@ -243,7 +338,23 @@ async function main() {
     tasksByUser.get(task.userId)!.push(task);
   }
 
-  const userPromises = [...tasksByUser.values()].map(async (userTasks) => {
+  // Shuffle users to break alphabetical/registration-order burst patterns
+  const shuffledUsers = [...tasksByUser.entries()].sort(() => Math.random() - 0.5);
+
+  // Stagger: spread users across a fraction of the cron window so not all fire at once.
+  // With 100 users and 15-min window → each user starts ~8 seconds after the previous.
+  const STAGGER_MS = shuffledUsers.length > 1
+    ? Math.min(15_000, Math.floor((13 * 60_000) / shuffledUsers.length))
+    : 0;
+
+  const userPromises = shuffledUsers.map(async ([userId, userTasks], idx) => {
+    // Per-user jitter: deterministic offset so the same user always fires at ~the same
+    // relative time within the cron window — prevents correlated bursts across runs.
+    const storedJitterMs = (jitterMap.get(userId) ?? 0) * 1000;
+    // Use stagger for the base spread, stored jitter adds fine-grained offset
+    const totalDelay = idx * STAGGER_MS + Math.min(storedJitterMs % 30_000, 30_000);
+    if (totalDelay > 0) await sleep(totalDelay);
+
     for (let i = 0; i < userTasks.length; i++) {
       const task = userTasks[i];
       await totalSem.acquire();

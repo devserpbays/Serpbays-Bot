@@ -32,7 +32,7 @@ const SettingsSchema = new Schema({
   twitterAutoPostThreshold: { type: Number, default: 70 },
   twitterBrandMentionRate: { type: Number, default: 25, min: 0, max: 100 },
   twitterCooldownMinutes: { type: Number, default: 60, min: 15 },
-  twitterOriginalTweetsEnabled: { type: Boolean, default: false },
+  twitterOriginalTweetsEnabled: { type: Boolean, default: true },
   twitterOriginalTweetDailyLimit: { type: Number, default: 2 },
   twitterTweetTopics: [{ type: String }],
   twitterTweetPersona: { type: String, default: '' },
@@ -68,6 +68,9 @@ const SettingsSchema = new Schema({
   cronDays: { type: [Number], default: [0, 1, 2, 3, 4, 5, 6] },
   cronIntervalMinutes: { type: Number, default: 15, min: 15, max: 360 },
   lastCronRunAt: { type: Date, default: null },
+  // Per-user cron start jitter (0–840 seconds) — auto-assigned on first run.
+  // Spreads all users across the cron window so they don't all fire simultaneously.
+  cronJitterSeconds: { type: Number, default: null },
   isAdmin: { type: Boolean, default: false },
   blockedUntil: { type: Date, default: null },
   // Notification preferences

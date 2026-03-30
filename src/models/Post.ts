@@ -24,8 +24,11 @@ const PostSchema = new Schema({
   viewCount: { type: Number, default: 0 },
   likedByBot: { type: Boolean, default: false },
   botReaction: { type: String, default: '' }, // 'Like' | 'Love' | 'Care' | 'Haha' | 'Wow' | 'Sad' | 'Angry'
-  retweetedByBot: { type: Boolean, default: false },
-  bookmarkedByBot: { type: Boolean, default: false },
+  sharedByBot:      { type: Boolean, default: false },
+  retweetedByBot:   { type: Boolean, default: false },
+  bookmarkedByBot:  { type: Boolean, default: false },
+  crosspostedByBot: { type: Boolean, default: false },
+  pinterestHeartLiked: { type: Boolean, default: false },
   editedReply: String,
   replyUrl: String,
   evaluatedAt: Date,
@@ -53,6 +56,7 @@ const PostSchema = new Schema({
   monitorUntil: Date,
   isOriginalTweet: { type: Boolean, default: false },
   postAttempts: { type: Number, default: 0 },
+  evaluationAttempts: { type: Number, default: 0 },
   // TTL: auto-delete terminal posts after expiry
   ttlExpireAt: { type: Date, default: null },
 }, { timestamps: true });

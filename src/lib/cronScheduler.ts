@@ -39,7 +39,7 @@ export async function scheduleCronJobs(options?: {
     const userId = settings.userId as string;
 
     // Check schedule
-    const userTz = (settings.cronTimezone as string) || '';
+    const userTz = (settings.cronTimezone as string) || 'America/New_York';
     const userStartHour = (settings.cronStartHour as number) ?? 9;
     const userEndHour = (settings.cronEndHour as number) ?? 18;
     const userDays = (settings.cronDays as number[]) ?? [0, 1, 2, 3, 4, 5, 6];
@@ -74,8 +74,10 @@ export async function scheduleCronJobs(options?: {
     for (let i = 0; i < platforms.length; i++) {
       const platform = platforms[i];
       try {
-        // Stagger jobs: 2s between platforms for the same user
-        const delay = i * 2000;
+        // Stagger jobs: 2s between platforms for the same user,
+        // plus a per-user random offset (0–8 min) to avoid synchronized IP spikes
+        const userJitterMs = parseInt(userId.slice(-4), 16) % (8 * 60 * 1000); // deterministic per user, 0–8 min
+        const delay = i * 2000 + userJitterMs;
         const jobId = await enqueueJob({
           type: 'cron-run',
           userId,

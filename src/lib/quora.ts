@@ -10,6 +10,7 @@ import { join } from 'path';
 import { unlinkSync, existsSync, readFileSync } from 'fs';
 import { isValidComment } from './validateComment';
 import { debugScreenshot } from './debugScreenshot';
+import { randomViewport, randomUserAgent, buildLaunchArgs, randomTimezone, applyStealth, parseProxyConfig, randomDelay } from './humanize';
 
 const PROFILE_DIR = process.env.QUORA_PROFILE_DIR
   ? join(process.cwd(), process.env.QUORA_PROFILE_DIR)
@@ -27,6 +28,7 @@ interface QuoraQuestion {
 let _context: BrowserContext | null = null;
 let _page: Page | null = null;
 let _activeProfileDir: string = PROFILE_DIR;
+let _activeProxyUrl: string = '';
 
 /**
  * Set the profile directory for the next browser session.
@@ -44,6 +46,18 @@ export function setProfileDir(profileDir: string): void {
   }
 }
 
+/** Set the proxy URL for this account's browser session. Call before getPage(). */
+export function setProxy(proxyUrl: string): void {
+  if (proxyUrl !== _activeProxyUrl) {
+    if (_context) {
+      _context.close().catch(() => {});
+      _context = null;
+      _page = null;
+    }
+    _activeProxyUrl = proxyUrl;
+  }
+}
+
 // --- Launch or reuse persistent browser context ---
 async function getPage(): Promise<Page> {
   if (_page && !_page.isClosed()) return _page;
@@ -53,38 +67,20 @@ async function getPage(): Promise<Page> {
   // Remove stale browser lock from previous crash
   try { unlinkSync(join(profileDir, 'SingletonLock')); } catch {}
 
+  const proxyConfig = parseProxyConfig(_activeProxyUrl);
+  const ua = randomUserAgent();
+  const vp = randomViewport();
+  const tz = process.env.ACCOUNT_TIMEZONE || randomTimezone();
   _context = await chromium.launchPersistentContext(profileDir, {
     headless: true,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-blink-features=AutomationControlled',
-      '--disable-features=IsolateOrigins,site-per-process',
-      '--flag-switches-begin',
-      '--disable-site-isolation-trials',
-      '--flag-switches-end',
-      '--disable-dev-shm-usage',
-      '--no-first-run',
-      '--no-default-browser-check',
-    ],
-    userAgent:
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-    viewport: { width: 1366, height: 768 },
+    args: buildLaunchArgs(),
+    userAgent: ua,
+    viewport: vp,
     locale: 'en-US',
-    timezoneId: 'America/New_York',
-    extraHTTPHeaders: {
-      'Accept-Language': 'en-US,en;q=0.9',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-      'sec-ch-ua': '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
-      'sec-ch-ua-mobile': '?0',
-      'sec-ch-ua-platform': '"Windows"',
-      'Sec-Fetch-Dest': 'document',
-      'Sec-Fetch-Mode': 'navigate',
-      'Sec-Fetch-Site': 'none',
-      'Sec-Fetch-User': '?1',
-      'Upgrade-Insecure-Requests': '1',
-    },
+    timezoneId: tz,
+    ...(proxyConfig && { proxy: proxyConfig }),
   });
+  await applyStealth(_context, { viewport: vp, ua });
 
   // Inject cookies from cookies.json if available
   const cookiesJsonPath = join(profileDir, 'cookies.json');
@@ -311,9 +307,18 @@ export async function postQuoraAnswer(
     // Wait extra for Quora's React app to fully hydrate
     await sleep(3000);
 
-    // Scroll down to find the answer area
-    await page.evaluate(() => window.scrollBy({ top: 400, behavior: 'smooth' }));
-    await sleep(2000);
+    // Simulate reading existing answers before writing ours (10–20s, 3–5 scrolls)
+    // Real users read what others said before adding their own answer
+    const readScrolls = 3 + Math.floor(Math.random() * 3); // 3–5
+    for (let i = 0; i < readScrolls; i++) {
+      const scrollDist = 300 + Math.floor(Math.random() * 400);
+      await page.evaluate((dist: number) => window.scrollBy({ top: dist, behavior: 'smooth' }), scrollDist);
+      await randomDelay(2000, 5000);
+    }
+    // Pause as if finishing reading — then scroll back toward the top where Answer button lives
+    await randomDelay(1500, 3000);
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
+    await sleep(1500);
 
     // --- Strategy 1: Click "Answer" button/link to open the editor ---
     const answerBtnSelectors = [
@@ -727,5 +732,246 @@ export async function postQuoraComment(
     const msg = (err as Error).message;
     console.error(`Failed to post comment on ${questionUrl}:`, msg);
     return { success: false, error: msg };
+  }
+}
+
+/**
+ * Browse the Quora home feed — scrolls through the feed, pauses to simulate reading.
+ * Used as a session opener to warm up the account before posting.
+ */
+export async function browseQuoraFeed(): Promise<void> {
+  try {
+    const page = await getPage();
+    await page.goto('https://www.quora.com', { waitUntil: 'domcontentloaded' });
+    await sleep(3000 + Math.random() * 2000);
+
+    // Scroll through feed in stages, pausing to simulate reading
+    for (let i = 0; i < 4; i++) {
+      await page.evaluate(() => window.scrollBy({ top: 600 + Math.random() * 400, behavior: 'smooth' }));
+      await sleep(2000 + Math.random() * 2500);
+    }
+    console.log('[Quora] Browsed home feed');
+  } catch (err) {
+    console.warn('[Quora] browseQuoraFeed failed:', (err as Error).message);
+  }
+}
+
+/**
+ * Upvote existing answers on a question page.
+ * Simulates genuine interest in the content before adding our own answer.
+ * @param questionUrl  URL of the question to visit
+ * @param count        Max number of answers to upvote (default 2)
+ * @returns number of answers upvoted
+ */
+export async function upvoteQuoraAnswer(questionUrl: string, count = 2): Promise<number> {
+  let upvoted = 0;
+  try {
+    const page = await getPage();
+    await page.goto(questionUrl, { waitUntil: 'domcontentloaded' });
+    await sleep(4000 + Math.random() * 2000);
+
+    // Scroll to load answers
+    for (let i = 0; i < 4; i++) {
+      await page.evaluate(() => window.scrollBy({ top: 600, behavior: 'smooth' }));
+      await sleep(1500 + Math.random() * 1000);
+    }
+    // Scroll back up to see all answers
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
+    await sleep(1500);
+
+    // Use page.evaluate to find upvote buttons directly in the DOM —
+    // Quora's DOM changes frequently, so we search broadly
+    const buttonPositions = await page.evaluate((maxCount: number) => {
+      const positions: { x: number; y: number; idx: number }[] = [];
+
+      // Strategy 1: Find all buttons/elements with "Upvote" text or aria-label
+      const allElements = document.querySelectorAll('button, [role="button"], span, div');
+      for (let i = 0; i < allElements.length && positions.length < maxCount * 3; i++) {
+        const el = allElements[i] as HTMLElement;
+        const text = (el.textContent || '').trim();
+        const ariaLabel = el.getAttribute('aria-label') || '';
+        const ariaPressed = el.getAttribute('aria-pressed');
+
+        // Skip already-upvoted buttons
+        if (ariaPressed === 'true') continue;
+        if (text.toLowerCase() === 'upvoted') continue;
+
+        // Match "Upvote" text (exact or as label)
+        const isUpvoteBtn =
+          (text === 'Upvote') ||
+          (ariaLabel === 'Upvote') ||
+          (ariaLabel.toLowerCase().includes('upvote') && !ariaLabel.toLowerCase().includes('downvote'));
+
+        if (!isUpvoteBtn) continue;
+
+        // Check visibility
+        const rect = el.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) continue;
+        if (rect.top < 0 || rect.top > window.innerHeight * 2) continue;
+
+        positions.push({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, idx: i });
+      }
+
+      return positions;
+    }, count).catch(() => []);
+
+    console.log(`[Quora] Found ${buttonPositions.length} upvote button(s) on page`);
+
+    for (const pos of buttonPositions) {
+      if (upvoted >= count) break;
+      try {
+        // Scroll the button into view
+        await page.evaluate((y: number) => window.scrollTo({ top: y - 300, behavior: 'smooth' }), pos.y);
+        await sleep(800 + Math.random() * 500);
+
+        // Click at the button position
+        await page.mouse.click(pos.x, pos.y);
+        await sleep(1500 + Math.random() * 1000);
+
+        upvoted++;
+        console.log(`[Quora] Upvoted answer ${upvoted}`);
+      } catch (e) {
+        console.warn(`[Quora] Click failed at (${pos.x}, ${pos.y}):`, (e as Error).message);
+      }
+    }
+
+    // Fallback: try Playwright selectors if evaluate approach found nothing
+    if (upvoted === 0) {
+      const fallbackSelectors = [
+        'button[aria-label*="Upvote" i]',
+        'button:has-text("Upvote")',
+        '[role="button"]:has-text("Upvote")',
+      ];
+      for (const sel of fallbackSelectors) {
+        if (upvoted >= count) break;
+        try {
+          const btns = await page.$$(sel);
+          for (const btn of btns) {
+            if (upvoted >= count) break;
+            const visible = await btn.isVisible().catch(() => false);
+            if (!visible) continue;
+            const pressed = await btn.getAttribute('aria-pressed').catch(() => null);
+            if (pressed === 'true') continue;
+            await btn.click({ force: true });
+            await sleep(1500 + Math.random() * 1000);
+            upvoted++;
+            console.log(`[Quora] Upvoted answer ${upvoted} (fallback selector: ${sel})`);
+          }
+        } catch { /* try next */ }
+      }
+    }
+  } catch (err) {
+    console.warn('[Quora] upvoteQuoraAnswer failed:', (err as Error).message);
+  }
+  return upvoted;
+}
+
+/**
+ * Follow a Quora question (subscribe to updates).
+ * Makes the account look like a genuine user interested in the topic.
+ */
+export async function followQuoraQuestion(questionUrl: string): Promise<boolean> {
+  try {
+    const page = await getPage();
+    // May already be on this page from upvoting — only navigate if needed
+    const currentUrl = page.url();
+    if (!currentUrl.includes(questionUrl.replace(/^https?:\/\/[^/]+/, ''))) {
+      await page.goto(questionUrl, { waitUntil: 'domcontentloaded' });
+      await sleep(2500 + Math.random() * 1500);
+    }
+
+    // Quora "Follow Question" button variants
+    const followSelectors = [
+      'button:has-text("Follow Question")',
+      'button[aria-label="Follow Question"]',
+      'button:has-text("Follow")',
+      'div[role="button"]:has-text("Follow Question")',
+    ];
+
+    for (const sel of followSelectors) {
+      try {
+        const btn = await page.$(sel);
+        if (btn && await btn.isVisible().catch(() => false)) {
+          await btn.click({ force: true });
+          console.log('[Quora] Followed question');
+          await sleep(1500);
+          return true;
+        }
+      } catch { /* try next */ }
+    }
+
+    console.log('[Quora] Follow question button not found (already following or not available)');
+    return false;
+  } catch (err) {
+    console.warn('[Quora] followQuoraQuestion failed:', (err as Error).message);
+    return false;
+  }
+}
+
+/**
+ * Follow a Quora topic by name.
+ * Builds a realistic follower profile around the company's domain topics.
+ */
+export async function followQuoraTopic(topic: string): Promise<boolean> {
+  try {
+    const page = await getPage();
+    // Navigate to topic search, then to topic page
+    const searchUrl = `https://www.quora.com/search?q=${encodeURIComponent(topic)}&type=topic`;
+    await page.goto(searchUrl, { waitUntil: 'domcontentloaded' });
+    await sleep(2500 + Math.random() * 1500);
+
+    // Click the first topic result
+    const topicLink = await page.$('a[href*="/topic/"]');
+    if (!topicLink) {
+      console.log(`[Quora] No topic found for: ${topic}`);
+      return false;
+    }
+    await topicLink.click();
+    await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 10000 }).catch(() => {});
+    await sleep(2000 + Math.random() * 1000);
+
+    // Find "Follow Topic" button
+    const followSelectors = [
+      'button:has-text("Follow Topic")',
+      'button[aria-label="Follow Topic"]',
+      'button:has-text("Follow")',
+      'div[role="button"]:has-text("Follow")',
+    ];
+
+    for (const sel of followSelectors) {
+      try {
+        const btn = await page.$(sel);
+        if (btn && await btn.isVisible().catch(() => false)) {
+          await btn.click({ force: true });
+          console.log(`[Quora] Followed topic: ${topic}`);
+          await sleep(1500);
+          return true;
+        }
+      } catch { /* try next */ }
+    }
+
+    console.log(`[Quora] Follow button not found for topic: ${topic} (already following or unavailable)`);
+    return false;
+  } catch (err) {
+    console.warn(`[Quora] followQuoraTopic "${topic}" failed:`, (err as Error).message);
+    return false;
+  }
+}
+
+/**
+ * Visit a Quora user's profile page.
+ * Humanizes the session by showing interest in the question asker.
+ */
+export async function visitQuoraProfile(username: string): Promise<void> {
+  if (!username || username === 'Unknown' || username === '[deleted]') return;
+  try {
+    const page = await getPage();
+    await page.goto(`https://www.quora.com/profile/${username}`, { waitUntil: 'domcontentloaded' });
+    await sleep(2500 + Math.random() * 2000);
+    await page.evaluate(() => window.scrollBy({ top: 400 + Math.random() * 300, behavior: 'smooth' }));
+    await sleep(1500 + Math.random() * 1000);
+    console.log(`[Quora] Visited profile: ${username}`);
+  } catch (err) {
+    console.warn(`[Quora] visitQuoraProfile "${username}" failed:`, (err as Error).message);
   }
 }

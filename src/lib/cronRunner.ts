@@ -15,7 +15,7 @@ import { join, resolve } from 'path';
 import { mkdirSync, writeFileSync } from 'fs';
 
 const PROJECT_ROOT = resolve(__dirname, '..', '..');
-const CRON_TIMEOUT_MS = 8 * 60 * 1000; // 8 min max per cron run
+const CRON_TIMEOUT_MS = 12 * 60 * 1000; // 12 min max per cron run (was 8 — too short for upvote + browse)
 
 const PLATFORM_SCRIPTS: Record<string, string> = {
   twitter: 'scripts/twitter-cron.ts',

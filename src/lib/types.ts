@@ -15,6 +15,7 @@ export interface IPost {
   keywordsMatched?: string[];
   likedByBot?: boolean;
   botReaction?: string;
+  sharedByBot?: boolean;
   editedReply?: string;
   replyUrl?: string;
   evaluatedAt?: Date;
@@ -38,6 +39,7 @@ export interface SocialAccount {
   autoPaused?: boolean;
   totalPosts?: number;
   totalErrors?: number;
+  proxyUrl?: string;
 }
 
 export interface ISettings {

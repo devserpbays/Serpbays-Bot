@@ -21,7 +21,7 @@ export async function GET(
   const [settings, subscription, recentPosts, recentLogs] = await Promise.all([
     Settings.findOne({ userId }).lean(),
     Subscription.findOne({ userId }).lean(),
-    Post.find({ userId }).sort({ createdAt: -1 }).limit(20).lean(),
+    Post.find({ userId, status: 'posted' }).sort({ postedAt: -1 }).limit(20).lean(),
     ActivityLog.find({ userId }).sort({ createdAt: -1 }).limit(30).lean(),
   ]);
 

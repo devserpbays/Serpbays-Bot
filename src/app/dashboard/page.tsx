@@ -17,6 +17,12 @@ interface Stats {
     posted: number;
     byPlatform: Record<string, number>;
     postedByPlatform: Record<string, number>;
+    likedByPlatform: Record<string, number>;
+    evaluatedByPlatform: Record<string, number>;
+    approvedByPlatform: Record<string, number>;
+    totalLikes: number;
+    postedByAccount: Record<string, number>;
+    likedByAccount: Record<string, number>;
 }
 
 interface CronPlatformStatus {
@@ -41,37 +47,47 @@ interface PlatformMeta {
     keywordsKey: keyof ISettings;
     dailyLimitKey: keyof ISettings;
     thresholdKey: keyof ISettings;
+    termFound: string;   // e.g. "Tweets", "Questions", "Pins"
+    termPosted: string;  // e.g. "Replied", "Answered", "Commented"
+    termEngaged: string; // e.g. "Liked", "Reacted", "Upvoted", "Ready"
+    hasLikes: boolean;   // true if likedByBot is tracked for this platform
 }
 
 const PLATFORM_META: PlatformMeta[] = [
     {
         id: 'twitter', label: 'Twitter / X', color: '#1d9bf0',
         keywordsKey: 'twitterKeywords', dailyLimitKey: 'twitterDailyLimit', thresholdKey: 'twitterAutoPostThreshold',
+        termFound: 'Tweets', termPosted: 'Replied', termEngaged: 'Liked', hasLikes: true,
         icon: <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.73-8.835L1.254 2.25H8.08l4.258 5.63 5.906-5.63zm-1.161 17.52h1.833L7.084 4.126H5.117z" /></svg>,
     },
     {
         id: 'reddit', label: 'Reddit', color: '#3b82f6',
         keywordsKey: 'redditKeywords', dailyLimitKey: 'redditDailyLimit', thresholdKey: 'redditAutoPostThreshold',
+        termFound: 'Posts', termPosted: 'Commented', termEngaged: 'Upvoted', hasLikes: true,
         icon: <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm5.01 4.744c.688 0 1.25.561 1.25 1.249a1.25 1.25 0 0 1-2.498.056l-2.597-.547-.8 3.747c1.824.07 3.48.632 4.674 1.488.308-.309.73-.491 1.207-.491.968 0 1.754.786 1.754 1.754 0 .716-.435 1.333-1.01 1.614a3.111 3.111 0 0 1 .042.52c0 2.694-3.13 4.87-7.004 4.87-3.874 0-7.004-2.176-7.004-4.87 0-.183.015-.366.043-.534A1.748 1.748 0 0 1 4.028 12c0-.968.786-1.754 1.754-1.754.463 0 .898.196 1.207.49 1.207-.883 2.878-1.43 4.744-1.487l.885-4.182a.342.342 0 0 1 .14-.197.35.35 0 0 1 .238-.042l2.906.617a1.214 1.214 0 0 1 1.108-.701zM9.25 12C8.561 12 8 12.562 8 13.25c0 .687.561 1.248 1.25 1.248.687 0 1.248-.561 1.248-1.249 0-.688-.561-1.249-1.249-1.249zm5.5 0c-.687 0-1.248.561-1.248 1.25 0 .687.561 1.248 1.249 1.248.688 0 1.249-.561 1.249-1.249 0-.687-.562-1.249-1.25-1.249z" /></svg>,
     },
     {
         id: 'facebook', label: 'Facebook', color: '#1877f2',
         keywordsKey: 'facebookKeywords', dailyLimitKey: 'facebookDailyLimit', thresholdKey: 'facebookAutoPostThreshold',
+        termFound: 'Posts', termPosted: 'Commented', termEngaged: 'Reacted', hasLikes: true,
         icon: <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" /></svg>,
     },
     {
         id: 'quora', label: 'Quora', color: '#2563eb',
         keywordsKey: 'quoraKeywords', dailyLimitKey: 'quoraDailyLimit', thresholdKey: 'quoraAutoPostThreshold',
+        termFound: 'Questions', termPosted: 'Answered', termEngaged: 'Upvoted', hasLikes: true,
         icon: <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M12.071 0C5.4 0 .001 5.4.001 12.071c0 6.248 4.759 11.41 10.85 12.003-.044-.562-.094-1.407-.094-2.001 0-.666.023-1.406.068-2.028-.447.045-.896.068-1.349.068-3.734 0-5.941-2.162-5.941-5.95 0-3.78 2.207-5.941 5.941-5.941 3.733 0 5.94 2.161 5.94 5.941 0 1.873-.509 3.374-1.407 4.38l1.047 1.986c.423.806.847 1.166 1.336 1.166.888 0 1.406-.949 1.406-2.688V12.07C17.8 6.37 15.292 0 12.071 0z" /></svg>,
     },
     {
         id: 'youtube', label: 'YouTube', color: '#0ea5e9',
         keywordsKey: 'youtubeKeywords', dailyLimitKey: 'youtubeDailyLimit', thresholdKey: 'youtubeAutoPostThreshold',
+        termFound: 'Videos', termPosted: 'Commented', termEngaged: 'Liked', hasLikes: true,
         icon: <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.546 12 3.546 12 3.546s-7.505 0-9.377.504A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.504 9.376.504 9.376.504s7.505 0 9.377-.504a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z" /></svg>,
     },
     {
         id: 'pinterest', label: 'Pinterest', color: '#6366f1',
         keywordsKey: 'pinterestKeywords', dailyLimitKey: 'pinterestDailyLimit', thresholdKey: 'pinterestAutoPostThreshold',
+        termFound: 'Pins', termPosted: 'Commented', termEngaged: 'Queued', hasLikes: false,
         icon: <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M12.017 0C5.396 0 .029 5.367.029 11.987c0 5.079 3.158 9.417 7.618 11.162-.105-.949-.199-2.403.041-3.439.219-.937 1.406-5.957 1.406-5.957s-.359-.72-.359-1.781c0-1.668.967-2.914 2.171-2.914 1.023 0 1.518.769 1.518 1.69 0 1.029-.655 2.568-.994 3.995-.283 1.194.599 2.169 1.777 2.169 2.133 0 3.772-2.249 3.772-5.495 0-2.873-2.064-4.882-5.012-4.882-3.414 0-5.418 2.561-5.418 5.207 0 1.031.397 2.138.893 2.738a.36.36 0 0 1 .083.345l-.333 1.36c-.053.22-.174.267-.402.161-1.499-.698-2.436-2.889-2.436-4.649 0-3.785 2.75-7.262 7.929-7.262 4.163 0 7.398 2.967 7.398 6.931 0 4.136-2.607 7.464-6.227 7.464-1.216 0-2.359-.631-2.75-1.378l-.748 2.853c-.271 1.043-1.002 2.35-1.492 3.146C9.57 23.812 10.763 24 12.017 24c6.624 0 11.99-5.367 11.99-11.988C24.007 5.367 18.641.001 12.017.001z" /></svg>,
     },
 ];
@@ -85,7 +101,8 @@ export default function OverviewPage() {
     const [stats, setStats] = useState<Stats>({
         total: 0, new: 0, evaluating: 0, evaluated: 0,
         approved: 0, rejected: 0, posted: 0,
-        byPlatform: {}, postedByPlatform: {},
+        byPlatform: {}, postedByPlatform: {}, likedByPlatform: {}, evaluatedByPlatform: {}, approvedByPlatform: {}, totalLikes: 0,
+        postedByAccount: {}, likedByAccount: {},
     });
     const [settings, setSettings] = useState<ISettings | null>(null);
     const [accounts, setAccounts] = useState<SocialAccount[]>([]);
@@ -113,6 +130,12 @@ export default function OverviewPage() {
                 posted: data.byStatus?.posted ?? 0,
                 byPlatform: data.byPlatform ?? {},
                 postedByPlatform: data.postedByPlatform ?? {},
+                likedByPlatform: data.likedByPlatform ?? {},
+                evaluatedByPlatform: data.evaluatedByPlatform ?? {},
+                approvedByPlatform: data.approvedByPlatform ?? {},
+                totalLikes: data.totalLikes ?? 0,
+                postedByAccount: data.postedByAccount ?? {},
+                likedByAccount: data.likedByAccount ?? {},
             });
         } catch { /* polling will retry */ }
     }, []);
@@ -185,7 +208,6 @@ export default function OverviewPage() {
     const steps = [
         { label: 'Create your account', desc: 'Sign up and set up your profile', done: true, href: '#' },
         { label: 'Connect social accounts', desc: 'Link Twitter, Reddit, Facebook, or others via cookies', done: hasAccounts, href: '/dashboard/accounts' },
-        { label: 'Add target keywords', desc: 'Tell the bot what topics to search for', done: !!hasKeywords, href: '/dashboard/settings' },
         { label: 'Run your first pipeline', desc: 'Scrape posts and generate AI replies', done: stats.total > 0, href: '/dashboard/pipeline' },
     ];
     const completedSteps = steps.filter(s => s.done).length;
@@ -338,278 +360,177 @@ export default function OverviewPage() {
                     </div>
                 )}
 
-                {/* ── Platform Cards ── */}
+                {/* ── Summary Metrics ── */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+                    {[
+                        { label: 'Total Posts', value: stats.posted, color: '#10b981' },
+                        { label: 'Engaged', value: stats.totalLikes, color: '#f59e0b' },
+                        { label: 'Platforms', value: accounts.length > 0 ? [...new Set(accounts.map(a => a.platform))].length : 0, color: '#3b82f6' },
+                        { label: 'Scraped', value: stats.total, color: '#8b5cf6' },
+                    ].map(m => (
+                        <div key={m.label} style={{
+                            background: 'var(--bg-card)', border: '1px solid var(--border-default)',
+                            borderRadius: 'var(--radius-lg)', padding: '16px 20px', textAlign: 'center',
+                        }}>
+                            <div style={{ fontSize: 28, fontWeight: 800, color: m.color, letterSpacing: '-0.04em', lineHeight: 1 }}>{m.value}</div>
+                            <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-muted)', marginTop: 6 }}>{m.label}</div>
+                        </div>
+                    ))}
+                </div>
+
+                {/* ── Platform Cards (Grid with Color Accent) ── */}
                 <div>
-                    <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 14, letterSpacing: '-0.02em' }}>
-                        Platforms
-                    </h3>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 14 }}>
+                    <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 14, letterSpacing: '-0.02em' }}>Channels</h3>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
                         {PLATFORM_META.map((p) => {
                             const platAccounts = accountsFor(p.id);
-                            const isEnabled = enabledPlatforms.includes(p.id) || platAccounts.length > 0;
-                            const total = stats.byPlatform[p.id] ?? 0;
+                            const isConnected = platAccounts.length > 0;
                             const posted = stats.postedByPlatform[p.id] ?? 0;
-                            const pct = total > 0 ? Math.round((posted / total) * 100) : 0;
-
-                            // Cookie expiry warning: any connected account with bad cookies,
-                            // or last cron run ended with an auth-related error message
+                            const liked = stats.likedByPlatform[p.id] ?? 0;
+                            const engagedValue = p.hasLikes ? liked : (stats.approvedByPlatform[p.id] ?? 0);
+                            const isRunning = cronStatus?.crons[p.id]?.running;
                             const hasExpiredCookies = platAccounts.some((a) => a.cookieVerified === false);
                             const cronMsg = cronStatus?.crons[p.id]?.lastMessage ?? '';
-                            const cronAuthFailed = !cronStatus?.crons[p.id]?.running
-                                && (cronStatus?.crons[p.id]?.lastExitCode ?? 0) !== 0
-                                && /cookie|auth|expired|session|login|not logged/i.test(cronMsg);
-                            const showCookieWarning = hasExpiredCookies || cronAuthFailed;
+                            const cronAuthFailed = !isRunning && (cronStatus?.crons[p.id]?.lastExitCode ?? 0) !== 0 && /cookie|auth|expired|session|login|not logged/i.test(cronMsg);
+                            const hasIssue = hasExpiredCookies || cronAuthFailed;
+                            const dotColor = isRunning ? '#3b82f6' : hasIssue ? '#ef4444' : isConnected ? '#10b981' : '#6b7280';
+                            const statusLabel = isRunning ? 'Running' : hasIssue ? 'Expired' : isConnected ? 'Active' : 'Not connected';
+                            const acc = platAccounts[0];
+                            const handle = acc ? (acc.username ? `@${acc.username}` : acc.displayName || acc.id.slice(0, 18)) : '';
 
                             return (
-                                <Link
-                                    key={p.id}
-                                    href={`/dashboard/platform/${p.id}`}
-                                    style={{
-                                        textDecoration: 'none', display: 'block',
-                                        background: 'var(--bg-card)',
-                                        border: `1px solid ${isEnabled && platAccounts.length > 0 ? `${p.color}30` : 'var(--border-default)'}`,
-                                        borderRadius: 'var(--radius-lg)',
-                                        padding: '18px 20px',
-                                        transition: 'all 200ms',
-                                        opacity: isEnabled ? 1 : 0.45,
-                                    }}
-                                    onMouseEnter={(e) => { e.currentTarget.style.borderColor = `${p.color}55`; e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = `0 4px 20px ${p.color}15`; }}
-                                    onMouseLeave={(e) => { e.currentTarget.style.borderColor = isEnabled && platAccounts.length > 0 ? `${p.color}30` : 'var(--border-default)'; e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = 'none'; }}
+                                <Link key={p.id} href={`/dashboard/platform/${p.id}`} style={{
+                                    textDecoration: 'none', display: 'block',
+                                    background: 'var(--bg-card)',
+                                    border: '1px solid var(--border-default)',
+                                    borderRadius: 14,
+                                    overflow: 'hidden',
+                                    transition: 'all 200ms',
+                                    opacity: isConnected ? 1 : 0.55,
+                                }}
+                                    onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = `0 8px 24px ${p.color}18`; e.currentTarget.style.borderColor = `${p.color}40`; }}
+                                    onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.borderColor = 'var(--border-default)'; }}
                                 >
-                                    {/* Platform header */}
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-                                        <div style={{
-                                            width: 36, height: 36, borderRadius: 'var(--radius-sm)',
-                                            background: `${p.color}22`, color: p.color,
-                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                            flexShrink: 0, border: `1px solid ${p.color}30`,
-                                        }}>
-                                            {p.icon}
-                                        </div>
-                                        <div style={{ flex: 1 }}>
-                                            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.01em' }}>{p.label}</div>
-                                        </div>
-                                        {cronStatus?.crons[p.id]?.running ? (
+                                    {/* Colored top accent bar */}
+                                    <div style={{ height: 4, background: p.color }} />
+
+                                    <div style={{ padding: '16px 20px' }}>
+                                        {/* Header: icon + name + status dot */}
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+                                            <div style={{
+                                                width: 38, height: 38, borderRadius: 10,
+                                                background: `${p.color}15`, color: p.color,
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                flexShrink: 0, border: `1px solid ${p.color}25`,
+                                            }}>
+                                                {p.icon}
+                                            </div>
+                                            <div style={{ flex: 1 }}>
+                                                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.01em' }}>{p.label}</div>
+                                            </div>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                <span style={{
-                                                    fontSize: 10, fontWeight: 700, padding: '3px 8px',
-                                                    borderRadius: 20, background: 'rgba(59,130,246,0.1)',
-                                                    color: '#3b82f6', display: 'flex', alignItems: 'center', gap: 4
+                                                <div style={{
+                                                    width: 8, height: 8, borderRadius: '50%', background: dotColor,
+                                                    boxShadow: isRunning ? '0 0 8px #3b82f680' : dotColor === '#10b981' ? '0 0 6px #10b98150' : 'none',
+                                                }} />
+                                                <span style={{ fontSize: 11, fontWeight: 600, color: dotColor }}>{statusLabel}</span>
+                                            </div>
+                                        </div>
+
+                                        {/* Stats */}
+                                        {isConnected ? (
+                                            <div style={{ display: 'flex', gap: 24, marginBottom: 14 }}>
+                                                <div>
+                                                    <div style={{ fontSize: 26, fontWeight: 800, color: p.color, letterSpacing: '-0.04em', lineHeight: 1 }}>{posted}</div>
+                                                    <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-muted)', marginTop: 4 }}>{p.termPosted}</div>
+                                                </div>
+                                                <div>
+                                                    <div style={{ fontSize: 26, fontWeight: 800, color: '#f59e0b', letterSpacing: '-0.04em', lineHeight: 1 }}>{engagedValue}</div>
+                                                    <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-muted)', marginTop: 4 }}>{p.termEngaged}</div>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div style={{ marginBottom: 14, padding: '12px 0' }}>
+                                                <Link href="/dashboard/accounts" onClick={e => e.stopPropagation()} style={{
+                                                    fontSize: 12, fontWeight: 700, color: p.color,
+                                                    textDecoration: 'none', padding: '6px 14px',
+                                                    background: `${p.color}12`, borderRadius: 8,
+                                                    border: `1px solid ${p.color}25`,
                                                 }}>
-                                                    <svg className="animate-spin" style={{ width: 10, height: 10 }} fill="none" viewBox="0 0 24 24">
-                                                        <circle style={{ opacity: 0.25 }} cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                                                        <path style={{ opacity: 0.75 }} fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                                                    </svg>
-                                                    Running
-                                                </span>
-                                                <button
-                                                    onClick={(e) => handleStopPlatform(e, p.id)}
-                                                    disabled={stoppingPlatforms.has(p.id)}
-                                                    style={{
-                                                        background: 'rgba(239,68,68,0.1)', color: '#ef4444',
-                                                        border: 'none', borderRadius: 4, padding: '2px 6px',
-                                                        fontSize: 10, fontWeight: 700, cursor: 'pointer'
-                                                    }}
-                                                >
-                                                    {stoppingPlatforms.has(p.id) ? 'Stopping…' : 'Stop'}
-                                                </button>
+                                                    Connect account &rarr;
+                                                </Link>
                                             </div>
-                                        ) : showCookieWarning ? (
-                                            <span style={{
-                                                fontSize: 10, fontWeight: 700, padding: '3px 9px',
-                                                borderRadius: 20, background: 'rgba(239,68,68,0.12)',
-                                                color: '#f87171', border: '1px solid rgba(239,68,68,0.3)',
-                                                display: 'flex', alignItems: 'center', gap: 4,
-                                            }}>
-                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} width={10} height={10}>
-                                                    <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-                                                </svg>
-                                                Expired
-                                            </span>
-                                        ) : platAccounts.length > 0 && (
-                                            <span style={{
-                                                fontSize: 10, fontWeight: 700, padding: '3px 9px',
-                                                borderRadius: 20, background: 'rgba(16,185,129,0.12)',
-                                                color: '#34d399', border: '1px solid rgba(16,185,129,0.25)',
-                                            }}>
-                                                Connected
-                                            </span>
                                         )}
-                                        {!isEnabled && (
-                                            <span style={{
-                                                fontSize: 10, fontWeight: 600, padding: '3px 9px',
-                                                borderRadius: 20, background: 'rgba(88,120,200,0.08)',
-                                                color: 'var(--text-secondary)', border: '1px solid var(--border-subtle)',
+
+                                        {/* Footer: account handle + session status */}
+                                        {isConnected && (
+                                            <div style={{
+                                                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                                paddingTop: 12, borderTop: '1px solid var(--border-subtle)',
                                             }}>
-                                                Disabled
-                                            </span>
-                                        )}
-                                    </div>
-
-                                    {/* Stats row */}
-                                    <div style={{ display: 'flex', gap: 20, marginBottom: 12 }}>
-                                        <div>
-                                            <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.03em' }}>{total}</div>
-                                            <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-secondary)' }}>Threads</div>
-                                        </div>
-                                        <div>
-                                            <div style={{ fontSize: 22, fontWeight: 700, color: p.color, letterSpacing: '-0.03em' }}>{posted}</div>
-                                            <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-secondary)' }}>Replied</div>
-                                        </div>
-                                        <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
-                                            <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.03em' }}>{pct}%</div>
-                                            <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-secondary)' }}>Rate</div>
-                                        </div>
-                                    </div>
-
-                                    {/* Progress bar */}
-                                    <div style={{
-                                        height: 4, borderRadius: 4,
-                                        background: 'rgba(88,120,200,0.15)',
-                                        overflow: 'hidden',
-                                    }}>
-                                        <div style={{
-                                            width: `${pct}%`, height: '100%',
-                                            borderRadius: 4, background: p.color,
-                                            transition: 'width 600ms ease',
-                                            boxShadow: pct > 0 ? `0 0 6px ${p.color}60` : 'none',
-                                        }} />
-                                    </div>
-
-                                    {/* Cookie expiry warning banner */}
-                                    {showCookieWarning && (
-                                        <div style={{
-                                            marginTop: 12, padding: '9px 12px',
-                                            background: 'rgba(239,68,68,0.07)',
-                                            border: '1px solid rgba(239,68,68,0.3)',
-                                            borderRadius: 8,
-                                            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
-                                        }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                                                <svg viewBox="0 0 24 24" fill="none" stroke="#f87171" strokeWidth={2} width={13} height={13} style={{ flexShrink: 0 }}>
-                                                    <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-                                                </svg>
-                                                <span style={{ fontSize: 11, color: '#f87171', fontWeight: 600 }}>
-                                                    {cronAuthFailed && !hasExpiredCookies
-                                                        ? 'Session expired — bot was blocked on last run'
-                                                        : 'Cookies expired — bot cannot post'}
+                                                <span style={{ fontSize: 12, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                    {handle}
                                                 </span>
-                                            </div>
-                                            <Link
-                                                href="/dashboard/accounts"
-                                                onClick={e => e.stopPropagation()}
-                                                style={{
-                                                    fontSize: 11, fontWeight: 700, color: '#f87171',
-                                                    textDecoration: 'none', padding: '3px 10px',
-                                                    background: 'rgba(239,68,68,0.12)', borderRadius: 5,
-                                                    border: '1px solid rgba(239,68,68,0.3)',
-                                                    whiteSpace: 'nowrap', flexShrink: 0,
-                                                }}
-                                            >
-                                                Reconnect →
-                                            </Link>
-                                        </div>
-                                    )}
-
-                                    {/* Connected accounts — or prompt to connect */}
-                                    {platAccounts.length === 0 && isEnabled && (
-                                        <div style={{
-                                            marginTop: 12, padding: '9px 14px',
-                                            background: 'rgba(88,120,200,0.06)',
-                                            border: '1px dashed rgba(88,120,200,0.25)',
-                                            borderRadius: 8, display: 'flex', alignItems: 'center',
-                                            justifyContent: 'space-between',
-                                        }}>
-                                            <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>No account connected</span>
-                                            <Link href="/dashboard/accounts" onClick={e => e.stopPropagation()} style={{
-                                                fontSize: 11, fontWeight: 700, color: p.color,
-                                                textDecoration: 'none', padding: '3px 10px',
-                                                background: `${p.color}20`, borderRadius: 5,
-                                                border: `1px solid ${p.color}30`,
-                                            }}>Connect →</Link>
-                                        </div>
-                                    )}
-                                    {platAccounts.length > 0 && (
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 12 }}>
-                                            {platAccounts.map((acc) => {
-                                                const displayLabel = acc.displayName || acc.username || p.label + ' Account';
-                                                const handle = acc.username ? `@${acc.username}` : acc.id.slice(0, 20);
-                                                const cookieOk = acc.cookieVerified !== false;
-                                                return (
-                                                    <div key={acc.id} style={{
-                                                        display: 'flex', alignItems: 'center', gap: 8,
-                                                        background: `${p.color}12`,
-                                                        border: `1px solid ${cookieOk ? p.color + '30' : 'rgba(239,68,68,0.35)'}`,
-                                                        borderRadius: 8, padding: '7px 10px',
+                                                {hasIssue ? (
+                                                    <Link href="/dashboard/accounts" onClick={e => e.stopPropagation()} style={{
+                                                        fontSize: 10, fontWeight: 700, color: '#ef4444',
+                                                        textDecoration: 'none', padding: '2px 8px',
+                                                        background: 'rgba(239,68,68,0.1)', borderRadius: 6,
+                                                        border: '1px solid rgba(239,68,68,0.25)',
                                                     }}>
-                                                        <div style={{
-                                                            width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
-                                                            background: `${p.color}28`, color: p.color,
-                                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                                            fontWeight: 700, fontSize: 11, border: `1px solid ${p.color}35`,
-                                                        }}>
-                                                            {displayLabel[0].toUpperCase()}
-                                                        </div>
-                                                        <div style={{ flex: 1, minWidth: 0 }}>
-                                                            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                                {displayLabel}
-                                                            </div>
-                                                            <div style={{ fontSize: 10, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                                {handle}
-                                                            </div>
-                                                        </div>
-                                                        <div style={{
-                                                            width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
-                                                            background: cookieOk ? '#10b981' : '#ef4444',
-                                                            boxShadow: cookieOk ? '0 0 5px #10b98180' : '0 0 5px #ef444480',
-                                                        }} title={cookieOk ? 'Session active' : 'Session expired — reconnect from Accounts'} />
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                    )}
+                                                        Reconnect
+                                                    </Link>
+                                                ) : (
+                                                    <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                                                        {acc?.cookieVerified !== false ? 'Session active' : 'Session expired'}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
                                 </Link>
                             );
                         })}
                     </div>
                 </div>
 
-                {/* ── Pipeline Health ── */}
+                {/* ── Engagement Summary ── */}
                 <div style={{
-                    background: 'var(--bg-card)',
-                    border: '1px solid var(--border-default)',
-                    borderRadius: 'var(--radius-lg)',
-                    overflow: 'hidden',
+                    background: 'var(--bg-card)', border: '1px solid var(--border-default)',
+                    borderRadius: 'var(--radius-lg)', overflow: 'hidden',
                 }}>
                     <div style={{
-                        padding: '16px 20px',
-                        borderBottom: '1px solid var(--border-subtle)',
-                        display: 'flex', alignItems: 'center', gap: 8,
-                        background: 'linear-gradient(90deg, rgba(99,102,241,0.06) 0%, transparent 100%)',
+                        padding: '14px 20px', borderBottom: '1px solid var(--border-subtle)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                     }}>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="var(--accent-light)" strokeWidth={1.8} width={16} height={16}>
-                            <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
-                        </svg>
-                        <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>Pipeline Health</span>
+                        <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>Engagement Summary</span>
+                        <Link href="/dashboard/logs" style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent-light)', textDecoration: 'none' }}>
+                            View logs &rarr;
+                        </Link>
                     </div>
-                    <div style={{ padding: 20 }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 16 }}>
-                            {[
-                                { label: 'Approval Rate', value: stats.total > 0 ? `${Math.round(((stats.approved + stats.posted) / stats.total) * 100)}%` : '0%', color: '#10b981', bg: 'rgba(16,185,129,0.08)' },
-                                { label: 'Pending Review', value: String(stats.evaluated), color: 'var(--accent-light)', bg: 'rgba(99,102,241,0.08)' },
-                                { label: 'In Progress', value: String(stats.evaluating), color: '#f59e0b', bg: 'rgba(245,158,11,0.08)' },
-                                { label: 'Comment Success', value: stats.approved + stats.posted > 0 ? `${Math.round((stats.posted / (stats.approved + stats.posted)) * 100)}%` : '0%', color: '#3b82f6', bg: 'rgba(59,130,246,0.08)' },
-                            ].map((m) => (
-                                <div key={m.label} style={{
-                                    textAlign: 'center', padding: '16px 12px',
-                                    background: m.bg, borderRadius: 10,
-                                    border: `1px solid ${m.color}20`,
-                                }}>
-                                    <div style={{ fontSize: 30, fontWeight: 800, color: m.color, letterSpacing: '-0.04em', lineHeight: 1 }}>{m.value}</div>
-                                    <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-secondary)', marginTop: 6 }}>{m.label}</div>
-                                </div>
-                            ))}
-                        </div>
+                    <div style={{ padding: '8px 16px' }}>
+                        {PLATFORM_META.filter(p => (stats.postedByPlatform[p.id] ?? 0) > 0 || (stats.likedByPlatform[p.id] ?? 0) > 0).length === 0 ? (
+                            <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
+                                No engagement data yet. Activity will appear here once the bot starts posting.
+                            </div>
+                        ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                {PLATFORM_META.filter(p => (stats.postedByPlatform[p.id] ?? 0) > 0 || (stats.likedByPlatform[p.id] ?? 0) > 0).map((p, idx, arr) => (
+                                    <div key={p.id} style={{
+                                        display: 'flex', alignItems: 'center', gap: 12,
+                                        padding: '10px 4px',
+                                        borderBottom: idx < arr.length - 1 ? '1px solid var(--border-subtle)' : 'none',
+                                    }}>
+                                        <div style={{ width: 6, height: 6, borderRadius: '50%', background: p.color, flexShrink: 0 }} />
+                                        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', flex: 1 }}>{p.label}</span>
+                                        <span style={{ fontSize: 13, color: p.color, fontWeight: 700 }}>{stats.postedByPlatform[p.id] ?? 0}</span>
+                                        <span style={{ fontSize: 11, color: 'var(--text-muted)', width: 60 }}>{p.termPosted}</span>
+                                        <span style={{ fontSize: 13, color: '#f59e0b', fontWeight: 700 }}>{stats.likedByPlatform[p.id] ?? 0}</span>
+                                        <span style={{ fontSize: 11, color: 'var(--text-muted)', width: 60 }}>{p.termEngaged}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>

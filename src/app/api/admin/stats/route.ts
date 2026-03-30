@@ -22,15 +22,16 @@ export async function GET() {
   const distinctUsers: string[] = await Settings.distinct('userId');
   const totalUsers = distinctUsers.filter(Boolean).length;
 
-  // Post counts
+  // Post counts — only posted comments, never scraped/evaluated
   const [totalPosts, postsToday, postsThisWeek] = await Promise.all([
-    Post.countDocuments({}),
+    Post.countDocuments({ status: 'posted' }),
     Post.countDocuments({ postedAt: { $gte: todayStart }, status: 'posted' }),
     Post.countDocuments({ postedAt: { $gte: weekStart }, status: 'posted' }),
   ]);
 
-  // Posts by platform
+  // Posts by platform — only posted
   const platformAgg = await Post.aggregate([
+    { $match: { status: 'posted' } },
     { $group: { _id: '$platform', count: { $sum: 1 } } },
   ]);
   const postsByPlatform: Record<string, number> = {};

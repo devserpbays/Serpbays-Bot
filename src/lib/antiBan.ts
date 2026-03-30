@@ -45,13 +45,13 @@ export function jitterCooldown(baseMinutes: number, jitterPercent = 30): number 
  * Calculate safe daily limit based on account age + configured limit + platform ceiling.
  *
  * Warmup stages (based on when the account was added to the bot):
- *   Stage 1 — Days  0–3:   1 post/day                          (brand new, zero trust)
- *   Stage 2 — Days  4–7:   2 posts/day                         (still new, minimal footprint)
- *   Stage 3 — Days  8–14:  3 posts/day OR 30% of configured    (establishing pattern)
- *   Stage 4 — Days 15–30:  5 posts/day OR 55% of configured    (building trust)
- *   Stage 5 — Days 31–60:  7 posts/day OR 75% of configured    (semi-established)
- *   Stage 6 — Days 60+:    configured limit (capped at platform max)
+ *   Stage 1 — Days  0–2:   0 posts/day — browse + like only    (initial safety window)
+ *   Stage 2 — Days  3–5:   1 post/day                          (first replies, cautious)
+ *   Stage 3 — Days  6–10:  2 posts/day OR 40% of configured    (establishing pattern)
+ *   Stage 4 — Days 11–20:  4 posts/day OR 65% of configured    (building trust)
+ *   Stage 5 — Days 21–30:  configured limit (full speed)
  *
+ * Total ramp: ~30 days to full configured limit (was 90 — too slow for SaaS).
  * The result is always capped at PLATFORM_SAFE_LIMITS.maxDaily regardless of stage.
  */
 export function getWarmupLimit(
@@ -65,23 +65,47 @@ export function getWarmupLimit(
     : 7;
   const cappedLimit = Math.min(configuredLimit, safeMax);
 
-  if (!accountAddedAt) return Math.min(cappedLimit, 1); // no date = treat as day 0
+  if (!accountAddedAt) return 1; // no date = allow 1 post/day (safe default, avoids blocking existing accounts)
 
   const ageMs = Date.now() - new Date(accountAddedAt).getTime();
   const ageDays = ageMs / (24 * 60 * 60 * 1000);
 
-  // Stage 1: Days 0–3
-  if (ageDays < 3)  return 1;
-  // Stage 2: Days 4–7
-  if (ageDays < 7)  return Math.min(cappedLimit, 2);
-  // Stage 3: Days 8–14
-  if (ageDays < 14) return Math.min(cappedLimit, Math.max(3, Math.ceil(cappedLimit * 0.30)));
-  // Stage 4: Days 15–30
-  if (ageDays < 30) return Math.min(cappedLimit, Math.max(5, Math.ceil(cappedLimit * 0.55)));
-  // Stage 5: Days 31–60
-  if (ageDays < 60) return Math.min(cappedLimit, Math.max(7, Math.ceil(cappedLimit * 0.75)));
-  // Stage 6: Days 60+ — full configured limit (already capped at platform max)
+  // Stage 1: Days 0–2 — browse + like only (short safety window)
+  if (ageDays < 2)  return 0;
+  // Stage 2: Days 3–5 — first posts
+  if (ageDays < 5)  return 1;
+  // Stage 3: Days 6–10 — ramping up
+  if (ageDays < 10) return Math.min(cappedLimit, Math.max(2, Math.ceil(cappedLimit * 0.40)));
+  // Stage 4: Days 11–20 — near full
+  if (ageDays < 20) return Math.min(cappedLimit, Math.max(4, Math.ceil(cappedLimit * 0.65)));
+  // Stage 5: Days 21+ — full configured limit
   return cappedLimit;
+}
+
+/**
+ * Age-based daily limit for original tweets.
+ * Independent of reply warmup — original tweets scale more slowly.
+ *
+ * < 5 days   → max 1/day
+ * 5–15 days  → max 2/day
+ * 15–30 days → max 4/day
+ * 30+ days   → configured limit (capped at 10)
+ */
+export function getOriginalTweetDailyLimit(
+  configuredLimit: number,
+  accountAddedAt: string | Date | undefined,
+): number {
+  if (!accountAddedAt) return Math.min(configuredLimit, 1);
+
+  const ageDays = (Date.now() - new Date(accountAddedAt).getTime()) / (24 * 60 * 60 * 1000);
+
+  let safeCap: number;
+  if (ageDays < 5)        safeCap = 1;
+  else if (ageDays < 15)  safeCap = 2;
+  else if (ageDays < 30)  safeCap = 4;
+  else                    safeCap = 10;
+
+  return Math.min(configuredLimit, safeCap);
 }
 
 /**

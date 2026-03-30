@@ -505,6 +505,55 @@ export async function visitUserProfile(profileDir: string, screenName: string): 
   } catch { /* non-critical — silent */ }
 }
 
+// --- Ghost ban detection via Twitter search API ---
+// A ghost-banned account's replies disappear from search results (`from:user filter:replies`).
+// We search with our own credentials — shadow-banned replies are hidden even from the owner's search.
+// Returns: 'banned' | 'clean' | 'unknown' (unknown = API error or no recent replies to compare)
+export async function checkGhostBanHttp(
+  profileDir: string,
+  username: string,
+  recentReplyCount: number, // how many replies we know we posted in the last 24h (from DB)
+): Promise<'banned' | 'clean' | 'unknown'> {
+  if (!username || recentReplyCount === 0) return 'unknown'; // nothing to compare against
+
+  const cookies = loadCookies(profileDir);
+  const ct0 = getCt0(cookies);
+  const cookieHeader = buildCookieHeader(cookies);
+  if (!ct0) return 'unknown';
+
+  try {
+    const query = `from:${username} filter:replies`;
+    const params = new URLSearchParams({
+      q: query,
+      count: '10',
+      result_type: 'recent',
+      tweet_mode: 'extended',
+    });
+
+    const res = await fetch(`https://x.com/i/api/2/search/adaptive.json?${params}`, {
+      headers: {
+        ...getHeaders(ct0, cookieHeader),
+        'X-Twitter-Client-Language': 'en',
+      },
+    });
+
+    if (!res.ok) return 'unknown'; // API error — don't flag incorrectly
+
+    const data = await res.json() as any;
+    const tweets = data?.globalObjects?.tweets ?? {};
+    const tweetCount = Object.keys(tweets).length;
+
+    // If we have DB-confirmed recent replies but search returns nothing → ghost banned
+    if (tweetCount === 0 && recentReplyCount >= 2) {
+      return 'banned';
+    }
+
+    return 'clean';
+  } catch {
+    return 'unknown';
+  }
+}
+
 // --- Check if Twitter is configured (has cookies.json) ---
 export function isTwitterConfiguredHttp(profileDir: string): boolean {
   return existsSync(join(profileDir, 'cookies.json'));
