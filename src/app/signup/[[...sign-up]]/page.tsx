@@ -71,6 +71,8 @@ export default async function SignupPage() {
         <div className="relative w-full rounded-2xl bg-[#131316] border border-white/[0.06] shadow-[0_8px_32px_rgba(0,0,0,0.4)] p-1">
           <div className="absolute -inset-px rounded-2xl bg-gradient-to-b from-[rgba(14,165,233,0.15)] to-transparent -z-10 pointer-events-none" />
           <SignUp
+            routing="path"
+            path="/signup"
             signInUrl="/login"
             forceRedirectUrl="/dashboard"
             signInForceRedirectUrl="/dashboard"
