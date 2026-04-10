@@ -43,9 +43,7 @@ const ACTION_WORDS: Record<string, string> = {
     like: 'like tweets',
     retweet: 'retweet',
     bookmark: 'save bookmarks',
-    follow: 'follow someone',
     browse: 'scroll the feed',
-    original_tweet: 'post an original tweet',
 };
 
 function actionsToEnglish(actions: string[]): string {
@@ -68,6 +66,7 @@ const PLATFORM_LABELS: Record<string, { post: string; posts: string; feed: strin
     quora:     { post: 'answer',  posts: 'answers',  feed: 'Quora feed',     name: 'Quora' },
     youtube:   { post: 'comment', posts: 'comments', feed: 'YouTube feed',   name: 'YouTube' },
     pinterest: { post: 'pin',     posts: 'pins',     feed: 'Pinterest feed', name: 'Pinterest' },
+    skool:     { post: 'post',    posts: 'posts',    feed: 'Skool feed',     name: 'Skool' },
 };
 function pl(platform: string) {
     return PLATFORM_LABELS[platform] ?? { post: 'post', posts: 'posts', feed: 'feed', name: platform };
@@ -120,7 +119,27 @@ function humanize(entry: ActivityLogEntry): HumanEntry {
                 description: acts.length ? `Going to: ${actionsToEnglish(acts)}` : msg,
             };
 
-        case 'post':
+        case 'scrape_empty': {
+            // No posts found during scraping is normal — show as browsing, not an issue
+            const kw = meta.keyword as string | undefined;
+            return {
+                category: 'browsing',
+                title: kw ? `No ${p.posts} found for "${kw}" on ${p.name}` : `No ${p.posts} found on ${p.name}`,
+                description: `Nothing matched this round — the bot will try other keywords or feeds next cycle.`,
+                isIssue: false,
+            };
+        }
+
+        case 'scrape_done':
+            return {
+                category: 'browsing',
+                title: `Scraped ${p.name} feed`,
+                description: msg,
+                isIssue: false,
+            };
+
+        case 'post': {
+            const postUrl = (meta.replyUrl || meta.url) as string;
             return {
                 category: 'reply',
                 title: `${p.name} reply published`,
@@ -128,19 +147,52 @@ function humanize(entry: ActivityLogEntry): HumanEntry {
                     ? `Relevance score ${meta.score}/100 — strong match for your target audience.`
                     : `${p.name} comment posted successfully.`,
                 score: meta.score as number,
-                link: meta.replyUrl ? { href: meta.replyUrl as string, label: `View reply on ${p.name}` } : undefined,
+                link: postUrl ? { href: postUrl, label: `View on ${p.name} ↗` } : undefined,
             };
+        }
 
-        case 'original_tweet':
-            return {
-                category: 'reply',
-                title: 'Original tweet published',
-                description: msg,
-                link: meta.tweetUrl ? { href: meta.tweetUrl as string, label: 'View tweet' } : undefined,
-            };
+        case 'like_failed': {
+            // Like/upvote failures are low-priority — show as info, not red error
+            let likeDesc = msg;
+            if (msg.includes('Upvote button not found')) likeDesc = `Upvote button not found — skipped this post.`;
+            else if (msg.includes('Like button not found')) likeDesc = `Like button not found — skipped this post.`;
+            else if (msg.includes('Content script not loaded')) likeDesc = `${p.name} page didn't load in time — skipped.`;
+            else if (msg.includes('Cloudflare') || msg.includes('captcha')) likeDesc = `${p.name} showed a verification page — skipped.`;
+            return { category: 'engagement', title: `Skipped ${p.name} like — will try another post`, description: likeDesc, isIssue: false };
+        }
 
-        case 'post_failed':
-            return { category: 'issue', title: `${p.name} reply failed — will retry automatically`, description: msg, isIssue: true };
+        case 'post_failed': {
+            // Parse extension error messages into user-friendly descriptions
+            let failDesc = msg;
+            let failTitle = `${p.name} reply failed — will retry automatically`;
+            if (msg.includes('Content script not loaded')) {
+                failDesc = `${p.name} page took too long to load. The extension will retry on the next cycle.`;
+            } else if (msg.includes('Cloudflare') || msg.includes('captcha')) {
+                failDesc = `${p.name} showed a verification page. Open ${p.name} manually to clear it.`;
+                failTitle = `${p.name} needs manual verification`;
+            } else if (msg.includes('editor not found') || msg.includes('Editor not found')) {
+                failDesc = `Could not find the comment/reply box on ${p.name}. The page may have loaded differently.`;
+            } else if (msg.includes('Answer button not found')) {
+                failDesc = `Could not find the Answer button on Quora. The page layout may have changed.`;
+            } else if (msg.includes('Upvote button not found')) {
+                failDesc = `Could not find the upvote button on ${p.name}. Will retry next cycle.`;
+            } else if (msg.includes('Timeout')) {
+                failDesc = `${p.name} action took too long and timed out. Will retry next cycle.`;
+            } else if (msg.includes('message channel closed') || msg.includes('asynchronous response')) {
+                failDesc = `Browser connection was interrupted during ${p.name} action. The action may have completed — check the platform.`;
+                failTitle = `${p.name} action interrupted — may have completed`;
+            } else if (msg.includes('Comment box not found') || msg.includes('Comment input not found')) {
+                failDesc = `Could not find the comment box on ${p.name}. Comments may be disabled on this post.`;
+            } else if (msg.includes('Submit button not found')) {
+                failDesc = `Text was typed but the submit button could not be found or was disabled.`;
+            } else if (msg.includes('not confirmed on page')) {
+                failDesc = `Comment was submitted but couldn't be verified on the page. It may have been posted — check ${p.name}.`;
+                failTitle = `${p.name} comment unverified — may have posted`;
+            } else if (msg.includes('Unknown') || msg.includes('No response') || msg.includes('Empty response')) {
+                failDesc = `${p.name} action failed without a clear reason. Will retry automatically.`;
+            }
+            return { category: 'issue', title: failTitle, description: failDesc, isIssue: true };
+        }
 
         case 'post_rejected':
             return { category: 'issue', title: `${p.name} comment rejected by platform`, description: msg, isIssue: true };
@@ -725,7 +777,7 @@ function EntryIcon({ category, level, action }: { category: Category; level: str
 // ── Platform badge colours ─────────────────────────────────────────────────
 const PLATFORM_COLORS: Record<string, string> = {
     twitter: '#1d9bf0', reddit: '#ff4500', facebook: '#1877f2',
-    quora: '#b92b27', youtube: '#ff0000', pinterest: '#e60023',
+    quora: '#b92b27', youtube: '#ff0000', pinterest: '#e60023', skool: '#5865f2',
 };
 
 // ── Time helpers ───────────────────────────────────────────────────────────
@@ -774,17 +826,25 @@ export default function LogsPage() {
             const p = new URLSearchParams({ limit: '400' });
             if (platformFilter !== 'all') p.set('platform', platformFilter);
             const res = await fetch(`/api/logs?${p}`);
+            if (!res.ok) {
+                console.error('fetchLogs failed:', res.status, res.statusText);
+                return;
+            }
             const data = await res.json();
             setLogs(Array.isArray(data.logs) ? data.logs : []);
-        } catch { /* silent */ }
+        } catch (err) { console.error('fetchLogs error:', err); }
     }, [platformFilter]);
 
     const fetchPostedComments = useCallback(async () => {
         try {
             const res = await fetch('/api/posted-comments?filter=today');
+            if (!res.ok) {
+                console.error('fetchPostedComments failed:', res.status, res.statusText);
+                return;
+            }
             const data = await res.json();
             setPostedComments(Array.isArray(data) ? data : data.posts ?? data.comments ?? []);
-        } catch { /* silent */ }
+        } catch (err) { console.error('fetchPostedComments error:', err); }
     }, []);
 
     useEffect(() => {
@@ -792,9 +852,21 @@ export default function LogsPage() {
         Promise.all([
             fetchLogs(),
             fetchPostedComments(),
-            fetch('/api/social-accounts').then(r => r.json()).then(d => {
-                const platforms = (d.accounts ?? []).map((a: { platform: string }) => a.platform);
-                setConnectedPlatforms([...new Set<string>(platforms)]);
+            fetch('/api/settings').then(r => r.json()).then(d => {
+                const s = d.settings;
+                // Use extension platforms if in extension mode, otherwise use connected accounts
+                const extPlatforms = s?.extensionPlatforms || [];
+                const mainPlatforms = s?.platforms || [];
+                const all = [...new Set<string>([...extPlatforms, ...mainPlatforms])];
+                if (all.length > 0) {
+                    setConnectedPlatforms(all);
+                } else {
+                    // Fallback to social accounts
+                    fetch('/api/social-accounts').then(r2 => r2.json()).then(d2 => {
+                        const accs = (d2.accounts ?? []).map((a: { platform: string }) => a.platform);
+                        setConnectedPlatforms([...new Set<string>(accs)]);
+                    }).catch(() => {});
+                }
             }).catch(() => {}),
         ]).finally(() => setLoading(false));
     }, [fetchLogs, fetchPostedComments]);
@@ -815,7 +887,8 @@ export default function LogsPage() {
     const repliesPosted  = todayLogs.filter(l => l.action === 'post' && l.level === 'success').length;
     const originalPosted = todayLogs.filter(l => l.action === 'original_tweet').length;
     const sessions       = todayLogs.filter(l => l.action === 'cron_start').length;
-    const issues         = todayLogs.filter(l => l.level === 'error' || (l.level === 'warn' && l.action !== 'cooldown')).length;
+    const NON_ISSUE_WARN_ACTIONS = new Set(['cooldown', 'scrape_empty', 'scrape_done', 'like_failed']);
+    const issues         = todayLogs.filter(l => l.level === 'error' || (l.level === 'warn' && !NON_ISSUE_WARN_ACTIONS.has(l.action))).length;
 
     // Likes / reactions: Twitter likes + Facebook react actions
     const twitterLikesLog   = todayLogs.find(l => l.platform === 'twitter' && l.action === 'engage' && /liked?\s+\d+/i.test(l.message));

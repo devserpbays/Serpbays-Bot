@@ -34,6 +34,9 @@ export async function getPayPalAccessToken(): Promise<string> {
   }
 
   const data = await res.json();
+  if (!data.access_token || !data.expires_in) {
+    throw new Error(`PayPal auth response missing required fields: ${JSON.stringify(data)}`);
+  }
   _cachedToken = {
     token: data.access_token,
     // Expire 60s early to avoid edge cases

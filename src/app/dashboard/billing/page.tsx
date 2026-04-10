@@ -141,8 +141,8 @@ function BillingContent() {
                 setUsage(data.usage ?? data);
             }
             if (planRes.ok) setPlan(await planRes.json());
-        } catch {
-            /* silent */
+        } catch (err) {
+            console.error('fetchData error:', err);
         } finally {
             setLoading(false);
         }
@@ -157,10 +157,14 @@ function BillingContent() {
         setPortalLoading(true);
         try {
             const res = await fetch('/api/billing/create-portal', { method: 'POST' });
+            if (!res.ok) {
+                console.error('create-portal failed:', res.status, res.statusText);
+                return;
+            }
             const data = await res.json();
             if (data.url) window.location.href = data.url;
-        } catch {
-            /* silent */
+        } catch (err) {
+            console.error('handleManageSubscription error:', err);
         } finally {
             setPortalLoading(false);
         }
@@ -174,10 +178,14 @@ function BillingContent() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ planId: planDef.id, yearly: false }),
             });
+            if (!res.ok) {
+                console.error('create-checkout failed:', res.status, res.statusText);
+                return;
+            }
             const data = await res.json();
             if (data.url) window.location.href = data.url;
-        } catch {
-            /* silent */
+        } catch (err) {
+            console.error('handleUpgrade error:', err);
         } finally {
             setCheckoutLoading(null);
         }

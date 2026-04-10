@@ -6,7 +6,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useClerk, useUser } from '@clerk/nextjs';
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
-import { ThemeToggleCompact } from '@/components/ThemeProvider';
+// ThemeToggleCompact removed — dark mode only
 
 /* ── Alert Poller ──────────────────────────────────────────────── */
 // Only show toasts for actions the user actually needs to know about
@@ -109,7 +109,6 @@ function NotificationBell() {
 
   useEffect(() => {
     fetchNotifications();
-    fetch('/api/check-cookies').catch(() => {});
     const tick = () => { if (!document.hidden) fetchNotifications(); };
     const id = setInterval(tick, 30000);
     return () => clearInterval(id);
@@ -135,7 +134,7 @@ function NotificationBell() {
     setNotifications(prev => prev.filter(item => item._id !== n._id));
     setUnreadCount(prev => Math.max(0, prev - 1));
     setOpen(false);
-    router.push(n.actionUrl || '/dashboard/accounts');
+    router.push(n.actionUrl || '/dashboard/logs');
   };
 
   // Mark all read → clear all from panel
@@ -148,8 +147,8 @@ function NotificationBell() {
   };
 
   const getDotColor = (type: string) => {
-    if (type === 'cookie_expired' || type === 'cookie_expiring_soon') return '#ed4245';
-    if (type === 'account_removed') return '#fee75c';
+    if (type === 'error' || type === 'post_failed') return '#ed4245';
+    if (type === 'warning') return '#fee75c';
     return '#0ea5e9';
   };
 
@@ -390,6 +389,17 @@ const NAV_ITEMS = [
     ),
   },
   {
+    href: '/dashboard/review',
+    label: 'Review',
+    desc: 'Approve replies',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="nav-icon">
+        <path d="M9 11l3 3L22 4" />
+        <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
+      </svg>
+    ),
+  },
+  {
     href: '/dashboard/pipeline',
     label: 'Pipeline',
     desc: 'Scrape & evaluate',
@@ -468,7 +478,8 @@ const SETTINGS_SUB_NAV = [
   { id: 'facebook-groups', label: 'Facebook Groups' },
   { id: 'post-limits', label: 'Limits & Thresholds' },
   { id: 'cron-schedule', label: 'Cron Schedule' },
-  { id: 'notifications', label: 'Notifications' },
+  { id: 'reply-language', label: 'Reply Language' },
+  { id: 'extension', label: 'Browser Extension' },
   { id: 'prompt-template', label: 'Prompt Template' },
 ];
 
@@ -671,9 +682,23 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return () => { cancelled = true; };
   }, []);
 
+  const [extensionMode, setExtensionMode] = useState(false);
+
+  // Check if user is in extension mode
+  useEffect(() => {
+    fetch('/api/settings')
+      .then(r => r.json())
+      .then(data => {
+        if (data.settings?.extensionMode) setExtensionMode(true);
+      })
+      .catch(() => {});
+  }, []);
+
   const navItems = useMemo(() => {
-    if (isAdmin) return [...NAV_ITEMS, ADMIN_NAV_ITEM];
-    return NAV_ITEMS;
+    // Always hide server-side pages — extension is the only safe approach
+    const items = NAV_ITEMS.filter(i => !['/dashboard/pipeline', '/dashboard/accounts', '/dashboard/health'].includes(i.href));
+    if (isAdmin) return [...items, ADMIN_NAV_ITEM];
+    return items;
   }, [isAdmin]);
 
   const isActive = (href: string) => {
@@ -692,7 +717,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="dashboard-layout">
-      <AlertPoller />
+      {/* AlertPoller removed — no cookie notifications needed */}
       <ToastContainer
         position="top-center"
         autoClose={5000}
@@ -901,15 +926,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* ── Main ── */}
       <main className={`main-content ${collapsed ? 'sidebar-collapsed' : ''}`}>
-        {/* Top bar with notification + theme toggle */}
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
-          gap: 10, padding: '12px 24px 0',
-          position: 'sticky', top: 0, zIndex: 100,
-        }}>
-          <NotificationBell />
-          <ThemeToggleCompact />
-        </div>
         {children}
       </main>
 

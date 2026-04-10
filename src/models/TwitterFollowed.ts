@@ -1,7 +1,7 @@
 import mongoose, { Schema } from 'mongoose';
 
 const TwitterFollowedSchema = new Schema({
-  userId: { type: String, required: true, index: true },   // our app user
+  userId: { type: String, required: true },   // our app user (indexed via compound indexes below)
   targetHandle: { type: String, required: true },           // @username without @
   followedAt: { type: Date, default: Date.now },
   unfollowedAt: { type: Date, default: null },

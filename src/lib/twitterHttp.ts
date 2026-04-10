@@ -166,6 +166,84 @@ function jitter(min = 1500, max = 4000): Promise<void> {
   return new Promise(r => setTimeout(r, Math.floor(Math.random() * (max - min)) + min));
 }
 
+let _queryIdsFetched = false;
+
+/**
+ * Fetch fresh GraphQL query IDs from Twitter's JS bundles via HTTP.
+ * Twitter rotates these IDs periodically — stale IDs cause silent 200-OK failures.
+ * Call once at cron startup before any engagement actions.
+ */
+export async function refreshQueryIdsHttp(profileDir: string): Promise<void> {
+  if (_queryIdsFetched) return;
+  _queryIdsFetched = true;
+
+  const cookies = loadCookies(profileDir);
+  const cookieHeader = buildCookieHeader(cookies);
+  const ct0 = getCt0(cookies);
+
+  try {
+    // Fetch Twitter's main page to find JS bundle URLs
+    const mainRes = await fetch('https://x.com/home', {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+        Cookie: cookieHeader,
+        ...(ct0 ? { 'X-Csrf-Token': ct0 } : {}),
+      },
+      redirect: 'follow',
+    });
+    const html = await mainRes.text();
+
+    // Extract JS bundle URLs from the HTML
+    const scriptUrls: string[] = [];
+    const scriptRegex = /src="(https:\/\/abs\.twimg\.com\/responsive-web\/client-web[^"]+\.js)"/g;
+    let match;
+    while ((match = scriptRegex.exec(html)) !== null) {
+      scriptUrls.push(match[1]);
+    }
+
+    if (scriptUrls.length === 0) {
+      console.warn('[twitterHttp] No client-web JS bundles found in HTML — using fallback query IDs');
+      return;
+    }
+
+    let foundCreate = false, foundFav = false, foundRetweet = false, foundBookmark = false;
+
+    // Check the last few bundles (operations are typically in the larger bundles)
+    for (const url of scriptUrls.slice(-8)) {
+      try {
+        const jsRes = await fetch(url, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36' },
+        });
+        const content = await jsRes.text();
+
+        if (!foundCreate) {
+          const m = content.match(/queryId:\s*"([^"]+)"[^}]*operationName:\s*"CreateTweet"/);
+          if (m) { _httpCreateTweetQueryId = m[1]; foundCreate = true; console.log(`[twitterHttp] Fresh CreateTweet queryId: ${m[1]}`); }
+        }
+        if (!foundFav) {
+          const m = content.match(/queryId:\s*"([^"]+)"[^}]*operationName:\s*"FavoriteTweet"/);
+          if (m) { _httpFavoriteTweetQueryId = m[1]; foundFav = true; console.log(`[twitterHttp] Fresh FavoriteTweet queryId: ${m[1]}`); }
+        }
+        if (!foundRetweet) {
+          const m = content.match(/queryId:\s*"([^"]+)"[^}]*operationName:\s*"CreateRetweet"/);
+          if (m) { _httpCreateRetweetQueryId = m[1]; foundRetweet = true; console.log(`[twitterHttp] Fresh CreateRetweet queryId: ${m[1]}`); }
+        }
+        if (!foundBookmark) {
+          const m = content.match(/queryId:\s*"([^"]+)"[^}]*operationName:\s*"CreateBookmark"/);
+          if (m) { _httpCreateBookmarkQueryId = m[1]; foundBookmark = true; console.log(`[twitterHttp] Fresh CreateBookmark queryId: ${m[1]}`); }
+        }
+
+        if (foundCreate && foundFav && foundRetweet && foundBookmark) break;
+      } catch { /* skip this bundle */ }
+    }
+
+    if (!foundRetweet) console.warn('[twitterHttp] Could not find CreateRetweet queryId — using fallback');
+    if (!foundBookmark) console.warn('[twitterHttp] Could not find CreateBookmark queryId — using fallback');
+  } catch (err) {
+    console.warn('[twitterHttp] Failed to refresh query IDs:', (err as Error).message);
+  }
+}
+
 /** Parse a Twitter API error body into a short human-readable message */
 export function parseTwitterError(bodyStr: string): string {
   const CODE_MAP: Record<number, string> = {
@@ -206,6 +284,20 @@ export function parseTwitterError(bodyStr: string): string {
 
   // Not JSON or no errors array — strip the raw body
   return bodyStr.slice(0, 120).replace(/[\r\n]+/g, ' ').trim();
+}
+
+/** Check for errors embedded in a 200-OK GraphQL response body */
+function checkGraphQLErrors(body: string, action: string): void {
+  try {
+    const data = JSON.parse(body);
+    const errors = data?.errors as Array<{ code?: number; message?: string }> | undefined;
+    if (errors && errors.length > 0) {
+      throw new Error(`Twitter ${action} failed (200 body): ${parseTwitterError(body)}`);
+    }
+  } catch (e) {
+    // Re-throw if it's our error, ignore JSON parse failures (means body isn't JSON with errors)
+    if ((e as Error).message.includes(`${action} failed`)) throw e;
+  }
 }
 
 // --- Verify credentials: read from .verified file + test ct0 cookie exists ---
@@ -365,10 +457,12 @@ export async function likeTweetHttp(profileDir: string, tweetId: string): Promis
     }),
   });
 
+  const body = await res.text();
   if (!res.ok) {
-    const body = await res.text();
     throw new Error(`Twitter like error ${res.status}: ${parseTwitterError(body)}`);
   }
+  // Twitter can return 200 OK with errors in the body
+  checkGraphQLErrors(body, 'like');
 }
 
 // --- Retweet a tweet (HTTP) ---
@@ -389,9 +483,22 @@ export async function retweetHttp(profileDir: string, tweetId: string): Promise<
     }),
   });
 
+  const body = await res.text();
   if (!res.ok) {
-    const body = await res.text();
     throw new Error(`Twitter retweet error ${res.status}: ${parseTwitterError(body)}`);
+  }
+  // Twitter can return 200 OK with errors in the body
+  checkGraphQLErrors(body, 'retweet');
+  // Validate the retweet actually happened — response should contain retweet result
+  try {
+    const data = JSON.parse(body);
+    const result = data?.data?.create_retweet?.retweet_results?.result;
+    if (!result) {
+      throw new Error(`Twitter retweet silently failed — no result in response: ${body.slice(0, 200)}`);
+    }
+  } catch (e) {
+    if ((e as Error).message.includes('silently failed')) throw e;
+    throw new Error(`Twitter retweet returned non-JSON response — session may be expired`);
   }
 }
 
@@ -413,9 +520,22 @@ export async function bookmarkHttp(profileDir: string, tweetId: string): Promise
     }),
   });
 
+  const body = await res.text();
   if (!res.ok) {
-    const body = await res.text();
     throw new Error(`Twitter bookmark error ${res.status}: ${parseTwitterError(body)}`);
+  }
+  // Twitter can return 200 OK with errors in the body
+  checkGraphQLErrors(body, 'bookmark');
+  // Validate the bookmark actually happened
+  try {
+    const data = JSON.parse(body);
+    const done = data?.data?.tweet_bookmark_put;
+    if (done === undefined) {
+      throw new Error(`Twitter bookmark silently failed — no result in response: ${body.slice(0, 200)}`);
+    }
+  } catch (e) {
+    if ((e as Error).message.includes('silently failed')) throw e;
+    throw new Error(`Twitter bookmark returned non-JSON response — session may be expired`);
   }
 }
 

@@ -30,11 +30,20 @@ export function getTodayStartUTC(timezone = 'UTC'): Date {
  */
 export function getHourInTimezone(timezone = 'UTC'): number {
   const tz = timezone || 'UTC';
-  const str = new Intl.DateTimeFormat('en-US', {
-    timeZone: tz, hour: 'numeric', hour12: false,
-  }).format(new Date());
-  const h = parseInt(str, 10);
-  return isNaN(h) ? new Date().getUTCHours() : h % 24;
+  try {
+    const str = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz, hour: 'numeric', hour12: false,
+    }).format(new Date());
+    const h = parseInt(str, 10);
+    if (isNaN(h)) {
+      console.warn(`[schedule] Invalid hour result for timezone "${tz}", falling back to UTC`);
+      return new Date().getUTCHours();
+    }
+    return h % 24;
+  } catch {
+    console.warn(`[schedule] Invalid timezone "${tz}", falling back to UTC`);
+    return new Date().getUTCHours();
+  }
 }
 
 export interface PlatformSchedule {
@@ -63,15 +72,31 @@ export function isWithinSchedule(schedule?: Partial<PlatformSchedule> | null): b
   const now = new Date();
 
   // Get current day and hour in the target timezone
-  const dayFormatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: s.timezone,
-    weekday: 'short',
-  });
-  const hourFormatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: s.timezone,
-    hour: 'numeric',
-    hour12: false,
-  });
+  let dayFormatter: Intl.DateTimeFormat;
+  let hourFormatter: Intl.DateTimeFormat;
+  try {
+    dayFormatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: s.timezone,
+      weekday: 'short',
+    });
+    hourFormatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: s.timezone,
+      hour: 'numeric',
+      hour12: false,
+    });
+  } catch {
+    console.warn(`[schedule] Invalid timezone "${s.timezone}", falling back to UTC`);
+    s.timezone = 'UTC';
+    dayFormatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'UTC',
+      weekday: 'short',
+    });
+    hourFormatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'UTC',
+      hour: 'numeric',
+      hour12: false,
+    });
+  }
 
   const dayStr = dayFormatter.format(now);
   const hourStr = hourFormatter.format(now);

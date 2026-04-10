@@ -29,6 +29,8 @@ const PostSchema = new Schema({
   bookmarkedByBot:  { type: Boolean, default: false },
   crosspostedByBot: { type: Boolean, default: false },
   pinterestHeartLiked: { type: Boolean, default: false },
+  subscribedByBot: { type: Boolean, default: false },
+  isShort: { type: Boolean, default: false },
   editedReply: String,
   replyUrl: String,
   evaluatedAt: Date,
@@ -61,7 +63,7 @@ const PostSchema = new Schema({
   ttlExpireAt: { type: Date, default: null },
 }, { timestamps: true });
 
-PostSchema.index({ userId: 1, url: 1 }, { unique: true, sparse: true });
+PostSchema.index({ userId: 1, url: 1 }, { unique: true });
 PostSchema.index({ status: 1 });
 PostSchema.index({ aiRelevanceScore: -1 });
 PostSchema.index({ scrapedAt: -1 });

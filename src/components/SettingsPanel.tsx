@@ -239,13 +239,19 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
 
   // Which platform has its "add account" form open
   const [openForms, setOpenForms] = useState<Record<string, boolean>>({});
+  const [extensionApiKey, setExtensionApiKey] = useState('');
+  const [generatingKey, setGeneratingKey] = useState(false);
+  const [keyCopied, setKeyCopied] = useState(false);
 
   useEffect(() => {
     if (open) {
       fetch('/api/settings')
         .then((r) => r.json())
         .then((data) => {
-          if (data.settings) setSettings({ ...data.settings, socialAccounts: data.settings.socialAccounts ?? [] });
+          if (data.settings) {
+            setSettings({ ...data.settings, socialAccounts: data.settings.socialAccounts ?? [] });
+            if (data.settings.extensionApiKey) setExtensionApiKey(data.settings.extensionApiKey);
+          }
         });
     }
   }, [open]);
@@ -305,11 +311,21 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
   };
 
   const handleAccountRemoved = async (accountId: string) => {
-    await fetch(`/api/social-accounts?id=${encodeURIComponent(accountId)}`, { method: 'DELETE' });
-    setSettings((prev) => ({
-      ...prev,
-      socialAccounts: (prev.socialAccounts || []).filter((a) => a.id !== accountId),
-    }));
+    try {
+      const res = await fetch(`/api/social-accounts?id=${encodeURIComponent(accountId)}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || 'Failed to remove account');
+        return;
+      }
+      setSettings((prev) => ({
+        ...prev,
+        socialAccounts: (prev.socialAccounts || []).filter((a) => a.id !== accountId),
+      }));
+    } catch (err) {
+      console.error('Failed to delete account:', err);
+      alert('Failed to remove account. Please try again.');
+    }
   };
 
   if (!open) return null;
@@ -501,6 +517,109 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
               placeholder="Use {postContent}, {companyName}, {companyDescription} as variables..."
             />
             <p className="text-xs text-gray-500 mt-1">Leave empty to use the default prompt.</p>
+          </div>
+        </div>
+
+        {/* ── Browser Extension ── */}
+        <div className="space-y-5 border-t border-gray-200 pt-5">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Browser Extension</label>
+            <p className="text-xs text-gray-500 mb-3">
+              Use the GetMention browser extension to post comments from your own browser — safer than server-side automation.
+            </p>
+
+            {/* Extension mode toggle */}
+            <div className="flex items-center justify-between mb-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+              <div>
+                <p className="text-sm font-medium text-gray-800">Extension Mode</p>
+                <p className="text-xs text-gray-500">Route posting through the extension instead of server</p>
+              </div>
+              <button
+                onClick={() => setSettings({ ...settings, extensionMode: !settings.extensionMode })}
+                className={`relative w-10 h-6 rounded-full transition-colors ${settings.extensionMode ? 'bg-green-500' : 'bg-gray-300'}`}
+              >
+                <span className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform ${settings.extensionMode ? 'translate-x-4' : ''}`} />
+              </button>
+            </div>
+
+            {/* Extension platforms */}
+            {settings.extensionMode && (
+              <div className="mb-3">
+                <p className="text-xs font-medium text-gray-600 mb-2">Extension Platforms</p>
+                <div className="flex gap-2 flex-wrap">
+                  {['twitter', 'facebook', 'quora', 'reddit', 'youtube', 'pinterest'].map((p) => {
+                    const active = (settings.extensionPlatforms || []).includes(p);
+                    return (
+                      <button
+                        key={p}
+                        onClick={() => {
+                          const current = settings.extensionPlatforms || [];
+                          setSettings({
+                            ...settings,
+                            extensionPlatforms: active ? current.filter((x) => x !== p) : [...current, p],
+                          });
+                        }}
+                        className={`px-3 py-1.5 text-xs rounded-full border transition-colors ${active ? 'bg-green-50 border-green-300 text-green-700' : 'bg-gray-50 border-gray-200 text-gray-500'}`}
+                      >
+                        {p.charAt(0).toUpperCase() + p.slice(1)}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* API Key */}
+            <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+              <p className="text-xs font-medium text-gray-600 mb-2">Extension API Key</p>
+              {extensionApiKey ? (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 text-xs bg-white border border-gray-200 rounded px-2 py-1.5 font-mono text-gray-700 truncate">
+                      {extensionApiKey}
+                    </code>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(extensionApiKey);
+                        setKeyCopied(true);
+                        setTimeout(() => setKeyCopied(false), 2000);
+                      }}
+                      className="px-2.5 py-1.5 text-xs bg-white border border-gray-200 rounded hover:bg-gray-100 transition-colors"
+                    >
+                      {keyCopied ? 'Copied!' : 'Copy'}
+                    </button>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      if (!confirm('Regenerate API key? The old key will stop working.')) return;
+                      setGeneratingKey(true);
+                      const res = await fetch('/api/extension/api-key', { method: 'POST' });
+                      const data = await res.json();
+                      if (data.apiKey) setExtensionApiKey(data.apiKey);
+                      setGeneratingKey(false);
+                    }}
+                    disabled={generatingKey}
+                    className="text-xs text-red-500 hover:text-red-700 disabled:opacity-50"
+                  >
+                    {generatingKey ? 'Regenerating...' : 'Regenerate Key'}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={async () => {
+                    setGeneratingKey(true);
+                    const res = await fetch('/api/extension/api-key', { method: 'POST' });
+                    const data = await res.json();
+                    if (data.apiKey) setExtensionApiKey(data.apiKey);
+                    setGeneratingKey(false);
+                  }}
+                  disabled={generatingKey}
+                  className="px-3 py-1.5 bg-gray-900 text-white text-xs rounded-md hover:bg-gray-700 disabled:opacity-50"
+                >
+                  {generatingKey ? 'Generating...' : 'Generate API Key'}
+                </button>
+              )}
+            </div>
           </div>
         </div>
 

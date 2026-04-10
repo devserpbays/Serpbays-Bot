@@ -23,6 +23,22 @@ export async function GET() {
     });
   }
 
+  // Check if cookies.json has cf_clearance — Quora uses Cloudflare protection
+  const cookiesJsonPath = join(process.cwd(), account.profileDir, 'cookies.json');
+  if (existsSync(cookiesJsonPath)) {
+    try {
+      const cookies = JSON.parse(readFileSync(cookiesJsonPath, 'utf-8'));
+      const cfClearance = cookies.find((c: { name: string; expires?: number }) => c.name === 'cf_clearance');
+      if (cfClearance?.expires && cfClearance.expires * 1000 < Date.now()) {
+        return NextResponse.json({
+          loggedIn: false,
+          profileDir: account.profileDir,
+          message: 'Cloudflare session expired — re-upload fresh Quora cookies to continue.',
+        });
+      }
+    } catch { /* ignore parse errors */ }
+  }
+
   const verifiedFile = join(process.cwd(), account.profileDir, '.verified');
 
   try {

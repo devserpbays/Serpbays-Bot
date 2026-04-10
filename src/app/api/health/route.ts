@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getBrowserQueue } from '@/lib/queue';
 import { getRedis } from '@/lib/redis';
 
 export const dynamic = 'force-dynamic';
@@ -28,20 +27,6 @@ export async function GET(req: NextRequest) {
     checks.mongo = { ok: state === 1 };
   } catch (err) {
     checks.mongo = { ok: false, ...(isDetailed && { detail: (err as Error).message }) };
-  }
-
-  // Queue (only for admin)
-  if (isDetailed) {
-    try {
-      const queue = getBrowserQueue();
-      const [waiting, active] = await Promise.all([
-        queue.getWaitingCount(),
-        queue.getActiveCount(),
-      ]);
-      checks.queue = { ok: true, detail: `waiting=${waiting} active=${active}` };
-    } catch (err) {
-      checks.queue = { ok: false, detail: (err as Error).message };
-    }
   }
 
   const allOk = Object.values(checks).every(c => c.ok);

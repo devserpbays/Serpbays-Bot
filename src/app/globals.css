@@ -402,23 +402,32 @@ body {
 .page-header {
   padding: var(--page-padding);
   padding-bottom: 8px;
+  max-width: 1100px;
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .page-header h2 {
-  font-size: 24px;
-  font-weight: 700;
+  font-size: 22px;
+  font-weight: 800;
   color: var(--text-primary);
   letter-spacing: -0.03em;
+  margin: 0;
 }
 
 .page-header p {
-  font-size: 14px;
+  font-size: 13px;
   color: var(--text-muted);
-  margin-top: 4px;
+  margin: 4px 0 0;
 }
 
 .page-body {
   padding: 16px var(--page-padding) var(--page-padding);
+  max-width: 1100px;
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 /* ── Top Bar ─────────────────────────────────────────────────────────────────── */
@@ -1095,12 +1104,13 @@ select.input option:hover {
 
 .form-section {
   background: var(--bg-card);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  padding: 24px;
-  margin-bottom: 20px;
+  border: 1px solid var(--border-default);
+  border-radius: 16px;
+  padding: 18px 20px;
+  margin-bottom: 0;
   position: relative;
   overflow: hidden;
+  animation: gm-slide-up 0.4s ease-out both;
 }
 
 .form-section::before {
@@ -1110,18 +1120,24 @@ select.input option:hover {
   left: 0;
   right: 0;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(168, 85, 247, 0.35), transparent);
+  background: linear-gradient(90deg, transparent, rgba(168, 85, 247, 0.25), transparent);
   pointer-events: none;
 }
 
 .form-section-title {
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 700;
   color: var(--text-primary);
-  margin-bottom: 16px;
+  margin-bottom: 14px;
+  letter-spacing: -0.02em;
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+@keyframes gm-slide-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 /* ── Tag / Chip input ────────────────────────────────────────────────────────── */

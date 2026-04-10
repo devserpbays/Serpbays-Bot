@@ -83,32 +83,6 @@ export function getWarmupLimit(
 }
 
 /**
- * Age-based daily limit for original tweets.
- * Independent of reply warmup — original tweets scale more slowly.
- *
- * < 5 days   → max 1/day
- * 5–15 days  → max 2/day
- * 15–30 days → max 4/day
- * 30+ days   → configured limit (capped at 10)
- */
-export function getOriginalTweetDailyLimit(
-  configuredLimit: number,
-  accountAddedAt: string | Date | undefined,
-): number {
-  if (!accountAddedAt) return Math.min(configuredLimit, 1);
-
-  const ageDays = (Date.now() - new Date(accountAddedAt).getTime()) / (24 * 60 * 60 * 1000);
-
-  let safeCap: number;
-  if (ageDays < 5)        safeCap = 1;
-  else if (ageDays < 15)  safeCap = 2;
-  else if (ageDays < 30)  safeCap = 4;
-  else                    safeCap = 10;
-
-  return Math.min(configuredLimit, safeCap);
-}
-
-/**
  * Should this cron run randomly skip posting? (simulates human inconsistency)
  * Returns true X% of the time to make posting patterns less predictable.
  *

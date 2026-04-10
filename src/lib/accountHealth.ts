@@ -11,6 +11,8 @@
  *   - Recent activity (dormant accounts need gentle re-warm)
  */
 
+import { connectDB } from './mongodb';
+
 export const AUTO_PAUSE_THRESHOLD = 25; // pause if score drops below this
 export const RESUME_THRESHOLD     = 50; // resume only when score recovers above this
 
@@ -183,7 +185,11 @@ export function buildSuccessPatch(account: Parameters<typeof computeHealthScore>
     lastPostedAt: new Date(),
   };
   const { score } = computeHealthScore(updated);
-  const autoPaused = score < AUTO_PAUSE_THRESHOLD ? false : (account.autoPaused ?? false);
+  // After a successful post, recompute pause state from the new score.
+  // (Same convention as buildFailurePatch.) A successful post on a healthy-score
+  // account should always clear a stale autoPaused flag — otherwise the account
+  // can get stuck paused forever once any code path sets the flag.
+  const autoPaused = score < AUTO_PAUSE_THRESHOLD;
   return {
     $set: {
       totalPosts:          updated.totalPosts,
@@ -221,12 +227,13 @@ export async function handleAutomationBlock(
   userId: string,
   platform: string,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  BrowserCookieModel: any,
+  AccountStateModel: any,
 ): Promise<{ action: 'backoff' | 'browse_only' | 'hard_pause'; hours: number; blockCount: number }> {
+  await connectDB();
   const now = new Date();
   const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-  const doc = await BrowserCookieModel.findOne({ userId, platform }).lean() as Record<string, unknown> | null;
+  const doc = await AccountStateModel.findOne({ userId, platform }).lean() as Record<string, unknown> | null;
   const lastBlockAt = doc?.automationBlockedAt ? new Date(doc.automationBlockedAt as string) : null;
   const inWindow = !!(lastBlockAt && lastBlockAt >= sevenDaysAgo);
   const prevCount = inWindow ? ((doc?.automationBlockCount as number) ?? 0) : 0;
@@ -263,7 +270,7 @@ export async function handleAutomationBlock(
     update.backoffUntil = new Date(now.getTime() + hours * 60 * 60 * 1000);
   }
 
-  await BrowserCookieModel.findOneAndUpdate(
+  await AccountStateModel.findOneAndUpdate(
     { userId, platform },
     { $set: update },
     { upsert: true },

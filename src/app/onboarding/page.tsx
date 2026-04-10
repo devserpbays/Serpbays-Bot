@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, KeyboardEvent } from 'react';
+import ExtensionInstallCard from '@/components/ExtensionInstallCard';
 
 /* ─── Data ─────────────────────────────────────────────────────────────────── */
 const STEPS = [
@@ -172,6 +173,25 @@ export default function OnboardingPage() {
   const [keywords, setKeywords] = useState<string[]>([]);
   const [promptTemplate, setPromptTemplate] = useState('');
 
+  // Step 5 — extension API key (fetched/generated when user reaches the success step)
+  const [extensionApiKey, setExtensionApiKey] = useState('');
+
+  async function ensureApiKey() {
+    try {
+      const res = await fetch('/api/settings', { credentials: 'include' });
+      const data = await res.json().catch(() => ({}));
+      const existing = (data?.settings || data)?.extensionApiKey as string | undefined;
+      if (existing) {
+        setExtensionApiKey(existing);
+        return;
+      }
+      // No key yet — generate one via POST /api/extension/api-key
+      const genRes = await fetch('/api/extension/api-key', { method: 'POST', credentials: 'include' });
+      const genData = await genRes.json().catch(() => ({}));
+      if (genData?.apiKey) setExtensionApiKey(genData.apiKey);
+    } catch { /* silent — user can still copy key from Settings later */ }
+  }
+
   /* helpers */
   async function extractWebsite() {
     const url = websiteUrl.trim();
@@ -233,6 +253,8 @@ export default function OnboardingPage() {
       });
       if (!res.ok) throw new Error('Failed');
       setDir('fwd'); setStep(5);
+      // Kick off API key fetch/generation so it's ready for the extension card
+      ensureApiKey();
     } catch { setError('Something went wrong. Please try again.'); }
     finally { setLoading(false); }
   }
@@ -754,6 +776,16 @@ export default function OnboardingPage() {
                 </div>
               </Card>
 
+              {/* Extension install card — expanded by default so new users immediately
+                  see the download + install steps. API key is auto-generated on step 5. */}
+              <ExtensionInstallCard
+                theme="light"
+                apiKey={extensionApiKey || undefined}
+                defaultExpanded={true}
+                title="Install the Chrome extension"
+                subtitle="This is what actually runs the bot. Install it now — it takes under a minute."
+              />
+
               {/* Next steps */}
               <Card>
                 <div style={{ padding: '20px 24px' }}>
@@ -762,14 +794,15 @@ export default function OnboardingPage() {
                   </p>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
                     {[
-                      { num: '1', color: T.accent, title: 'Connect your social accounts', sub: 'Paste browser cookies for the platforms you selected' },
-                      { num: '2', color: '#8b5cf6', title: 'Adjust your settings', sub: 'Set daily limits, posting schedule, and AI confidence threshold' },
-                      { num: '3', color: T.green, title: 'Watch the bot work', sub: 'Check the Activity log — replies start appearing within 15 min' },
+                      { num: '1', color: '#6366f1', title: 'Install the Chrome extension', sub: 'Download and load unpacked using the card above ↑' },
+                      { num: '2', color: T.accent, title: 'Log into your social platforms', sub: 'In normal Chrome tabs — the extension uses your live browser session' },
+                      { num: '3', color: '#8b5cf6', title: 'Tune your settings', sub: 'Adjust daily limits, posting hours, and AI confidence threshold' },
+                      { num: '4', color: T.green, title: 'Watch the bot work', sub: 'Check the Activity log — replies start appearing within 15 min' },
                     ].map((item, i) => (
                       <div key={item.num} style={{
                         display: 'flex', alignItems: 'flex-start', gap: 14,
                         padding: '12px 0',
-                        borderBottom: i < 2 ? `1px dashed ${T.borderLight}` : 'none',
+                        borderBottom: i < 3 ? `1px dashed ${T.borderLight}` : 'none',
                         animation: `fadeUp 350ms ease ${i * 120}ms both`,
                       }}>
                         <div style={{

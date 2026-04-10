@@ -11,6 +11,13 @@ const isPublicRoute = createRouteMatcher([
   '/privacy',
   '/api/billing/webhook',
   '/api/health',
+  '/api/extension/ping',
+  '/api/extension/tasks(.*)',
+  '/api/extension/settings',
+  '/api/extension/status',
+  '/api/extension/scrape',
+  '/api/extension/log',
+  '/api/extension/immediate',
 ])
 
 const isAuthRoute = createRouteMatcher(['/login(.*)', '/signup(.*)'])
@@ -24,9 +31,30 @@ export default clerkMiddleware(async (auth, req) => {
   const { userId, sessionClaims } = await auth()
 
   // Build the canonical origin from forwarded headers (behind nginx proxy)
+  // Bug #4: Validate x-forwarded-host against allowed domains to prevent open redirect
+  const ALLOWED_HOSTS = new Set([
+    'localhost',
+    'localhost:3005',
+    'engageai.pro',
+    'www.engageai.pro',
+    'app.engageai.pro',
+    ...(process.env.EXTRA_ALLOWED_HOSTS?.split(',').map(h => h.trim()).filter(Boolean) || []),
+  ])
   const proto = req.headers.get('x-forwarded-proto') || 'http'
-  const host = req.headers.get('x-forwarded-host') || req.headers.get('host') || 'localhost'
+  const rawHost = req.headers.get('x-forwarded-host') || req.headers.get('host') || 'localhost'
+  const host = ALLOWED_HOSTS.has(rawHost) ? rawHost : (req.headers.get('host') || 'localhost')
   const origin = `${proto}://${host}`
+
+  // Handle CORS preflight for extension API routes
+  const isExtensionRoute = req.nextUrl.pathname.startsWith('/api/extension/')
+  if (isExtensionRoute && req.method === 'OPTIONS') {
+    const res = new NextResponse(null, { status: 204 })
+    res.headers.set('Access-Control-Allow-Origin', '*')
+    res.headers.set('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
+    res.headers.set('Access-Control-Allow-Headers', 'Content-Type, X-Extension-Key')
+    res.headers.set('Access-Control-Max-Age', '86400')
+    return res
+  }
 
   // Security headers on all responses
   const addSecurityHeaders = (res: NextResponse) => {
@@ -36,6 +64,11 @@ export default clerkMiddleware(async (auth, req) => {
     res.headers.set('X-DNS-Prefetch-Control', 'off')
     res.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
     res.headers.set('X-XSS-Protection', '1; mode=block')
+    // Add CORS for extension API routes
+    if (isExtensionRoute) {
+      res.headers.set('Access-Control-Allow-Origin', '*')
+      res.headers.set('Access-Control-Allow-Headers', 'Content-Type, X-Extension-Key')
+    }
     return res
   }
 
@@ -73,11 +106,20 @@ export default clerkMiddleware(async (auth, req) => {
     return addSecurityHeaders(NextResponse.next())
   }
 
-  // Check onboarding status from Clerk metadata or fallback cookie
+  // Check onboarding status from Clerk metadata or fallback cookie.
   // (JWT may not have refreshed yet after completing onboarding)
-  const onboardingDone =
+  //
+  // SECURITY NOTE (Bug #15): The ob_done cookie can be set by any client, so it
+  // should NOT gate access to sensitive resources. It only controls the
+  // onboarding-vs-dashboard redirect — a user who forges it merely skips being
+  // redirected to /onboarding and lands on /dashboard (which is already
+  // auth-protected). The Clerk JWT publicMetadata is the authoritative source;
+  // the cookie is a grace-period fallback until the JWT refreshes.
+  const clerkOnboardingDone =
     (sessionClaims?.publicMetadata as { onboardingCompleted?: boolean })?.onboardingCompleted === true
-    || req.cookies.get('ob_done')?.value === '1'
+  const cookieOnboardingDone = req.cookies.get('ob_done')?.value === '1'
+  // Prefer the Clerk JWT claim; only trust the cookie if JWT metadata is not yet populated
+  const onboardingDone = clerkOnboardingDone || (!sessionClaims?.publicMetadata && cookieOnboardingDone)
 
   // On onboarding page but already completed → go to dashboard
   if (isOnboardingRoute(req) && onboardingDone) {

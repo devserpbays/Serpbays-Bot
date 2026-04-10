@@ -16,7 +16,7 @@ export async function GET() {
 const MAX_STRING_LENGTH = 500;
 const MAX_PROMPT_LENGTH = 5000;
 const MAX_ARRAY_LENGTH = 200;
-const VALID_PLATFORMS = ['twitter', 'reddit', 'facebook', 'quora', 'youtube', 'pinterest'];
+const VALID_PLATFORMS = ['twitter', 'reddit', 'facebook', 'quora', 'youtube', 'pinterest', 'skool'];
 
 function validateString(val: unknown, maxLen = MAX_STRING_LENGTH): string | null {
   if (typeof val !== 'string') return null;
@@ -47,7 +47,13 @@ export async function PUT(req: NextRequest) {
   const userId = await getAuthUserId();
   if (userId instanceof NextResponse) return userId;
 
-  const body = await req.json();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let body: any;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+  }
 
   // Enforce plan limits on platforms and keywords
   if (body.platforms) {
@@ -82,7 +88,7 @@ export async function PUT(req: NextRequest) {
   const arrayFields = [
     'keywords', 'subreddits', 'facebookGroups', 'facebookKeywords',
     'twitterKeywords', 'twitterCommunityIds', 'twitterTweetTopics', 'twitterTweetStyles',
-    'redditKeywords', 'quoraKeywords', 'youtubeKeywords', 'pinterestKeywords',
+    'redditKeywords', 'quoraKeywords', 'youtubeKeywords', 'pinterestKeywords', 'skoolKeywords', 'skoolCommunities',
   ] as const;
   for (const key of arrayFields) {
     if (body[key] !== undefined) {
@@ -94,38 +100,43 @@ export async function PUT(req: NextRequest) {
   // Numeric fields — daily limits are hard-capped at PLATFORM_SAFE_LIMITS, cooldowns at platform minimums
   // These caps are enforced server-side so no client can bypass them.
   const numericFields: { key: string; min: number; max: number }[] = [
-    { key: 'facebookDailyLimit',        min: 1,  max: 7   }, // PLATFORM_SAFE_LIMITS.facebook.maxDaily
+    { key: 'facebookDailyLimit',        min: 1,  max: 10  },
     { key: 'facebookAutoPostThreshold', min: 0,  max: 100 },
     { key: 'facebookBrandMentionRate',  min: 0,  max: 100 },
-    { key: 'facebookCooldownMinutes',   min: 60, max: 1440 }, // PLATFORM_SAFE_LIMITS.facebook.minCooldownMinutes
-    { key: 'twitterDailyLimit',         min: 1,  max: 10  }, // PLATFORM_SAFE_LIMITS.twitter.maxDaily
+    { key: 'facebookCooldownMinutes',   min: 60, max: 1440 },
+    { key: 'twitterDailyLimit',         min: 1,  max: 10  },
     { key: 'twitterAutoPostThreshold',  min: 0,  max: 100 },
     { key: 'twitterBrandMentionRate',   min: 0,  max: 100 },
-    { key: 'twitterCooldownMinutes',    min: 45, max: 1440 }, // PLATFORM_SAFE_LIMITS.twitter.minCooldownMinutes
+    { key: 'twitterCooldownMinutes',    min: 45, max: 1440 },
     { key: 'twitterOriginalTweetDailyLimit', min: 0, max: 5 },
     { key: 'twitterLikeRate',           min: 0,  max: 100 },
     { key: 'twitterRetweetRate',        min: 0,  max: 100 },
     { key: 'twitterBookmarkRate',       min: 0,  max: 100 },
     { key: 'twitterReplyRate',          min: 0,  max: 100 },
-    { key: 'redditDailyLimit',          min: 1,  max: 7   }, // PLATFORM_SAFE_LIMITS.reddit.maxDaily
+    { key: 'redditDailyLimit',          min: 1,  max: 10  },
     { key: 'redditAutoPostThreshold',   min: 0,  max: 100 },
     { key: 'redditBrandMentionRate',    min: 0,  max: 100 },
-    { key: 'redditCooldownMinutes',     min: 60, max: 1440 }, // PLATFORM_SAFE_LIMITS.reddit.minCooldownMinutes
-    { key: 'quoraDailyLimit',           min: 1,  max: 5   }, // PLATFORM_SAFE_LIMITS.quora.maxDaily
+    { key: 'redditCooldownMinutes',     min: 60, max: 1440 },
+    { key: 'quoraDailyLimit',           min: 1,  max: 10  },
     { key: 'quoraAutoPostThreshold',    min: 0,  max: 100 },
     { key: 'quoraBrandMentionRate',     min: 0,  max: 100 },
-    { key: 'quoraCooldownMinutes',      min: 90, max: 1440 }, // PLATFORM_SAFE_LIMITS.quora.minCooldownMinutes
-    { key: 'youtubeDailyLimit',         min: 1,  max: 7   }, // PLATFORM_SAFE_LIMITS.youtube.maxDaily
+    { key: 'quoraCooldownMinutes',      min: 90, max: 1440 },
+    { key: 'youtubeDailyLimit',         min: 1,  max: 10  },
     { key: 'youtubeAutoPostThreshold',  min: 0,  max: 100 },
     { key: 'youtubeBrandMentionRate',   min: 0,  max: 100 },
-    { key: 'youtubeCooldownMinutes',    min: 90, max: 1440 }, // PLATFORM_SAFE_LIMITS.youtube.minCooldownMinutes
-    { key: 'pinterestDailyLimit',       min: 1,  max: 7   }, // PLATFORM_SAFE_LIMITS.pinterest.maxDaily
+    { key: 'youtubeCooldownMinutes',    min: 90, max: 1440 },
+    { key: 'pinterestDailyLimit',       min: 1,  max: 10  },
     { key: 'pinterestAutoPostThreshold',min: 0,  max: 100 },
     { key: 'pinterestBrandMentionRate', min: 0,  max: 100 },
-    { key: 'pinterestCooldownMinutes',  min: 60, max: 1440 }, // PLATFORM_SAFE_LIMITS.pinterest.minCooldownMinutes
+    { key: 'pinterestCooldownMinutes',  min: 60, max: 1440 },
+    { key: 'skoolDailyLimit',           min: 1,  max: 10  },
+    { key: 'skoolAutoPostThreshold',    min: 0,  max: 100 },
+    { key: 'skoolBrandMentionRate',     min: 0,  max: 100 },
+    { key: 'skoolCooldownMinutes',      min: 30, max: 1440 },
     { key: 'cronStartHour', min: 0, max: 23 },
     { key: 'cronEndHour', min: 0, max: 23 },
     { key: 'cronIntervalMinutes', min: 15, max: 360 },
+    { key: 'maxDailyBrandMentions', min: 0, max: 10 },
   ];
   for (const { key, min, max } of numericFields) {
     if (body[key] !== undefined) {
@@ -144,6 +155,19 @@ export async function PUT(req: NextRequest) {
   // Booleans
   if (body.notifyViaEmail !== undefined) data.notifyViaEmail = !!body.notifyViaEmail;
   if (body.twitterOriginalTweetsEnabled !== undefined) data.twitterOriginalTweetsEnabled = !!body.twitterOriginalTweetsEnabled;
+  if (body.extensionMode !== undefined) data.extensionMode = !!body.extensionMode;
+
+  // Extension platforms
+  if (body.extensionPlatforms !== undefined) {
+    const arr = validateStringArray(body.extensionPlatforms);
+    if (arr) data.extensionPlatforms = arr.filter(p => VALID_PLATFORMS.includes(p));
+  }
+
+  // Reply languages
+  if (body.replyLanguages !== undefined) {
+    const arr = validateStringArray(body.replyLanguages);
+    if (arr) data.replyLanguages = arr.map(l => l.toLowerCase().trim()).filter(Boolean);
+  }
 
   // Social accounts — validate profileDir
   if (body.socialAccounts !== undefined && Array.isArray(body.socialAccounts)) {

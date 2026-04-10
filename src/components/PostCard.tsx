@@ -14,68 +14,12 @@ export default function PostCard({ post, onUpdate }: PostCardProps) {
   const [editedReply, setEditedReply] = useState(post.editedReply || post.aiReply || '');
   const [editing, setEditing] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [posting, setPosting] = useState(false);
-  const [postResult, setPostResult] = useState<string>('');
-  const [upgradeMessage, setUpgradeMessage] = useState('');
+  const [upgradeMessage] = useState('');
 
   const handleAction = async (status: string) => {
     setLoading(true);
     await onUpdate(post._id!, { status, editedReply: editedReply !== post.aiReply ? editedReply : undefined });
     setLoading(false);
-  };
-
-  const handlePostToX = async () => {
-    setPosting(true);
-    setPostResult('');
-    setUpgradeMessage('');
-    try {
-      const res = await fetch('/api/post-reply', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: post._id }),
-      });
-      if (res.status === 403) {
-        const data = await res.json();
-        if (data.upgrade) { setUpgradeMessage(data.error); setPosting(false); return; }
-      }
-      const data = await res.json();
-      if (data.success) {
-        setPostResult(`Posted! ${data.isReply ? 'Reply' : 'Tweet'} ID: ${data.tweetId}`);
-        await onUpdate(post._id!, {});
-      } else {
-        setPostResult(`Error: ${data.error}`);
-      }
-    } catch {
-      setPostResult('Failed to post to X');
-    }
-    setPosting(false);
-  };
-
-  const handlePostToFacebook = async () => {
-    setPosting(true);
-    setPostResult('');
-    setUpgradeMessage('');
-    try {
-      const res = await fetch('/api/fb-post-reply', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: post._id }),
-      });
-      if (res.status === 403) {
-        const data = await res.json();
-        if (data.upgrade) { setUpgradeMessage(data.error); setPosting(false); return; }
-      }
-      const data = await res.json();
-      if (data.success) {
-        setPostResult('Comment posted to Facebook!');
-        await onUpdate(post._id!, {});
-      } else {
-        setPostResult(`Error: ${data.error}`);
-      }
-    } catch {
-      setPostResult('Failed to post to Facebook');
-    }
-    setPosting(false);
   };
 
   const replyText = post.editedReply || post.aiReply;
@@ -194,42 +138,6 @@ export default function PostCard({ post, onUpdate }: PostCardProps) {
 
       {post.status === 'approved' && (
         <div className="flex gap-2 pt-2 flex-wrap items-center">
-          {post.platform === 'twitter' && (
-            <button
-              onClick={handlePostToX}
-              disabled={posting}
-              className="px-4 py-2 bg-black text-white text-sm rounded-md hover:bg-gray-800 disabled:opacity-50 flex items-center gap-1.5"
-            >
-              {posting ? (
-                'Posting...'
-              ) : (
-                <>
-                  <svg viewBox="0 0 24 24" className="w-4 h-4 fill-current" aria-hidden="true">
-                    <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
-                  </svg>
-                  Post to X
-                </>
-              )}
-            </button>
-          )}
-          {post.platform === 'facebook' && (
-            <button
-              onClick={handlePostToFacebook}
-              disabled={posting}
-              className="px-4 py-2 bg-[#1877F2] text-white text-sm rounded-md hover:bg-[#1565d8] disabled:opacity-50 flex items-center gap-1.5"
-            >
-              {posting ? (
-                'Posting...'
-              ) : (
-                <>
-                  <svg viewBox="0 0 24 24" className="w-4 h-4 fill-current" aria-hidden="true">
-                    <path d="M24 12.073C24 5.405 18.627 0 12 0S0 5.405 0 12.073C0 18.1 4.388 23.094 10.125 24v-8.437H7.078v-3.49h3.047v-2.66c0-3.025 1.792-4.697 4.533-4.697 1.312 0 2.686.235 2.686.235v2.97h-1.513c-1.491 0-1.956.928-1.956 1.879v2.273h3.328l-.532 3.49h-2.796V24C19.612 23.094 24 18.1 24 12.073z" />
-                  </svg>
-                  Post to Facebook
-                </>
-              )}
-            </button>
-          )}
           <button
             onClick={() => {
               navigator.clipboard.writeText(editedReply || replyText || '');
@@ -245,11 +153,6 @@ export default function PostCard({ post, onUpdate }: PostCardProps) {
           >
             Mark as Posted
           </button>
-          {postResult && (
-            <span className={`text-sm ${postResult.startsWith('Error') ? 'text-red-600' : 'text-green-600'}`}>
-              {postResult}
-            </span>
-          )}
         </div>
       )}
 

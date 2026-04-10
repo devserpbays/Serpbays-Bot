@@ -12,8 +12,20 @@ export async function checkPlanLimit(
 ): Promise<NextResponse | null> {
   const { plan, status, limits } = await getUserPlan(userId);
 
-  // Allow everything if subscription is active or trialing
+  // Subscription status check:
+  // - Free users (plan === 'free') have no Stripe subscription, so status will be
+  //   something like 'none' or undefined — they should always be allowed through.
+  // - Paid users must have an active or trialing subscription to proceed.
+  // - Canceled or past_due paid users are blocked even if they somehow still have a plan set.
   if (status !== 'active' && status !== 'trialing' && plan !== 'free') {
+    return NextResponse.json(
+      { error: 'Your subscription is inactive. Please update your payment method.', upgrade: true },
+      { status: 403 }
+    );
+  }
+
+  // Block paid plans with canceled/past_due status — they should not retain paid features
+  if ((status === 'canceled' || status === 'past_due') && plan !== 'free') {
     return NextResponse.json(
       { error: 'Your subscription is inactive. Please update your payment method.', upgrade: true },
       { status: 403 }

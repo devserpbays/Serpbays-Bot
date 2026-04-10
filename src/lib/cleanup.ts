@@ -17,7 +17,9 @@ export async function runCleanup(): Promise<{ marked: number }> {
 
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - TTL_DAYS);
-  const ttlDate = new Date(Date.now() + TTL_DAYS * 24 * 60 * 60 * 1000);
+  // These posts are already older than TTL_DAYS — expire them now.
+  // MongoDB's TTL monitor runs every ~60s and will delete them shortly.
+  const ttlDate = new Date();
 
   // Set ttlExpireAt on terminal posts that don't have it yet
   const result = await Post.updateMany(

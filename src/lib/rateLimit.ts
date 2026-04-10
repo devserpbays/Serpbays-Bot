@@ -35,6 +35,10 @@ export async function checkRateLimit(
 
     if (count > config.maxRequests) {
       const ttl = await redis.ttl(redisKey);
+      // TTL returns -1 (no expiry set) or -2 (key gone) — treat as expired window, reset
+      if (ttl < 0) {
+        await redis.expire(redisKey, config.windowSec);
+      }
       const retryAfter = ttl > 0 ? ttl : config.windowSec;
       return {
         error: `Rate limit exceeded. Try again in ${retryAfter}s.`,

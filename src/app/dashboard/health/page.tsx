@@ -131,6 +131,11 @@ export default function HealthPage() {
     setLoading(true);
     try {
       const res = await fetch('/api/account-health');
+      if (!res.ok) {
+        console.error('Failed to load account health:', res.status, res.statusText);
+        toast.error('Failed to load account health data');
+        return;
+      }
       const data = await res.json();
       setAccounts(data.accounts ?? []);
       setSummary(data.summary ?? { healthy: 0, warning: 0, critical: 0, paused: 0, total: 0 });
@@ -151,6 +156,11 @@ export default function HealthPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ platform }),
       });
+      if (!res.ok) {
+        console.error('Resume account failed:', res.status, res.statusText);
+        toast.error('Failed to resume account');
+        return;
+      }
       const data = await res.json();
       if (data.success) {
         toast.success(`${platform} account resumed (health reset to ${data.healthScore})`);

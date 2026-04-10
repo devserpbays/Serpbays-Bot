@@ -14,8 +14,8 @@ export interface ISubscription extends Document {
 const SubscriptionSchema = new Schema<ISubscription>(
   {
     userId: { type: String, required: true, unique: true, index: true },
-    paypalSubscriptionId: { type: String, index: true, sparse: true, default: '' },
-    paypalPayerId: { type: String, index: true, sparse: true, default: '' },
+    paypalSubscriptionId: { type: String, index: true, sparse: true, default: null },
+    paypalPayerId: { type: String, index: true, sparse: true, default: null },
     plan: {
       type: String,
       enum: ['free', 'pro', 'business'],

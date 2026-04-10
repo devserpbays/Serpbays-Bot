@@ -5,6 +5,7 @@ import { useUser } from '@clerk/nextjs';
 import { API_BASE } from '@/lib/apiBase';
 import type { ISettings } from '@/lib/types';
 import UpgradeBanner from '@/components/UpgradeBanner';
+import ExtensionInstallCard from '@/components/ExtensionInstallCard';
 
 const PLATFORM_OPTIONS = [
     { id: 'twitter', label: 'Twitter / X', color: '#1d9bf0' },
@@ -13,6 +14,7 @@ const PLATFORM_OPTIONS = [
     { id: 'quora', label: 'Quora', color: '#2563eb' },
     { id: 'youtube', label: 'YouTube', color: '#0ea5e9' },
     { id: 'pinterest', label: 'Pinterest', color: '#60a5fa' },
+    { id: 'skool', label: 'Skool', color: '#5865f2' },
 ];
 
 // Minimum recommended cooldowns per platform (in minutes)
@@ -107,16 +109,10 @@ export default function SettingsPage() {
         facebookBrandMentionRate: 25,
         facebookCooldownMinutes: 90,
         twitterKeywords: [],
-        twitterCommunityIds: [],
         twitterDailyLimit: 10,
         twitterAutoPostThreshold: 70,
         twitterBrandMentionRate: 25,
         twitterCooldownMinutes: 60,
-        twitterOriginalTweetsEnabled: false,
-        twitterOriginalTweetDailyLimit: 2,
-        twitterTweetTopics: [],
-        twitterTweetPersona: '',
-        twitterTweetStyles: [],
         redditKeywords: [],
         redditDailyLimit: 5,
         redditAutoPostThreshold: 70,
@@ -137,28 +133,39 @@ export default function SettingsPage() {
         pinterestAutoPostThreshold: 70,
         pinterestBrandMentionRate: 25,
         pinterestCooldownMinutes: 90,
+        skoolKeywords: [],
+        skoolCommunities: [],
+        skoolDailyLimit: 5,
+        skoolAutoPostThreshold: 70,
+        skoolBrandMentionRate: 25,
+        skoolCooldownMinutes: 60,
         cronTimezone: '',
         cronStartHour: 9,
         cronEndHour: 18,
         cronDays: [0, 1, 2, 3, 4, 5, 6],
         cronIntervalMinutes: 15,
         notificationEmail: '',
-        notifyViaEmail: true,
+        notifyViaEmail: false,
+        extensionMode: false,
+        extensionPlatforms: [],
+        replyLanguages: ['english'],
     });
 
     const { user } = useUser();
     const clerkEmail = user?.emailAddresses?.[0]?.emailAddress || '';
+
+    const [extensionApiKey, setExtensionApiKey] = useState('');
+    const [generatingKey, setGeneratingKey] = useState(false);
+    const [keyCopied, setKeyCopied] = useState(false);
 
     const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
     const [upgradeMessage, setUpgradeMessage] = useState('');
     const [errorMessage, setErrorMessage] = useState('');
     const [newKeyword, setNewKeyword] = useState('');
     const [newPlatformKeyword, setNewPlatformKeyword] = useState<Record<string, string>>({});
-    const [newCommunityId, setNewCommunityId] = useState('');
-    const [syncingCommunities, setSyncingCommunities] = useState(false);
-    const [newTweetTopic, setNewTweetTopic] = useState('');
     const [newSubreddit, setNewSubreddit] = useState('');
     const [newFbGroup, setNewFbGroup] = useState('');
+    const [newSkoolCommunity, setNewSkoolCommunity] = useState('');
     const [expandedPlatform, setExpandedPlatform] = useState<string | null>(null);
     const [expandedCron, setExpandedCron] = useState<string | null>(null);
 
@@ -211,6 +218,7 @@ export default function SettingsPage() {
             const data = await res.json();
             if (data.settings) {
                 setSettings((prev) => ({ ...prev, ...data.settings, cronTimezone: data.settings.cronTimezone || '' }));
+                if (data.settings.extensionApiKey) setExtensionApiKey(data.settings.extensionApiKey);
                 settingsLoaded.current = true;
             }
         } catch { /* silent */ }
@@ -282,12 +290,15 @@ export default function SettingsPage() {
     }, [settings]);
 
     const togglePlatform = (id: string) => {
-        setSettings((prev) => ({
-            ...prev,
-            platforms: prev.platforms.includes(id)
+        setSettings((prev) => {
+            const next = prev.platforms.includes(id)
                 ? prev.platforms.filter((p) => p !== id)
-                : [...prev.platforms, id],
-        }));
+                : [...prev.platforms, id];
+            // Mirror to extensionPlatforms so the extension uses the same list.
+            // The duplicate "Extension Platforms" UI was removed — this is the
+            // single source of truth now.
+            return { ...prev, platforms: next, extensionPlatforms: next };
+        });
     };
 
     const addToList = (key: keyof ISettings, value: string, clearFn: (v: string) => void) => {
@@ -341,6 +352,33 @@ export default function SettingsPage() {
             </div>
 
             <div className="page-body" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+
+                {/* ── Browser Extension (always at top) ── */}
+                <ExtensionInstallCard
+                    theme="dark"
+                    apiKey={extensionApiKey || undefined}
+                    showKeyField
+                    defaultExpanded={false}
+                    regenerating={generatingKey}
+                    onGenerateKey={async () => {
+                        setGeneratingKey(true);
+                        try {
+                            const res = await fetch(`${API_BASE}/api/extension/api-key`, { method: 'POST' });
+                            const data = await res.json();
+                            if (data.apiKey) setExtensionApiKey(data.apiKey);
+                        } catch { /* silent */ }
+                        setGeneratingKey(false);
+                    }}
+                    onRegenerateKey={async () => {
+                        setGeneratingKey(true);
+                        try {
+                            const res = await fetch(`${API_BASE}/api/extension/api-key`, { method: 'POST' });
+                            const data = await res.json();
+                            if (data.apiKey) setExtensionApiKey(data.apiKey);
+                        } catch { /* silent */ }
+                        setGeneratingKey(false);
+                    }}
+                />
 
                 {upgradeMessage && <UpgradeBanner message={upgradeMessage} />}
 
@@ -510,7 +548,90 @@ export default function SettingsPage() {
                     </div>
                 )}
 
+                {(settings.platforms.includes('skool') || (settings.extensionPlatforms || []).includes('skool')) && (
+                    <div id="skool-communities" className="form-section" style={{ scrollMarginTop: 80 }}>
+                        <div className="form-section-title" style={{ color: '#5865f2' }}>
+                            <svg viewBox="0 0 24 24" fill="#5865f2" style={{ width: 18, height: 18 }}>
+                                <circle cx="12" cy="12" r="12" />
+                            </svg>
+                            Skool Communities
+                        </div>
+                        <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '-4px 0 8px' }}>
+                            Add Skool community URLs to scrape and engage with posts. Example: https://www.skool.com/your-community
+                        </p>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                            <input
+                                className="input"
+                                placeholder="https://www.skool.com/community-name"
+                                value={newSkoolCommunity}
+                                onChange={(e) => setNewSkoolCommunity(e.target.value)}
+                                onKeyDown={(e) => { if (e.key === 'Enter') addToList('skoolCommunities', newSkoolCommunity, setNewSkoolCommunity); }}
+                            />
+                            <button className="btn btn-secondary" onClick={() => addToList('skoolCommunities', newSkoolCommunity, setNewSkoolCommunity)}>Add</button>
+                        </div>
+                        <div className="tag-list">
+                            {(settings.skoolCommunities ?? []).map((c: string) => (
+                                <span key={c} className="tag" style={{ background: 'rgba(88,101,242,0.1)', color: '#7c8af2' }}>
+                                    {c.replace(/https?:\/\/(www\.)?skool\.com\//, '').replace(/\/$/, '')}
+                                    <button className="tag-remove" onClick={() => removeFromList('skoolCommunities', c)}>×</button>
+                                </span>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
                 {/* ── Per-Platform Limits ── */}
+                {/* ── Brand Mention Cap ── */}
+                <div className="form-section" style={{ scrollMarginTop: 80 }}>
+                    <div className="form-section-title">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} style={{ width: 18, height: 18 }}>
+                            <path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z" /><line x1="7" y1="7" x2="7.01" y2="7" />
+                        </svg>
+                        Brand Mentions
+                    </div>
+                    <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 14, lineHeight: 1.6 }}>
+                        Control how many comments per day mention your company name. Most comments should be natural engagement — only 1–2 per day should promote your brand, targeting high-relevance posts with buying intent.
+                    </p>
+                    <div style={{
+                        display: 'flex', alignItems: 'center', gap: 16,
+                        padding: '14px 18px',
+                        background: 'var(--bg-card)', border: '1px solid var(--border-default)', borderRadius: 12,
+                    }}>
+                        <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
+                                Max brand mentions per day
+                            </div>
+                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                                Across all platforms combined. The AI only mentions your brand on posts where someone has clear buying intent.
+                            </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            {[0, 1, 2, 3, 5].map(n => {
+                                const current = settings.maxDailyBrandMentions ?? 2;
+                                const active = current === n;
+                                return (
+                                    <button
+                                        key={n}
+                                        type="button"
+                                        onClick={() => setSettings(prev => ({ ...prev, maxDailyBrandMentions: n }))}
+                                        style={{
+                                            width: 36, height: 36, borderRadius: 10,
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                            fontSize: 14, fontWeight: 700,
+                                            cursor: 'pointer', transition: 'all 200ms',
+                                            border: active ? '1.5px solid #6366f1' : '1px solid var(--border-default)',
+                                            background: active ? 'rgba(99,102,241,0.15)' : 'transparent',
+                                            color: active ? '#a5b4fc' : 'var(--text-muted)',
+                                        }}
+                                    >
+                                        {n}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </div>
+
                 <div id="post-limits" className="form-section" style={{ scrollMarginTop: 80 }}>
                     <div className="form-section-title">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} style={{ width: 18, height: 18 }}>
@@ -519,7 +640,7 @@ export default function SettingsPage() {
                         Auto-Post Limits &amp; Thresholds
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 0, border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
-                        {PLATFORM_OPTIONS.filter((p) => settings.platforms.includes(p.id)).map((p, idx, arr) => {
+                        {PLATFORM_OPTIONS.filter((p) => settings.platforms.includes(p.id) || (settings.extensionPlatforms || []).includes(p.id)).map((p, idx, arr) => {
                             const kwKey = `${p.id}Keywords` as keyof ISettings;
                             const limitKey = `${p.id}DailyLimit` as keyof ISettings;
                             const threshKey = `${p.id}AutoPostThreshold` as keyof ISettings;
@@ -642,91 +763,6 @@ export default function SettingsPage() {
                                                     )}
                                                 </div>
 
-                                                {/* Twitter Communities (Twitter only) */}
-                                                {p.id === 'twitter' && (() => {
-                                                    const communityIds: string[] = (settings.twitterCommunityIds as string[]) || [];
-                                                    return (
-                                                        <div>
-                                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-                                                                <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.6px', color: 'var(--text-muted)' }}>Twitter Communities</div>
-                                                                <button
-                                                                    className="btn btn-secondary"
-                                                                    style={{ fontSize: 11, padding: '4px 10px', display: 'flex', alignItems: 'center', gap: 5 }}
-                                                                    disabled={syncingCommunities}
-                                                                    onClick={async () => {
-                                                                        setSyncingCommunities(true);
-                                                                        try {
-                                                                            const res = await fetch('/api/twitter-communities', { method: 'POST' });
-                                                                            const data = await res.json();
-                                                                            if (data.communities?.length) {
-                                                                                // Reload settings to pick up new IDs
-                                                                                const setRes = await fetch('/api/settings');
-                                                                                const setData = await setRes.json();
-                                                                                if (setData.settings) setSettings(setData.settings);
-                                                                            }
-                                                                        } catch { /* silent */ }
-                                                                        setSyncingCommunities(false);
-                                                                    }}
-                                                                >
-                                                                    {syncingCommunities ? (
-                                                                        <>
-                                                                            <span style={{ width: 10, height: 10, border: '2px solid currentColor', borderTopColor: 'transparent', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.6s linear infinite' }} />
-                                                                            Syncing…
-                                                                        </>
-                                                                    ) : (
-                                                                        <>
-                                                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width="11" height="11">
-                                                                                <path d="M23 4v6h-6" /><path d="M1 20v-6h6" />
-                                                                                <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
-                                                                            </svg>
-                                                                            Sync from Account
-                                                                        </>
-                                                                    )}
-                                                                </button>
-                                                            </div>
-                                                            <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '0 0 8px', lineHeight: 1.5 }}>
-                                                                Click "Sync from Account" to auto-detect communities you've joined, or add IDs manually.<br />
-                                                                <code style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: '#c084fc' }}>x.com/i/communities/<strong>1234567890</strong></code>
-                                                            </p>
-                                                            <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-                                                                <input
-                                                                    className="input"
-                                                                    style={{ fontSize: 13, fontFamily: 'var(--font-mono)' }}
-                                                                    placeholder="Community ID (numeric)"
-                                                                    value={newCommunityId}
-                                                                    onChange={(e) => setNewCommunityId(e.target.value.replace(/\D/g, ''))}
-                                                                    onKeyDown={(e) => {
-                                                                        if (e.key === 'Enter' && newCommunityId.trim()) {
-                                                                            addToList('twitterCommunityIds' as keyof ISettings, newCommunityId.trim(), () => setNewCommunityId(''));
-                                                                        }
-                                                                    }}
-                                                                />
-                                                                <button
-                                                                    className="btn btn-secondary"
-                                                                    style={{ fontSize: 12, padding: '6px 12px' }}
-                                                                    onClick={() => {
-                                                                        if (newCommunityId.trim()) {
-                                                                            addToList('twitterCommunityIds' as keyof ISettings, newCommunityId.trim(), () => setNewCommunityId(''));
-                                                                        }
-                                                                    }}
-                                                                >Add</button>
-                                                            </div>
-                                                            {communityIds.length > 0 ? (
-                                                                <div className="tag-list" style={{ gap: 6 }}>
-                                                                    {communityIds.map((id) => (
-                                                                        <span key={id} className="tag" style={{ background: '#1d9bf022', color: '#1d9bf0', fontSize: 11, padding: '3px 8px', fontFamily: 'var(--font-mono)' }}>
-                                                                            {id}
-                                                                            <button className="tag-remove" onClick={() => removeFromList('twitterCommunityIds' as keyof ISettings, id)}>×</button>
-                                                                        </span>
-                                                                    ))}
-                                                                </div>
-                                                            ) : (
-                                                                <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: 0 }}>No communities added — click "Sync from Account" or add manually</p>
-                                                            )}
-                                                        </div>
-                                                    );
-                                                })()}
-
                                                 {/* Brand Mention Rate */}
                                                 <div>
                                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
@@ -770,157 +806,6 @@ export default function SettingsPage() {
                                                         <span style={{ fontSize: 10, color: '#ef4444' }}>100% — Always mention brand</span>
                                                     </div>
                                                 </div>
-
-                                                {/* Original Tweets — Twitter only */}
-                                                {p.id === 'twitter' && (
-                                                    <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 16 }}>
-                                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                                                            <div>
-                                                                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>Post Original Tweets</span>
-                                                                <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 6 }}>— AI posts original tweets from your content profile during cron runs</span>
-                                                            </div>
-                                                            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                                                                <input
-                                                                    type="checkbox"
-                                                                    checked={!!(settings as any).twitterOriginalTweetsEnabled}
-                                                                    onChange={e => setSettings(prev => ({ ...prev, twitterOriginalTweetsEnabled: e.target.checked }))}
-                                                                    style={{ width: 16, height: 16, accentColor: '#1d9bf0', cursor: 'pointer' }}
-                                                                />
-                                                                <span style={{ fontSize: 12, fontWeight: 600, color: (settings as any).twitterOriginalTweetsEnabled ? '#1d9bf0' : 'var(--text-muted)' }}>
-                                                                    {(settings as any).twitterOriginalTweetsEnabled ? 'Enabled' : 'Disabled'}
-                                                                </span>
-                                                            </label>
-                                                        </div>
-                                                        {(settings as any).twitterOriginalTweetsEnabled && (
-                                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                                                                {/* Daily limit */}
-                                                                <div>
-                                                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-                                                                        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Max original tweets per day</span>
-                                                                        <span style={{ fontSize: 13, fontWeight: 700, color: '#1d9bf0', fontFamily: 'var(--font-mono)' }}>{(settings as any).twitterOriginalTweetDailyLimit ?? 2}</span>
-                                                                    </div>
-                                                                    <input
-                                                                        type="range" min={1} max={5} step={1}
-                                                                        value={(settings as any).twitterOriginalTweetDailyLimit ?? 2}
-                                                                        onChange={e => setSettings(prev => ({ ...prev, twitterOriginalTweetDailyLimit: Number(e.target.value) }))}
-                                                                        style={{ width: '100%', accentColor: '#1d9bf0' }}
-                                                                    />
-                                                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 2 }}>
-                                                                        <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>1/day</span>
-                                                                        <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>5/day</span>
-                                                                    </div>
-                                                                </div>
-
-                                                                {/* Tweet Topics */}
-                                                                <div>
-                                                                    <div style={{ marginBottom: 6 }}>
-                                                                        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>Tweet Topics</span>
-                                                                        <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 6 }}>— what to post about (uses keywords if empty)</span>
-                                                                    </div>
-                                                                    <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-                                                                        <input
-                                                                            className="input"
-                                                                            style={{ fontSize: 13 }}
-                                                                            placeholder="e.g. link building tips, SEO for startups..."
-                                                                            value={newTweetTopic}
-                                                                            onChange={e => setNewTweetTopic(e.target.value)}
-                                                                            onKeyDown={e => {
-                                                                                if (e.key === 'Enter' && newTweetTopic.trim()) {
-                                                                                    addToList('twitterTweetTopics' as keyof ISettings, newTweetTopic.trim(), () => setNewTweetTopic(''));
-                                                                                }
-                                                                            }}
-                                                                        />
-                                                                        <button
-                                                                            className="btn btn-secondary"
-                                                                            style={{ fontSize: 12, padding: '6px 12px' }}
-                                                                            onClick={() => {
-                                                                                if (newTweetTopic.trim()) addToList('twitterTweetTopics' as keyof ISettings, newTweetTopic.trim(), () => setNewTweetTopic(''));
-                                                                            }}
-                                                                        >Add</button>
-                                                                    </div>
-                                                                    {((settings as any).twitterTweetTopics?.length > 0) ? (
-                                                                        <div className="tag-list" style={{ gap: 6 }}>
-                                                                            {((settings as any).twitterTweetTopics as string[]).map((t: string) => (
-                                                                                <span key={t} className="tag" style={{ background: '#1d9bf022', color: '#1d9bf0', fontSize: 11, padding: '3px 8px' }}>
-                                                                                    {t}
-                                                                                    <button className="tag-remove" onClick={() => removeFromList('twitterTweetTopics' as keyof ISettings, t)}>×</button>
-                                                                                </span>
-                                                                            ))}
-                                                                        </div>
-                                                                    ) : (
-                                                                        <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: 0 }}>No topics added — will use your Twitter keywords</p>
-                                                                    )}
-                                                                </div>
-
-                                                                {/* Content Styles */}
-                                                                <div>
-                                                                    <div style={{ marginBottom: 8 }}>
-                                                                        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>Content Styles</span>
-                                                                        <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 6 }}>— formats the AI will randomly pick from</span>
-                                                                    </div>
-                                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                                                                        {[
-                                                                            { id: 'tip', label: '💡 Tip', desc: 'Practical advice' },
-                                                                            { id: 'question', label: '❓ Question', desc: 'Engage audience' },
-                                                                            { id: 'hot_take', label: '🔥 Hot Take', desc: 'Contrarian opinion' },
-                                                                            { id: 'observation', label: '🔍 Observation', desc: 'Noticed something' },
-                                                                            { id: 'stat', label: '📊 Stat', desc: 'Data-backed insight' },
-                                                                            { id: 'story', label: '📖 Story', desc: 'Personal experience' },
-                                                                        ].map(style => {
-                                                                            const selected = ((settings as any).twitterTweetStyles as string[] ?? []).includes(style.id);
-                                                                            return (
-                                                                                <button
-                                                                                    key={style.id}
-                                                                                    onClick={() => {
-                                                                                        const current: string[] = (settings as any).twitterTweetStyles ?? [];
-                                                                                        setSettings(prev => ({
-                                                                                            ...prev,
-                                                                                            twitterTweetStyles: selected
-                                                                                                ? current.filter(s => s !== style.id)
-                                                                                                : [...current, style.id],
-                                                                                        }));
-                                                                                    }}
-                                                                                    style={{
-                                                                                        padding: '6px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                                                                                        border: selected ? '1px solid #1d9bf066' : '1px solid var(--border-subtle)',
-                                                                                        background: selected ? '#1d9bf018' : 'transparent',
-                                                                                        color: selected ? '#1d9bf0' : 'var(--text-muted)',
-                                                                                        transition: 'all 0.15s',
-                                                                                    }}
-                                                                                    title={style.desc}
-                                                                                >{style.label}</button>
-                                                                            );
-                                                                        })}
-                                                                    </div>
-                                                                    <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6, marginBottom: 0 }}>
-                                                                        {((settings as any).twitterTweetStyles?.length ?? 0) === 0
-                                                                            ? 'None selected — AI will vary formats automatically'
-                                                                            : `AI will randomly use: ${((settings as any).twitterTweetStyles as string[]).join(', ')}`}
-                                                                    </p>
-                                                                </div>
-
-                                                                {/* Writing Persona */}
-                                                                <div>
-                                                                    <div style={{ marginBottom: 6 }}>
-                                                                        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>Writing Persona</span>
-                                                                        <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 6 }}>— describe the voice and expertise (optional)</span>
-                                                                    </div>
-                                                                    <textarea
-                                                                        className="input"
-                                                                        rows={3}
-                                                                        placeholder="e.g. Senior SEO consultant with 8 years experience. Shares practical, no-fluff tips. Speaks conversationally, uses real examples, occasionally self-deprecating."
-                                                                        value={(settings as any).twitterTweetPersona ?? ''}
-                                                                        onChange={e => setSettings(prev => ({ ...prev, twitterTweetPersona: e.target.value }))}
-                                                                        style={{ fontSize: 13, resize: 'vertical', width: '100%', boxSizing: 'border-box' }}
-                                                                    />
-                                                                    <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, marginBottom: 0 }}>
-                                                                        The more specific, the more consistent the voice across tweets.
-                                                                    </p>
-                                                                </div>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                )}
 
                                                 {/* Cooldown between posts */}
                                                 <div>
@@ -1365,81 +1250,58 @@ export default function SettingsPage() {
                     </div>
                 </div>
 
-                {/* ── Notification Preferences ── */}
-                <div id="notifications" className="form-section" style={{ position: 'relative', overflow: 'hidden', scrollMarginTop: 80 }}>
-                    <div style={{
-                        position: 'absolute', top: 0, right: 0, width: 200, height: 200,
-                        background: 'radial-gradient(circle at top right, rgba(14,165,233,0.08), transparent 70%)',
-                        pointerEvents: 'none',
-                    }} />
+                {/* ── Reply Language ── */}
+                <div id="reply-language" className="form-section" style={{ scrollMarginTop: 80 }}>
                     <div className="form-section-title">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} style={{ width: 18, height: 18 }}>
-                            <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" />
-                            <path d="M13.73 21a2 2 0 01-3.46 0" />
+                            <circle cx="12" cy="12" r="10" /><line x1="2" y1="12" x2="22" y2="12" /><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z" />
                         </svg>
-                        Notification Preferences
+                        Reply Language
                     </div>
-                    <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 20px', lineHeight: 1.5 }}>
-                        Get notified via email when your platform cookies expire or accounts disconnect.
+                    <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12, lineHeight: 1.5 }}>
+                        Only engage with posts in these languages. Replies will be generated in the same language. Posts in other languages will be skipped.
                     </p>
-
-                    {/* Email notification */}
-                    <div style={{ marginBottom: 20 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                            <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
-                                Email Notifications
-                            </label>
-                            <button
-                                type="button"
-                                onClick={() => setSettings(p => ({ ...p, notifyViaEmail: !p.notifyViaEmail }))}
-                                style={{
-                                    width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer',
-                                    background: settings.notifyViaEmail ? '#0ea5e9' : 'rgba(255,255,255,0.1)',
-                                    position: 'relative', transition: 'background 200ms',
-                                }}
-                            >
-                                <div style={{
-                                    width: 18, height: 18, borderRadius: '50%', background: '#fff',
-                                    position: 'absolute', top: 3,
-                                    left: settings.notifyViaEmail ? 23 : 3,
-                                    transition: 'left 200ms',
-                                    boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-                                }} />
-                            </button>
-                        </div>
-                        {/* Show Clerk email as auto-detected */}
-                        {clerkEmail && settings.notifyViaEmail && (
-                            <div style={{
-                                display: 'flex', alignItems: 'center', gap: 8,
-                                padding: '10px 14px', marginBottom: 8,
-                                background: 'rgba(14,165,233,0.06)',
-                                border: '1px solid rgba(14,165,233,0.15)',
-                                borderRadius: 8, fontSize: 13,
-                            }}>
-                                <svg viewBox="0 0 24 24" fill="none" stroke="#0ea5e9" strokeWidth={1.8} width="16" height="16" style={{ flexShrink: 0 }}>
-                                    <path d="M22 11.08V12a10 10 0 11-5.93-9.14" />
-                                    <polyline points="22 4 12 14.01 9 11.01" />
-                                </svg>
-                                <span style={{ color: 'var(--text-primary)' }}>{clerkEmail}</span>
-                                <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>(from your account)</span>
-                            </div>
-                        )}
-                        <input
-                            className="input"
-                            type="email"
-                            placeholder={clerkEmail ? 'Override email (optional)' : 'your@email.com'}
-                            value={settings.notificationEmail || ''}
-                            onChange={(e) => setSettings(p => ({ ...p, notificationEmail: e.target.value }))}
-                            style={{ opacity: settings.notifyViaEmail ? 1 : 0.4, pointerEvents: settings.notifyViaEmail ? 'auto' : 'none' }}
-                        />
-                        <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '6px 0 0', opacity: 0.7 }}>
-                            {clerkEmail
-                                ? 'Alerts go to your account email. Enter a different email above to override.'
-                                : 'Receive alerts when cookies expire for 3+ hours.'
-                            } Max 1 email every 12 hours.
-                        </p>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        {[
+                            { id: 'english', label: 'English' },
+                            { id: 'hindi', label: 'Hindi' },
+                            { id: 'spanish', label: 'Spanish' },
+                            { id: 'french', label: 'French' },
+                            { id: 'german', label: 'German' },
+                            { id: 'portuguese', label: 'Portuguese' },
+                            { id: 'arabic', label: 'Arabic' },
+                            { id: 'chinese', label: 'Chinese' },
+                            { id: 'japanese', label: 'Japanese' },
+                            { id: 'korean', label: 'Korean' },
+                            { id: 'russian', label: 'Russian' },
+                        ].map(lang => {
+                            const active = (settings.replyLanguages || ['english']).includes(lang.id);
+                            return (
+                                <button
+                                    key={lang.id}
+                                    type="button"
+                                    onClick={() => {
+                                        const current = settings.replyLanguages || ['english'];
+                                        setSettings(prev => ({
+                                            ...prev,
+                                            replyLanguages: active
+                                                ? current.filter(l => l !== lang.id)
+                                                : [...current, lang.id],
+                                        }));
+                                    }}
+                                    style={{
+                                        padding: '6px 14px', fontSize: 12, fontWeight: 600, borderRadius: 20,
+                                        border: `1px solid ${active ? '#0ea5e9' : 'rgba(255,255,255,0.1)'}`,
+                                        background: active ? 'rgba(14,165,233,0.1)' : 'transparent',
+                                        color: active ? '#0ea5e9' : 'var(--text-muted)',
+                                        cursor: 'pointer', transition: 'all 200ms',
+                                    }}
+                                >
+                                    {lang.label}
+                                </button>
+                            );
+                        })}
                     </div>
-
                 </div>
 
                 {/* ── Prompt Template ── */}

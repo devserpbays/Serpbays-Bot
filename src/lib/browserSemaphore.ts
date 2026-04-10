@@ -11,7 +11,7 @@ const SEMAPHORE_KEY = 'browser-slots:count';
 const MAX_BROWSERS = parseInt(process.env.MAX_BROWSER_CONCURRENCY || '3', 10);
 const SLOT_TTL = 600; // 10 min — auto-expire if worker crashes
 
-// Atomic Lua script: INCR + EXPIRE + capacity check in one round-trip
+// Atomic Lua script: INCR + EXPIRE + capacity check + slot tracking in one round-trip
 const ACQUIRE_LUA = `
 local count = redis.call('INCR', KEYS[1])
 redis.call('EXPIRE', KEYS[1], tonumber(ARGV[1]))
@@ -19,6 +19,8 @@ if count > tonumber(ARGV[2]) then
   redis.call('DECR', KEYS[1])
   return 0
 end
+local slotKey = 'browser-slot:' .. ARGV[3] .. ':' .. ARGV[4]
+redis.call('SET', slotKey, ARGV[5], 'EX', tonumber(ARGV[1]))
 return 1
 `;
 
@@ -28,15 +30,14 @@ return 1
  */
 export async function acquireBrowserSlot(label: string = 'unknown'): Promise<boolean> {
   const redis = getRedis();
-  const result = await redis.eval(ACQUIRE_LUA, 1, SEMAPHORE_KEY, SLOT_TTL, MAX_BROWSERS);
+  const now = Date.now();
+  const slotData = JSON.stringify({ pid: process.pid, label, ts: new Date(now).toISOString() });
+  const result = await redis.eval(
+    ACQUIRE_LUA, 1, SEMAPHORE_KEY,
+    SLOT_TTL, MAX_BROWSERS, process.pid.toString(), now.toString(), slotData
+  );
 
-  if (result === 0) return false;
-
-  // Track individual slot for debugging
-  const slotKey = `browser-slot:${process.pid}:${Date.now()}`;
-  await redis.set(slotKey, JSON.stringify({ pid: process.pid, label, ts: new Date().toISOString() }), 'EX', SLOT_TTL);
-
-  return true;
+  return result !== 0;
 }
 
 /**

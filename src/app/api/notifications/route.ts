@@ -22,8 +22,23 @@ interface ClientEntry {
   userId: string;
 }
 
+// NOTE: This Set is per-process. In a multi-process deployment, SSE clients
+// only receive notifications from the process they are connected to.
+// Cross-process delivery relies on the Redis pub/sub layer.
 const clients = new Set<ClientEntry>();
 const encoder = new TextEncoder();
+
+// Heartbeat/cleanup interval: remove stale clients every 30s
+setInterval(() => {
+  for (const entry of clients) {
+    try {
+      entry.ctrl.enqueue(encoder.encode(': heartbeat\n\n'));
+    } catch {
+      // Client is stale/disconnected — remove it
+      clients.delete(entry);
+    }
+  }
+}, 30_000);
 
 // Track which Redis channels we're subscribed to (per-userId)
 const subscribedChannels = new Set<string>();

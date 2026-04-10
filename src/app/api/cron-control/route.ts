@@ -30,7 +30,12 @@ export async function POST(req: NextRequest) {
     ? body.paused
     : !settings.autoPostingPaused;
 
-  await Settings.findByIdAndUpdate(settings._id, { autoPostingPaused: newPaused });
+  try {
+    await Settings.findByIdAndUpdate(settings._id, { autoPostingPaused: newPaused });
+  } catch (err) {
+    console.error(`[cron-control] Failed to update pause state for user ${userId}:`, (err as Error).message);
+    return NextResponse.json({ error: 'Failed to update pause state' }, { status: 500 });
+  }
 
   console.log(`[cron-control] Auto-posting ${newPaused ? 'PAUSED' : 'RESUMED'} for user ${userId}`);
   return NextResponse.json({ paused: newPaused });

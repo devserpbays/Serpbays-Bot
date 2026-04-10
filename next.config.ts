@@ -22,7 +22,7 @@ const nextConfig: NextConfig = {
   // Pin the tracing root to this project so Next.js does not pick up the
   // parent workspace's middleware or config files.
   outputFileTracingRoot: path.join(__dirname),
-  serverExternalPackages: ['playwright'],
+  serverExternalPackages: ['playwright', 'camoufox-js', 'impit', 'youtubei.js', 'proxy-chain', 'puppeteer-extra', 'puppeteer-extra-plugin-stealth', 'puppeteer-core'],
 
   async headers() {
     return [

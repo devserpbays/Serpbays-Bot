@@ -31,6 +31,10 @@ const PLATFORM_META: Record<string, { label: string; color: string; icon: React.
         label: 'Pinterest', color: '#60a5fa',
         icon: <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M12.017 0C5.396 0 .029 5.367.029 11.987c0 5.079 3.158 9.417 7.618 11.162-.105-.949-.199-2.403.041-3.439.219-.937 1.406-5.957 1.406-5.957s-.359-.72-.359-1.781c0-1.668.967-2.914 2.171-2.914 1.023 0 1.518.769 1.518 1.69 0 1.029-.655 2.568-.994 3.995-.283 1.194.599 2.169 1.777 2.169 2.133 0 3.772-2.249 3.772-5.495 0-2.873-2.064-4.882-5.012-4.882-3.414 0-5.418 2.561-5.418 5.207 0 1.031.397 2.138.893 2.738a.36.36 0 0 1 .083.345l-.333 1.36c-.053.22-.174.267-.402.161-1.499-.698-2.436-2.889-2.436-4.649 0-3.785 2.75-7.262 7.929-7.262 4.163 0 7.398 2.967 7.398 6.931 0 4.136-2.607 7.464-6.227 7.464-1.216 0-2.359-.631-2.75-1.378l-.748 2.853c-.271 1.043-1.002 2.35-1.492 3.146C9.57 23.812 10.763 24 12.017 24c6.624 0 11.99-5.367 11.99-11.988C24.007 5.367 18.641.001 12.017.001z" /></svg>,
     },
+    skool: {
+        label: 'Skool', color: '#5865f2',
+        icon: <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>,
+    },
 };
 
 const TIME_FILTERS = [
@@ -124,14 +128,7 @@ export default function PlatformPage() {
     const [posts, setPosts] = useState<IPost[]>([]);
     const [total, setTotal] = useState(0);
     const [page, setPage] = useState(1);
-    const [communityPosts, setCommunityPosts] = useState<IPost[]>([]);
-    const [communityTotal, setCommunityTotal] = useState(0);
-    const [communityPage, setCommunityPage] = useState(1);
-    const [originalPosts, setOriginalPosts] = useState<IPost[]>([]);
-    const [originalTotal, setOriginalTotal] = useState(0);
-    const [originalPage, setOriginalPage] = useState(1);
-    const [originalLoading, setOriginalLoading] = useState(true);
-    type ActiveTab = 'keyword' | 'community' | 'original' | 'liked' | 'retweeted' | 'bookmarked' | 'followed' | 'reacted' | 'shared' | 'quora_upvoted' | 'quora_followed' | 'quora_browsed' | 'reddit_upvoted' | 'reddit_joined' | 'reddit_crossposted' | 'reddit_browsed' | 'pinterest_saved' | 'pinterest_liked' | 'pinterest_commented' | 'youtube_liked' | 'youtube_shorts';
+    type ActiveTab = 'keyword' | 'liked' | 'reacted' | 'shared' | 'quora_upvoted' | 'quora_followed' | 'quora_browsed' | 'reddit_upvoted' | 'reddit_joined' | 'reddit_crossposted' | 'reddit_browsed' | 'pinterest_liked' | 'pinterest_commented' | 'youtube_liked' | 'youtube_shorts';
     const [activeTab, setActiveTab] = useState<ActiveTab>('keyword');
     const [timeFilter, setTimeFilter] = useState('today');
     const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -139,7 +136,6 @@ export default function PlatformPage() {
     const [loading, setLoading] = useState(true);
     const [cookieStatus, setCookieStatus] = useState<{ checked: boolean; expired: boolean; error?: string }>({ checked: false, expired: false });
     const [resumingPlatform, setResumingPlatform] = useState<string | null>(null);
-    const [communityLoading, setCommunityLoading] = useState(true);
     const [platformSettings, setPlatformSettings] = useState<Record<string, any>>({});
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -167,9 +163,7 @@ export default function PlatformPage() {
     const [redditUpvotedTotal, setRedditUpvotedTotal] = useState(0);
 
     // Pinterest saved + liked pins
-    const [pinterestSavedPosts, setPinterestSavedPosts] = useState<IPost[]>([]);
-    const [pinterestSavedTotal, setPinterestSavedTotal] = useState(0);
-    const [pinterestSavedLoading, setPinterestSavedLoading] = useState(false);
+    const pinterestSavedTotal = 0; // Save disabled — Pinterest silently rejects saves from automated sessions
     const [pinterestLikedPosts, setPinterestLikedPosts] = useState<IPost[]>([]);
     const [pinterestLikedTotal, setPinterestLikedTotal] = useState(0);
 
@@ -189,11 +183,13 @@ export default function PlatformPage() {
     const fetchFbStats = useCallback(async () => {
         if (platformId !== 'facebook') return;
         try {
+            const { from, to } = getDateRange(timeFilter);
+            const dateParams = (from ? `&from=${from.toISOString()}` : '') + (to ? `&to=${to.toISOString()}` : '');
             const today = new Date(); today.setHours(0, 0, 0, 0);
             const [totalRes, reactedRes, sharedRes, todayRes] = await Promise.all([
-                fetch(`${API_BASE}/api/posts?platform=facebook&status=posted&limit=1`),
-                fetch(`${API_BASE}/api/posts?platform=facebook&likedByBot=true&limit=1`),
-                fetch(`${API_BASE}/api/posts?platform=facebook&sharedByBot=true&limit=1`),
+                fetch(`${API_BASE}/api/posts?platform=facebook&status=posted&limit=1${dateParams}`),
+                fetch(`${API_BASE}/api/posts?platform=facebook&likedByBot=true&limit=1${dateParams}`),
+                fetch(`${API_BASE}/api/posts?platform=facebook&sharedByBot=true&limit=1${dateParams}`),
                 fetch(`${API_BASE}/api/posts?platform=facebook&status=posted&limit=1&from=${today.toISOString()}`),
             ]);
             const [totalData, reactedData, sharedData, todayData] = await Promise.all([totalRes.json(), reactedRes.json(), sharedRes.json(), todayRes.json()]);
@@ -205,7 +201,7 @@ export default function PlatformPage() {
                 groupsConfigured: 0,
             });
         } catch { /* silent */ }
-    }, [platformId]);
+    }, [platformId, timeFilter]);
 
     const fetchReactedPosts = useCallback(async () => {
         if (platformId !== 'facebook') return;
@@ -241,27 +237,23 @@ export default function PlatformPage() {
 
     const fetchPinterestSaved = useCallback(async () => {
         if (platformId !== 'pinterest') return;
-        setPinterestSavedLoading(true);
         try {
-            const [savedRes, likedRes] = await Promise.all([
-                fetch(`${API_BASE}/api/posts?platform=pinterest&likedByBot=true&limit=${LIMIT}&page=1`),
-                fetch(`${API_BASE}/api/posts?platform=pinterest&pinterestHeartLiked=true&limit=${LIMIT}&page=1`),
-            ]);
-            const savedData: PostsResponse = await savedRes.json();
+            const { from, to } = getDateRange(timeFilter);
+            const dateParams = (from ? `&from=${from.toISOString()}` : '') + (to ? `&to=${to.toISOString()}` : '');
+            const likedRes = await fetch(`${API_BASE}/api/posts?platform=pinterest&pinterestHeartLiked=true&limit=${LIMIT}&page=1${dateParams}`);
             const likedData: PostsResponse = await likedRes.json();
-            setPinterestSavedPosts(savedData.posts ?? []);
-            setPinterestSavedTotal(savedData.total ?? 0);
             setPinterestLikedPosts(likedData.posts ?? []);
             setPinterestLikedTotal(likedData.total ?? 0);
         } catch { /* silent */ }
-        setPinterestSavedLoading(false);
-    }, [platformId]);
+    }, [platformId, timeFilter]);
 
     const fetchYouTubeLiked = useCallback(async () => {
         if (platformId !== 'youtube') return;
         try {
+            const { from, to } = getDateRange(timeFilter);
+            const dateParams = (from ? `&from=${from.toISOString()}` : '') + (to ? `&to=${to.toISOString()}` : '');
             const [likedRes, logsRes] = await Promise.all([
-                fetch(`${API_BASE}/api/posts?platform=youtube&likedByBot=true&limit=${LIMIT}&page=1`),
+                fetch(`${API_BASE}/api/posts?platform=youtube&likedByBot=true&limit=${LIMIT}&page=1${dateParams}`),
                 fetch(`${API_BASE}/api/logs?platform=youtube&limit=500`),
             ]);
             const likedData: PostsResponse = await likedRes.json();
@@ -279,17 +271,19 @@ export default function PlatformPage() {
                 timestamp: l.timestamp,
             })));
         } catch { /* silent */ }
-    }, [platformId]);
+    }, [platformId, timeFilter]);
 
     const fetchRedditUpvoted = useCallback(async () => {
         if (platformId !== 'reddit') return;
         try {
-            const res = await fetch(`${API_BASE}/api/posts?platform=reddit&likedByBot=true&limit=${LIMIT}&page=1`);
+            const { from, to } = getDateRange(timeFilter);
+            const dateParams = (from ? `&from=${from.toISOString()}` : '') + (to ? `&to=${to.toISOString()}` : '');
+            const res = await fetch(`${API_BASE}/api/posts?platform=reddit&likedByBot=true&limit=${LIMIT}&page=1${dateParams}`);
             const data: PostsResponse = await res.json();
             setRedditUpvotedPosts(data.posts ?? []);
             setRedditUpvotedTotal(data.total ?? 0);
         } catch { /* silent */ }
-    }, [platformId]);
+    }, [platformId, timeFilter]);
 
     const fetchRedditEngagement = useCallback(async () => {
         if (platformId !== 'reddit') return;
@@ -349,8 +343,6 @@ export default function PlatformPage() {
         totalLiked: number; todayLiked: number;
         totalRetweeted: number; todayRetweeted: number;
         totalBookmarked: number;
-        currentlyFollowing: number;
-        recentFollows: { handle: string; followedAt: string }[];
     } | null>(null);
 
     const fetchEngageStats = useCallback(async () => {
@@ -362,13 +354,12 @@ export default function PlatformPage() {
     }, [platformId]);
 
     // Engagement list browser (liked / retweeted / bookmarked / followed)
-    type EngageTab = 'liked' | 'retweeted' | 'bookmarked' | 'followed';
+    type EngageTab = 'liked';
     const [engageTimeFilter, setEngageTimeFilter] = useState('today');
     const [engageListPage, setEngageListPage] = useState(1);
     const [engageListData, setEngageListData] = useState<{
         total: number; pages: number; page: number;
         posts?: { id: string; url: string; content: string; author: string; score: number | null; updatedAt: string; liked: boolean; retweeted: boolean; bookmarked: boolean }[];
-        follows?: { id: string; handle: string; followedAt: string; unfollowedAt: string | null; isFollowing: boolean }[];
     } | null>(null);
     const [engageListLoading, setEngageListLoading] = useState(false);
 
@@ -390,8 +381,14 @@ export default function PlatformPage() {
                 fetch(`${API_BASE}/api/social-accounts`),
                 fetch(`${API_BASE}/api/settings`),
             ];
-            if (platformId === 'twitter') requests.push(fetch(`${API_BASE}/api/twitter-status`));
-            else if (platformId === 'facebook') requests.push(fetch(`${API_BASE}/api/fb-status`));
+            const statusEndpoints: Record<string, string> = {
+                twitter: '/api/twitter-status',
+                facebook: '/api/fb-status',
+                reddit: '/api/reddit-status',
+                quora: '/api/quora-status',
+                pinterest: '/api/pinterest-status',
+            };
+            if (statusEndpoints[platformId]) requests.push(fetch(`${API_BASE}${statusEndpoints[platformId]}`));
             const [accRes, setRes, statusRes] = await Promise.all(requests);
             const accData = await accRes.json();
             setAccounts((accData.accounts ?? []).filter((a: SocialAccount) => a.platform === platformId));
@@ -399,11 +396,9 @@ export default function PlatformPage() {
                 const setData = await setRes.json();
                 setPlatformSettings(setData.settings ?? {});
             }
-            if (statusRes) {
+            if (statusRes && statusRes.ok) {
                 const statusData = await statusRes.json();
-                const expired = platformId === 'twitter'
-                    ? (statusData.configured === false || statusData.loggedIn === false)
-                    : (statusData.loggedIn === false);
+                const expired = statusData.loggedIn === false || statusData.configured === false;
                 setCookieStatus({
                     checked: true,
                     expired,
@@ -443,36 +438,6 @@ export default function PlatformPage() {
         setLoading(false);
     }, [platformId, timeFilter, page]);
 
-    const fetchCommunityPosts = useCallback(async () => {
-        if (platformId !== 'twitter') { setCommunityLoading(false); return; }
-        const p = new URLSearchParams({ status: 'posted', platform: 'twitter', source: 'community', limit: String(LIMIT), page: String(communityPage) });
-        const { from, to } = getDateRange(timeFilter);
-        if (from) p.set('from', from.toISOString());
-        if (to) p.set('to', to.toISOString());
-        try {
-            const res = await fetch(`${API_BASE}/api/posts?${p}`);
-            const data: PostsResponse = await res.json();
-            setCommunityPosts(data.posts ?? []);
-            setCommunityTotal(data.total ?? 0);
-        } catch { /* silent */ }
-        setCommunityLoading(false);
-    }, [platformId, timeFilter, communityPage]);
-
-    const fetchOriginalPosts = useCallback(async () => {
-        if (platformId !== 'twitter') { setOriginalLoading(false); return; }
-        const p = new URLSearchParams({ status: 'posted', platform: 'twitter', source: 'original', limit: String(LIMIT), page: String(originalPage) });
-        const { from, to } = getDateRange(timeFilter);
-        if (from) p.set('from', from.toISOString());
-        if (to) p.set('to', to.toISOString());
-        try {
-            const res = await fetch(`${API_BASE}/api/posts?${p}`);
-            const data: PostsResponse = await res.json();
-            setOriginalPosts(data.posts ?? []);
-            setOriginalTotal(data.total ?? 0);
-        } catch { /* silent */ }
-        setOriginalLoading(false);
-    }, [platformId, timeFilter, originalPage]);
-
     const fetchTodayLogs = useCallback(async () => {
         try {
             // Use UTC midnight so it aligns with server-side timestamps
@@ -487,8 +452,6 @@ export default function PlatformPage() {
     useEffect(() => { fetchAccounts(); }, [fetchAccounts]);
     useEffect(() => { fetchTodayLogs(); }, [fetchTodayLogs]);
     useEffect(() => { setLoading(true); fetchPosts(); }, [fetchPosts]);
-    useEffect(() => { setCommunityLoading(true); fetchCommunityPosts(); }, [fetchCommunityPosts]);
-    useEffect(() => { setOriginalLoading(true); fetchOriginalPosts(); }, [fetchOriginalPosts]);
     useEffect(() => { fetchEngageStats(); }, [fetchEngageStats]);
     useEffect(() => { fetchFbStats(); }, [fetchFbStats]);
     useEffect(() => { if (platformId === 'facebook' && activeTab === 'reacted') fetchReactedPosts(); }, [fetchReactedPosts, activeTab, platformId]);
@@ -496,23 +459,22 @@ export default function PlatformPage() {
     useEffect(() => { if (platformId === 'youtube') fetchYouTubeLiked(); }, [fetchYouTubeLiked, platformId]);
     useEffect(() => { if (platformId === 'reddit') fetchRedditUpvoted(); }, [fetchRedditUpvoted, platformId]);
     useEffect(() => { if (platformId === 'pinterest') fetchPinterestSaved(); }, [fetchPinterestSaved, platformId]);
-    useEffect(() => { if (platformId === 'pinterest' && activeTab === 'pinterest_saved') fetchPinterestSaved(); }, [fetchPinterestSaved, activeTab, platformId]);
     useEffect(() => { fetchRedditEngagement(); }, [fetchRedditEngagement]);
     useEffect(() => { fetchQuoraEngagement(); }, [fetchQuoraEngagement]);
     useEffect(() => {
-        const isEngage = (['liked', 'retweeted', 'bookmarked', 'followed'] as const).includes(activeTab as EngageTab);
+        const isEngage = (['liked', 'retweeted', 'bookmarked'] as const).includes(activeTab as EngageTab);
         if (isEngage) fetchEngageList(activeTab as EngageTab, engageListPage, engageTimeFilter);
     }, [activeTab, engageListPage, engageTimeFilter, fetchEngageList]);
     useEffect(() => {
-        pollRef.current = setInterval(() => { fetchPosts(); fetchCommunityPosts(); fetchOriginalPosts(); fetchEngageStats(); fetchQuoraEngagement(); fetchTodayLogs(); }, POLL_MS);
+        pollRef.current = setInterval(() => { fetchPosts(); fetchEngageStats(); fetchQuoraEngagement(); fetchTodayLogs(); }, POLL_MS);
         return () => { if (pollRef.current) clearInterval(pollRef.current); };
-    }, [fetchPosts, fetchCommunityPosts, fetchOriginalPosts, fetchEngageStats]);
+    }, [fetchPosts, fetchEngageStats, fetchQuoraEngagement, fetchTodayLogs]);
 
     if (!meta) return null;
 
     const { label, color, icon } = meta;
     const replyLabel = REPLY_LABEL[platformId] || 'Comment';
-    const showEngageList = (['liked', 'retweeted', 'bookmarked', 'followed'] as const).includes(activeTab as EngageTab);
+    const showEngageList = (['liked', 'retweeted', 'bookmarked'] as const).includes(activeTab as EngageTab);
     const showReactedList = platformId === 'facebook' && activeTab === 'reacted';
     const showSharedList = platformId === 'facebook' && activeTab === 'shared';
     const showQuoraEngage = platformId === 'quora' && (activeTab === 'quora_upvoted' || activeTab === 'quora_followed' || activeTab === 'quora_browsed');
@@ -520,17 +482,15 @@ export default function PlatformPage() {
     const showRedditUpvoted = platformId === 'reddit' && activeTab === 'reddit_upvoted';
     const showYoutubeLiked = platformId === 'youtube' && activeTab === 'youtube_liked';
     const showYoutubeShorts = platformId === 'youtube' && activeTab === 'youtube_shorts';
-    const showPinterestSaved = platformId === 'pinterest' && activeTab === 'pinterest_saved';
+    const showPinterestSaved = false;
     const showPinterestLiked = platformId === 'pinterest' && activeTab === 'pinterest_liked';
     const [showLogsView, setShowLogsView] = useState(false);
     const engageTab = activeTab as EngageTab;
-    const isCommunityView = platformId === 'twitter' && activeTab === 'community';
-    const isOriginalView = platformId === 'twitter' && activeTab === 'original';
-    const activePosts = isCommunityView ? communityPosts : isOriginalView ? originalPosts : posts;
-    const activeTotal = isCommunityView ? communityTotal : isOriginalView ? originalTotal : total;
-    const activePage = isCommunityView ? communityPage : isOriginalView ? originalPage : page;
-    const setActivePage = isCommunityView ? setCommunityPage : isOriginalView ? setOriginalPage : setPage;
-    const activeLoading = isCommunityView ? communityLoading : isOriginalView ? originalLoading : loading;
+    const activePosts = posts;
+    const activeTotal = total;
+    const activePage = page;
+    const setActivePage = setPage;
+    const activeLoading = loading;
     const totalPages = Math.ceil(activeTotal / LIMIT);
     const startItem = (activePage - 1) * LIMIT + 1;
     const endItem = Math.min(activePage * LIMIT, activeTotal);
@@ -582,60 +542,37 @@ export default function PlatformPage() {
                         <div>
                             <h2 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>{label}</h2>
                             <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '3px 0 0' }}>
-                                {accounts.length > 0
-                                    ? (() => {
-                                        const worstHealth = accounts.length > 0 ? Math.min(...accounts.map(a => a.healthScore ?? 100)) : 100;
-                                        const anyPaused = accounts.some(a => a.autoPaused);
-                                        const healthStr = anyPaused ? ' · Paused' : worstHealth < 70 ? ` · Health ${worstHealth}/100` : '';
-                                        const base = platformId === 'facebook'
-                                            ? `${accounts.length} connected account${accounts.length > 1 ? 's' : ''} · ${fbStats?.totalComments ?? total} comment${(fbStats?.totalComments ?? total) !== 1 ? 's' : ''} published · ${fbStats?.totalReacted ?? 0} reacted · ${fbStats?.totalShared ?? 0} shared`
-                                            : platformId === 'pinterest'
-                                            ? `${accounts.length} connected account${accounts.length > 1 ? 's' : ''} · ${total} comment${total !== 1 ? 's' : ''} · ${pinterestSavedTotal} saved · ${pinterestLikedTotal} liked`
-                                            : platformId === 'youtube'
-                                            ? `${accounts.length} connected account${accounts.length > 1 ? 's' : ''} · ${total} comment${total !== 1 ? 's' : ''} · ${ytLikedTotal} liked · ${ytShortsCount} Shorts sessions`
-                                            : `${accounts.length} connected account${accounts.length > 1 ? 's' : ''} · ${total} comment${total !== 1 ? 's' : ''} published`;
-                                        return base + healthStr;
-                                    })()
-                                    : 'No accounts connected'}
+                                {platformId === 'facebook'
+                                    ? `${fbStats?.totalComments ?? total} comment${(fbStats?.totalComments ?? total) !== 1 ? 's' : ''} published · ${fbStats?.totalReacted ?? 0} reacted · ${fbStats?.totalShared ?? 0} shared`
+                                    : platformId === 'pinterest'
+                                    ? `${total} comment${total !== 1 ? 's' : ''} · ${pinterestLikedTotal} liked`
+                                    : platformId === 'youtube'
+                                    ? `${total} comment${total !== 1 ? 's' : ''} · ${ytLikedTotal} liked · ${ytShortsCount} Shorts sessions`
+                                    : `${total} comment${total !== 1 ? 's' : ''} published · Via browser extension`}
                             </p>
                         </div>
                     </div>
 
-                    {/* Live / Expired / Paused indicator */}
-                    {(() => {
-                        const anyPaused = accounts.some(a => a.autoPaused);
-                        const anyLowHealth = accounts.some(a => !a.autoPaused && (a.healthScore ?? 100) < 40);
-                        const expired = cookieStatus.checked && cookieStatus.expired;
-                        const dotColor = expired ? '#ef4444' : anyPaused ? '#94a3b8' : anyLowHealth ? '#f59e0b' : '#34d399';
-                        const statusText = expired ? 'Cookies expired' : anyPaused ? 'Account paused' : anyLowHealth ? 'Low health' : 'Live';
-                        return (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, marginTop: 4, color: dotColor }}>
-                                <span style={{ width: 6, height: 6, borderRadius: '50%', display: 'inline-block', background: dotColor, boxShadow: `0 0 6px ${dotColor}` }} />
-                                {expired ? (
-                                    <a href="/dashboard/accounts" style={{ color: dotColor, textDecoration: 'underline', cursor: 'pointer' }}>
-                                        Cookies expired — fix now →
-                                    </a>
-                                ) : statusText}
-                            </div>
-                        );
-                    })()}
+                    {/* Extension status */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, marginTop: 4, color: '#34d399' }}>
+                        <span style={{ width: 6, height: 6, borderRadius: '50%', display: 'inline-block', background: '#34d399', boxShadow: '0 0 6px #34d399' }} />
+                        Via browser extension
+                    </div>
                 </div>
 
-                {/* ── Account cards ── */}
-                {accounts.length > 0 && (
-                    <div style={{ display: 'flex', gap: 12, marginTop: 18, flexWrap: 'wrap' }}>
+                {/* Account cards, cookie banners, health banners removed — extension mode */}
+                {false && (
+                    <div style={{ display: 'none' }}>
                         {accounts.map((acc) => {
                             const displayLabel = acc.displayName || acc.username || label + ' Account';
                             const handle = acc.username ? `@${acc.username}` : acc.id;
-                            const cookieOk = acc.cookieVerified !== false;
-                            const verifiedAgo = acc.verifiedAt
-                                ? timeAgo(new Date(acc.verifiedAt))
-                                : (acc.addedAt ? timeAgo(new Date(acc.addedAt)) : null);
-                            const health = acc.healthScore ?? 100;
-                            const paused = acc.autoPaused ?? false;
-                            const healthColor = paused ? '#94a3b8' : health >= 70 ? '#22c55e' : health >= 40 ? '#f59e0b' : '#ef4444';
-                            const healthLabel = paused ? 'Paused' : health >= 70 ? 'Healthy' : health >= 40 ? 'Warning' : 'Critical';
-                            const borderColor = paused ? 'rgba(148,163,184,0.35)' : !cookieOk ? 'rgba(239,68,68,0.3)' : health < 40 ? 'rgba(239,68,68,0.3)' : color + '35';
+                            const cookieOk = true;
+                            const verifiedAgo = '';
+                            const health = 100;
+                            const paused = false;
+                            const healthColor = '#22c55e';
+                            const healthLabel = 'Healthy';
+                            const borderColor = color + '35';
                             return (
                                 <div key={acc.id} style={{
                                     display: 'flex', alignItems: 'center', gap: 12,
@@ -717,137 +654,13 @@ export default function PlatformPage() {
                         })}
                     </div>
                 )}
-                {accounts.length === 0 && (
-                    <div style={{
-                        marginTop: 16, padding: '14px 18px',
-                        background: 'rgba(239,68,68,0.06)',
-                        border: '1px solid rgba(239,68,68,0.2)',
-                        borderRadius: 12, fontSize: 13, color: '#f87171',
-                        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
-                    }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={15} height={15}>
-                                <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
-                            </svg>
-                            No {label} account connected — add your cookies to start automation.
-                        </div>
-                        <a href="/dashboard/accounts" style={{
-                            flexShrink: 0, padding: '6px 14px', borderRadius: 8,
-                            background: '#ef4444', color: '#fff',
-                            fontSize: 12, fontWeight: 700, textDecoration: 'none',
-                            whiteSpace: 'nowrap',
-                        }}>
-                            Connect account →
-                        </a>
-                    </div>
-                )}
 
-                {/* ── Cookies expired banner ── */}
-                {cookieStatus.checked && cookieStatus.expired && accounts.length > 0 && (
-                    <div style={{
-                        marginTop: 14,
-                        padding: '12px 16px',
-                        background: 'rgba(239,68,68,0.08)',
-                        border: '1px solid rgba(239,68,68,0.35)',
-                        borderRadius: 12,
-                        display: 'flex', alignItems: 'center', gap: 12,
-                    }}>
-                        <div style={{
-                            width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
-                            background: 'rgba(239,68,68,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        }}>
-                            <svg viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth={2} width={16} height={16}>
-                                <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
-                                <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-                            </svg>
-                        </div>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 13, fontWeight: 700, color: '#ef4444' }}>
-                                {label} cookies expired — bot cannot post
-                            </div>
-                            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                                {cookieStatus.error && !cookieStatus.error.includes('active')
-                                    ? cookieStatus.error
-                                    : 'Your session has expired. Re-upload fresh cookies to resume automation.'}
-                            </div>
-                        </div>
-                        <a href="/dashboard/accounts" style={{
-                            flexShrink: 0, padding: '6px 14px', borderRadius: 8,
-                            background: '#ef4444', color: '#fff',
-                            fontSize: 12, fontWeight: 700, textDecoration: 'none',
-                            whiteSpace: 'nowrap',
-                        }}>
-                            Re-upload cookies
-                        </a>
-                    </div>
-                )}
 
-                {/* ── Auto-paused banner ── */}
-                {accounts.some(a => a.autoPaused) && (
-                    <div style={{
-                        marginTop: 14, padding: '12px 16px',
-                        background: 'rgba(148,163,184,0.08)',
-                        border: '1px solid rgba(148,163,184,0.3)',
-                        borderRadius: 12,
-                        display: 'flex', alignItems: 'center', gap: 12,
-                    }}>
-                        <div style={{
-                            width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
-                            background: 'rgba(148,163,184,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        }}>
-                            <svg viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth={2} width={16} height={16}>
-                                <rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>
-                            </svg>
-                        </div>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 13, fontWeight: 700, color: '#94a3b8' }}>
-                                Account auto-paused — bot has stopped posting
-                            </div>
-                            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                                Health score dropped below the safe threshold due to repeated errors. Resume below to restart at 50/100.
-                            </div>
-                        </div>
-                        <button
-                            onClick={() => handleResumeAccount(platformId)}
-                            disabled={resumingPlatform === platformId}
-                            style={{
-                                flexShrink: 0, padding: '6px 16px', borderRadius: 8, border: 'none',
-                                background: resumingPlatform === platformId ? 'rgba(99,102,241,0.15)' : '#6366f1',
-                                color: resumingPlatform === platformId ? '#6366f1' : '#fff',
-                                fontSize: 12, fontWeight: 700,
-                                cursor: resumingPlatform === platformId ? 'default' : 'pointer',
-                                whiteSpace: 'nowrap',
-                            }}
-                        >
-                            {resumingPlatform === platformId ? 'Resuming…' : 'Resume posting'}
-                        </button>
-                    </div>
-                )}
-
-                {/* ── Low health warning banner ── */}
-                {!accounts.some(a => a.autoPaused) && accounts.some(a => (a.healthScore ?? 100) < 40) && (
-                    <div style={{
-                        marginTop: 14, padding: '10px 16px',
-                        background: 'rgba(239,68,68,0.06)',
-                        border: '1px solid rgba(239,68,68,0.25)',
-                        borderRadius: 12,
-                        display: 'flex', alignItems: 'center', gap: 10,
-                    }}>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth={2} width={16} height={16}>
-                            <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
-                            <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-                        </svg>
-                        <span style={{ fontSize: 12, color: '#f87171', fontWeight: 600 }}>
-                            Account health is critical — {accounts.filter(a => (a.healthScore ?? 100) < 40).length} account(s) near auto-pause. Check error logs.
-                        </span>
-                    </div>
-                )}
 
                 {/* ── Bot config summary bar ── */}
                 {(() => {
                     const brandRate = platformSettings[`${platformId}BrandMentionRate`] ?? 25;
                     const cooldown = platformSettings[`${platformId}CooldownMinutes`];
-                    const communities: string[] = platformSettings['twitterCommunityIds'] ?? [];
                     const dailyLimit = platformSettings[`${platformId}DailyLimit`];
                     const threshold = platformSettings[`${platformId}AutoPostThreshold`];
 
@@ -864,7 +677,6 @@ export default function PlatformPage() {
                         { label: 'Auto-post', value: threshold != null ? `≥${threshold}%` : '—', accent: color },
                         { label: 'Brand rate', value: `${brandRate}% · ${riskLabel}`, accent: riskColor },
                         ...(cooldown != null ? [{ label: 'Cooldown', value: cooldown >= 60 ? `${Math.floor(cooldown / 60)}h${cooldown % 60 ? ` ${cooldown % 60}m` : ''}` : `${cooldown}m`, accent: color }] : []),
-                        ...(platformId === 'twitter' && communities.length > 0 ? [{ label: 'Communities', value: `${communities.length} monitored`, accent: '#1d9bf0' }] : []),
                         ...(platformId === 'facebook' && fbGroups.length > 0 ? [{ label: 'Groups', value: `${fbGroups.length} monitored`, accent: '#1877f2' }] : []),
                         ...(platformId === 'facebook' ? [
                             { label: 'Passive sessions', value: '40% browse-only', accent: '#34d399' },
@@ -1078,7 +890,6 @@ export default function PlatformPage() {
                     }}>
                         {([
                             { key: 'keyword' as const, label: 'Comments', count: total, tc: color },
-                            { key: 'pinterest_saved' as const, label: 'Saved', count: pinterestSavedTotal, tc: '#f59e0b' },
                             { key: 'pinterest_liked' as const, label: 'Liked', count: pinterestLikedTotal, tc: '#f43f5e' },
                         ]).map(({ key, label: lbl, count, tc }) => {
                             const isActive = activeTab === key;
@@ -1117,12 +928,7 @@ export default function PlatformPage() {
                     }}>
                         {([
                             { key: 'keyword' as const, label: 'Replies', count: total, tc: color },
-                            { key: 'community' as const, label: 'Communities', count: communityTotal, tc: '#1d9bf0' },
-                            { key: 'original' as const, label: 'Original Tweets', count: originalTotal, tc: '#a78bfa' },
                             { key: 'liked' as const, label: 'Liked', count: engageStats?.totalLiked ?? 0, tc: '#f43f5e' },
-                            { key: 'retweeted' as const, label: 'Retweeted', count: engageStats?.totalRetweeted ?? 0, tc: '#34d399' },
-                            { key: 'bookmarked' as const, label: 'Bookmarked', count: engageStats?.totalBookmarked ?? 0, tc: '#fbbf24' },
-                            { key: 'followed' as const, label: 'Following', count: engageStats?.currentlyFollowing ?? 0, tc: '#818cf8' },
                         ]).map(({ key, label: lbl, count, tc }) => {
                             const isActive = activeTab === key;
                             return (
@@ -1173,7 +979,7 @@ export default function PlatformPage() {
                                     <button key={value} onClick={() => {
                                         setShowLogsView(false);
                                         if (showEngageList) { setEngageTimeFilter(value); setEngageListPage(1); }
-                                        else { setTimeFilter(value); setPage(1); setCommunityPage(1); }
+                                        else { setTimeFilter(value); setPage(1); }
                                     }} style={{
                                         padding: '6px 14px', borderRadius: 8, border: 'none',
                                         fontSize: 12, fontWeight: 600, cursor: 'pointer',
@@ -1239,7 +1045,7 @@ export default function PlatformPage() {
                     ) : (
                         activeTotal > 0 && (
                             <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                                Showing <strong style={{ color: 'var(--text-secondary)' }}>{startItem}–{endItem}</strong> of <strong style={{ color: 'var(--text-secondary)' }}>{activeTotal}</strong> {isCommunityView ? 'replies' : isOriginalView ? 'tweets' : 'comments'}
+                                Showing <strong style={{ color: 'var(--text-secondary)' }}>{startItem}–{endItem}</strong> of <strong style={{ color: 'var(--text-secondary)' }}>{activeTotal}</strong> comments
                             </span>
                         )
                     )}
@@ -1317,35 +1123,12 @@ export default function PlatformPage() {
                     <div>
                         {engageListLoading ? (
                             <div style={{ padding: '24px 0', textAlign: 'center', fontSize: 12, color: 'var(--text-muted)' }}>Loading…</div>
-                        ) : !engageListData || (engageTab !== 'followed' ? (engageListData.posts?.length ?? 0) === 0 : (engageListData.follows?.length ?? 0) === 0) ? (
-                            <div style={{ padding: '24px 0', textAlign: 'center', fontSize: 12, color: 'var(--text-muted)' }}>
-                                No {engageTab} activity yet — run the engage cron to start
+                        ) : !engageListData || (engageListData.posts?.length ?? 0) === 0 ? (
+                            <div style={{ padding: '32px 20px', textAlign: 'center' }}>
+                                <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 12px' }}>
+                                    No {engageTab} activity yet
+                                </p>
                             </div>
-                        ) : engageTab === 'followed' ? (
-                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                                <thead>
-                                    <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                                        {['Account', 'Followed'].map(h => (
-                                            <th key={h} style={{ textAlign: 'left', padding: '8px 12px', fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
-                                        ))}
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {engageListData.follows!.map((f) => (
-                                        <tr key={f.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}
-                                            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.02)')}
-                                            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
-                                            <td style={{ padding: '10px 12px' }}>
-                                                <a href={`https://x.com/${f.handle}`} target="_blank" rel="noopener noreferrer"
-                                                    style={{ color: '#1d9bf0', fontWeight: 700, textDecoration: 'none', fontSize: 13 }}>
-                                                    @{f.handle}
-                                                </a>
-                                            </td>
-                                            <td style={{ padding: '10px 12px', color: 'var(--text-secondary)' }}>{timeAgo(new Date(f.followedAt))}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
                         ) : (
                             <div style={{ display: 'flex', flexDirection: 'column' }}>
                                 {engageListData.posts!.map((p) => (
@@ -1397,32 +1180,28 @@ export default function PlatformPage() {
                 ) : activePosts.length === 0 ? (
                     <div style={{
                         textAlign: 'center', padding: '64px 20px',
-                        background: 'var(--bg-card)', border: `1px solid ${isCommunityView ? 'rgba(29,155,240,0.15)' : 'var(--border-subtle)'}`,
+                        background: 'var(--bg-card)', border: '1px solid var(--border-subtle)',
                         borderRadius: 14,
                     }}>
                         <div style={{
                             width: 52, height: 52, borderRadius: '50%',
-                            background: `${isCommunityView ? '#1d9bf0' : color}12`, border: `1px solid ${isCommunityView ? '#1d9bf0' : color}25`,
+                            background: `${color}12`, border: `1px solid ${color}25`,
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            margin: '0 auto 16px', color: isCommunityView ? '#1d9bf0' : color,
+                            margin: '0 auto 16px', color,
                         }}>
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} width="24" height="24">
                                 <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
                             </svg>
                         </div>
                         <p style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-secondary)', margin: '0 0 6px' }}>
-                            {isCommunityView ? 'No community replies yet' : isOriginalView ? 'No original tweets yet' : 'No comments yet'}
+                            No comments yet
                         </p>
                         <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>
-                            {isCommunityView
-                                ? 'Add community IDs in Settings → Twitter → Communities, or click Sync to auto-detect.'
-                                : isOriginalView
-                                    ? 'Enable original tweets in Settings → Twitter → Original Tweets and run the cron.'
-                                    : 'No posted comments found for this time period.'}
+                            No posted comments found for this time period.
                         </p>
                     </div>
                 ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 1, background: 'var(--bg-card)', border: `1px solid ${isCommunityView ? 'rgba(29,155,240,0.2)' : 'var(--border-subtle)'}`, borderRadius: 14, overflow: 'hidden' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 1, background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 14, overflow: 'hidden' }}>
                         {activePosts.map((post, idx) => {
                             const expanded = expandedId === post._id;
                             const reply = post.editedReply || post.aiReply || '';
@@ -2270,62 +2049,6 @@ export default function PlatformPage() {
                     </div>
                 )}
 
-                {/* ── Pinterest Saved list ── */}
-                {showPinterestSaved && (
-                    <div>
-                        {pinterestSavedLoading ? (
-                            <div style={{ padding: '40px 0', textAlign: 'center', fontSize: 13, color: 'var(--text-muted)' }}>Loading saved pins…</div>
-                        ) : pinterestSavedPosts.length === 0 ? (
-                            <div style={{ textAlign: 'center', padding: '40px 20px', background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 14 }}>
-                                <div style={{ width: 52, height: 52, borderRadius: '50%', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', color: '#f59e0b' }}>
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={22} height={22}><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg>
-                                </div>
-                                <p style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-secondary)', margin: '0 0 6px' }}>No saved pins yet</p>
-                                <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>The bot saves relevant pins as part of natural engagement.</p>
-                            </div>
-                        ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                                {pinterestSavedPosts.map((post) => (
-                                    <div key={post._id} style={{
-                                        background: 'var(--bg-card)', border: '1px solid var(--border-subtle)',
-                                        borderRadius: 12, padding: '14px 18px',
-                                        display: 'flex', alignItems: 'flex-start', gap: 12,
-                                    }}>
-                                        <div style={{
-                                            width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
-                                            background: 'rgba(245,158,11,0.12)', color: '#f59e0b',
-                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                            border: '1px solid rgba(245,158,11,0.3)',
-                                        }}>
-                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={14} height={14}><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg>
-                                        </div>
-                                        <div style={{ flex: 1, minWidth: 0 }}>
-                                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                {post.content?.slice(0, 80) || 'Saved pin'}
-                                            </div>
-                                            {post.author && post.author !== 'pinterest_user' && (
-                                                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>by {post.author}</div>
-                                            )}
-                                            <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
-                                                {post.url && (
-                                                    <a href={post.url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
-                                                        style={{ fontSize: 11, color: '#f59e0b', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={10} height={10}><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15,3 21,3 21,9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                                                        View on Pinterest
-                                                    </a>
-                                                )}
-                                            </div>
-                                        </div>
-                                        <div style={{ fontSize: 10, color: 'var(--text-muted)', flexShrink: 0 }}>
-                                            {(post as any).updatedAt ? timeAgo(new Date((post as any).updatedAt)) : ''}
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                )}
-
                 {/* ── Pinterest Liked list ── */}
                 {showPinterestLiked && (
                     <div>
@@ -2395,7 +2118,7 @@ export default function PlatformPage() {
                                 </>
                             )}
                             {pageNumbers.map(n => (
-                                <button key={n} onClick={() => setActivePage(n)} style={{ padding: '6px 11px', borderRadius: 8, fontSize: 13, cursor: 'pointer', transition: 'all 150ms', border: n === activePage ? `1px solid ${isCommunityView ? '#1d9bf0' : color}` : '1px solid var(--border-subtle)', background: n === activePage ? `${isCommunityView ? '#1d9bf0' : color}18` : 'var(--bg-card)', color: n === activePage ? (isCommunityView ? '#1d9bf0' : color) : 'var(--text-secondary)', fontWeight: n === activePage ? 700 : 400 }}>{n}</button>
+                                <button key={n} onClick={() => setActivePage(n)} style={{ padding: '6px 11px', borderRadius: 8, fontSize: 13, cursor: 'pointer', transition: 'all 150ms', border: n === activePage ? `1px solid ${color}` : '1px solid var(--border-subtle)', background: n === activePage ? `${color}18` : 'var(--bg-card)', color: n === activePage ? (color) : 'var(--text-secondary)', fontWeight: n === activePage ? 700 : 400 }}>{n}</button>
                             ))}
                             {pageNumbers[pageNumbers.length - 1] < totalPages && (
                                 <>

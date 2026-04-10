@@ -23,11 +23,11 @@ function releaseCLISlot(): void {
 
 // Reply style + length pools — randomly selected each evaluation so replies don't feel uniform
 const REPLY_STYLES = [
-  { weight: 35, style: 'add_insight',      instruction: 'Add a related insight or practical tip that builds on what they said — like a knowledgeable peer sharing experience' },
-  { weight: 20, style: 'ask_followup',     instruction: 'Respond briefly, then end with a genuine follow-up question that shows real curiosity about their situation' },
-  { weight: 20, style: 'short_agree',      instruction: 'Write a SHORT punchy validation or agreement — 1 sentence max, like a quick nod from someone who gets it' },
-  { weight: 15, style: 'share_experience', instruction: 'Frame the reply as a brief personal anecdote or "same happened to me" — make it feel like lived experience, not advice' },
-  { weight: 10, style: 'mild_disagree',    instruction: 'Respectfully push back on one assumption or add a nuance they might have missed — stay friendly, not combative' },
+  { weight: 30, style: 'add_insight',      instruction: 'Add a related insight or practical tip that builds on what they said — like a knowledgeable peer sharing from real experience, not lecturing' },
+  { weight: 20, style: 'ask_followup',     instruction: 'Respond briefly, then end with a genuine follow-up question that shows real curiosity about their specific situation' },
+  { weight: 20, style: 'short_agree',      instruction: 'Write a SHORT punchy validation or agreement — 1 sentence max, like a quick nod from someone who gets it. Very casual.' },
+  { weight: 25, style: 'share_experience', instruction: 'Frame the reply as a brief personal story or "I dealt with this too" — use first person, specific details, make it feel real and lived, not generic advice' },
+  { weight: 5,  style: 'mild_disagree',    instruction: 'Gently add a nuance they might have missed — stay warm and conversational, never confrontational or lecturing' },
 ] as const;
 
 const REPLY_LENGTHS = [
@@ -48,7 +48,8 @@ function buildPrompt(
   postContent: string,
   companyName: string,
   companyDescription: string,
-  promptTemplate?: string
+  promptTemplate?: string,
+  brandMentionRate?: number,
 ): string {
   if (promptTemplate) {
     return promptTemplate
@@ -60,6 +61,40 @@ function buildPrompt(
   const style = pickWeighted(REPLY_STYLES);
   const length = pickWeighted(REPLY_LENGTHS);
   const seed = Math.floor(Math.random() * 9999);
+
+  // Brand mention logic:
+  // 1. Buying intent → always try to mention (based on rate)
+  // 2. Relevant discussion → sometimes mention company expertise (lower rate)
+  // 3. General post → share company insight without name-dropping
+  const rate = brandMentionRate ?? 25;
+
+  const buyingIntentPatterns = /\b(looking for|need|want to buy|recommend|suggestion|where can i|anyone know|which service|best tool|best platform|help me find|can someone suggest|any recommendations|who provides|where to get|need help with|searching for|trying to find|should i use|what do you use|how do you handle)\b/i;
+  const discussionPatterns = /\b(how to|what is the best|tips for|advice on|strategy for|experience with|thoughts on|opinion on|anyone tried|what works|struggling with|challenge with|problem with|issue with|help with)\b/i;
+
+  const hasBuyingIntent = buyingIntentPatterns.test(postContent);
+  const hasDiscussion = discussionPatterns.test(postContent);
+
+  let brandRule;
+  if (hasBuyingIntent && Math.random() < (rate / 100)) {
+    // Direct brand mention — someone is looking for a solution
+    brandRule = `- The person is actively looking for a solution. You MUST include "${companyName}" in your reply — mention it as something you personally use or work with. Examples: "I've been using ${companyName} for this", "check out ${companyName}, they handle this well", "we switched to ${companyName} and it worked out". The reply MUST contain the word "${companyName}".`;
+  } else if (hasDiscussion && Math.random() < (rate / 200)) {
+    // Soft brand mention — relevant discussion, share expertise
+    brandRule = `- This is a relevant discussion. Naturally weave in what "${companyName}" does — mention it once as part of your experience. Examples: "at ${companyName} we've found that...", "working with ${companyName} taught me...", "from my experience at ${companyName}...". Keep it subtle — the focus should be on the insight, not the brand.`;
+  } else if (Math.random() < 0.15) {
+    // Company expertise without name — spread what the company does
+    brandRule = `- Share insight related to what ${companyName} does (${companyDescription?.slice(0, 100)}). Don't mention the company name, but share knowledge that positions you as someone who works in this space. Show expertise naturally.`;
+  } else {
+    brandRule = `- Do NOT mention any brand or company name — just share helpful insight`;
+  }
+
+  // Detect if this is a Facebook group post (URL contains /groups/)
+  const isGroupPost = postContent.includes('/groups/') || postContent.includes('facebook.com/groups');
+
+  // In Facebook groups: NEVER mention brand (gets flagged as spam by admins)
+  const effectiveBrandRule = isGroupPost
+    ? `- IMPORTANT: Do NOT mention any brand, company, or service name. This is a Facebook group — promotional comments get removed. Just share genuine helpful insight.`
+    : brandRule;
 
   return `You are a social media engagement analyst. Analyze the following social media post and determine if it describes a problem or need that "${companyName}" can help solve.
 
@@ -74,9 +109,15 @@ ${postContent.slice(0, 1000)}
 For the suggestedReply field:
 - STYLE: ${style.instruction}
 - LENGTH: ${length.instruction}
-- Sound like a real person on social media — NOT a brand rep or analyst
-- Never start with "Hey", "Hi", "Great post", or "Absolutely"
-- Never use: "game-changer", "seamless", "leverage", "robust", "excited to share"
+- Sound like a REAL person casually chatting on social media — NOT an expert, analyst, or brand rep
+- Reference something SPECIFIC from their post — never write a generic reply that could fit any post
+- Use first person ("I", "we", "my") — share your own perspective, not universal truths
+- Use casual language, contractions, lowercase where natural. Imperfect grammar is fine.
+${effectiveBrandRule}
+- Never start with "Hey", "Hi", "Great post", "Absolutely", "This!", "So true"
+- Never use: "game-changer", "seamless", "leverage", "robust", "excited to share", "vanity metrics", "high-intent", "trap", "most people"
+- Never lecture, diagnose, or tell them what they should do. React to what they said like a friend would.
+- Avoid sounding like a marketing professional — no jargon, no buzzwords, no frameworks
 - Variety seed: ${seed}
 
 Respond ONLY with valid JSON (no markdown, no code blocks, no extra text):
@@ -230,9 +271,10 @@ export async function evaluatePost(
   postContent: string,
   companyName: string,
   companyDescription: string,
-  promptTemplate?: string
+  promptTemplate?: string,
+  brandMentionRate?: number,
 ): Promise<AIEvaluation> {
-  const prompt = buildPrompt(postContent, companyName, companyDescription, promptTemplate);
+  const prompt = buildPrompt(postContent, companyName, companyDescription, promptTemplate, brandMentionRate);
 
   let rawResponse: string;
 

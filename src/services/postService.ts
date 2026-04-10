@@ -255,7 +255,7 @@ export async function updatePostForUser(
   await connectDB();
   return Post.findOneAndUpdate(
     { _id: id, userId },
-    update,
+    { $set: update },
     { returnDocument: 'after' },
   ).lean() as Promise<PostDoc | null>;
 }

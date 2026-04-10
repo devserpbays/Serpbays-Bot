@@ -40,7 +40,7 @@ function getDateRange(filter: string): { from?: Date; to?: Date } {
 
 const PLATFORM_COLORS: Record<string, string> = {
     twitter: '#1d9bf0', facebook: '#1877f2', reddit: '#3b82f6',
-    quora: '#2563eb', youtube: '#0ea5e9', pinterest: '#60a5fa',
+    quora: '#2563eb', youtube: '#0ea5e9', pinterest: '#60a5fa', skool: '#5865f2',
 };
 
 const PLATFORM_LABELS: Record<string, string> = {
@@ -52,12 +52,6 @@ const REPLY_LABEL: Record<string, string> = {
     twitter: 'Reply', quora: 'Answer',
 };
 
-/** Returns community ID if post was sourced from a Twitter community, else null */
-function getCommunitySource(keywordsMatched?: string[]): string | null {
-    const match = (keywordsMatched ?? []).find(k => k.startsWith('community:'));
-    return match ? match.replace('community:', '') : null;
-}
-
 interface PostsResponse { posts: IPost[]; total: number; page: number; limit: number; }
 
 const LIMIT = 20;
@@ -68,7 +62,7 @@ export default function PostsPage() {
     const [total, setTotal]               = useState(0);
     const [page, setPage]                 = useState(1);
     const [platform, setPlatform]         = useState('');
-    const [timeFilter, setTimeFilter]     = useState('today');
+    const [timeFilter, setTimeFilter]     = useState('7days');
     const [expandedId, setExpandedId]     = useState<string | null>(null);
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -82,10 +76,14 @@ export default function PostsPage() {
 
         try {
             const res = await fetch(`/api/posts?${params}`);
+            if (!res.ok) {
+                console.error('fetchPosts failed:', res.status, res.statusText);
+                return;
+            }
             const data: PostsResponse = await res.json();
             setPosts(data.posts ?? []);
             setTotal(data.total ?? 0);
-        } catch { /* silent */ }
+        } catch (err) { console.error('fetchPosts error:', err); }
     }, [platform, timeFilter, page]);
 
     useEffect(() => { fetchPosts(); }, [fetchPosts]);
@@ -157,7 +155,6 @@ export default function PostsPage() {
                             const color = PLATFORM_COLORS[post.platform] || 'var(--accent)';
                             const replyLabel = REPLY_LABEL[post.platform] || 'Comment';
                             const postedAt = post.postedAt ? new Date(post.postedAt).toLocaleString() : '';
-                            const communityId = getCommunitySource(post.keywordsMatched);
 
                             return (
                                 <div key={post._id} className="post-card" style={{ borderLeft: `3px solid ${color}` }}>
@@ -174,15 +171,6 @@ export default function PostsPage() {
                                             >
                                                 {PLATFORM_LABELS[post.platform] || post.platform}
                                             </span>
-                                            {communityId && (
-                                                <span style={{
-                                                    fontSize: 10, padding: '2px 8px', borderRadius: 6, flexShrink: 0,
-                                                    background: 'rgba(29,155,240,0.12)', border: '1px solid rgba(29,155,240,0.3)',
-                                                    color: '#1d9bf0', fontWeight: 600,
-                                                }} title={`From Twitter Community ${communityId}`}>
-                                                    Community
-                                                </span>
-                                            )}
                                             {post.platform === 'quora' && (
                                                 <span style={{
                                                     fontSize: 10, padding: '2px 8px', borderRadius: 6, flexShrink: 0,
@@ -253,11 +241,10 @@ export default function PostsPage() {
                                             {/* Meta row */}
                                             <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 12, color: 'var(--text-muted)', alignItems: 'center' }}>
                                                 {post.postedByAccount && <span>Account: <strong style={{ color: 'var(--text-secondary)' }}>{post.postedByAccount}</strong></span>}
-                                                {post.keywordsMatched?.length ? (
+                                                {post.keywordsMatched?.filter(k => !k.startsWith('community:')).length ? (
                                                     <span>
-                                                        {post.keywordsMatched.some(k => k.startsWith('community:')) ? 'Source: ' : 'Keywords: '}
-                                                        <strong style={{ color: 'var(--text-secondary)' }}>
-                                                            {post.keywordsMatched.map(k => k.startsWith('community:') ? `Community ${k.replace('community:', '')}` : k).join(', ')}
+                                                        Keywords: <strong style={{ color: 'var(--text-secondary)' }}>
+                                                            {post.keywordsMatched.filter(k => !k.startsWith('community:')).join(', ')}
                                                         </strong>
                                                     </span>
                                                 ) : null}

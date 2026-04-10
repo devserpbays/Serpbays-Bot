@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthUserId } from '@/lib/apiAuth';
 import { connectDB } from '@/lib/mongodb';
-import BrowserCookie from '@/models/BrowserCookie';
+import AccountState from '@/models/AccountState';
 import { RESUME_THRESHOLD } from '@/lib/accountHealth';
 
 export const dynamic = 'force-dynamic';
@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
 
   await connectDB();
 
-  const result = await BrowserCookie.updateOne(
+  const result = await AccountState.updateOne(
     { userId, platform },
     {
       $set: {

@@ -73,11 +73,11 @@ export function scoreReplyQuality(text: string): QualityResult {
     score -= 15;
   }
 
-  // Spam phrases
+  // Spam phrases — cap penalty to match the 3 shown in the flag
   const spamHits = detectSpamPhrases(trimmed);
   if (spamHits.length > 0) {
     flags.push(`Spam phrases detected: "${spamHits.slice(0, 3).join('", "')}"`);
-    score -= spamHits.length * 15;
+    score -= Math.min(spamHits.length, 3) * 15;
   }
 
   // ALL CAPS (shouting)

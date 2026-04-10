@@ -85,6 +85,13 @@ export async function POST(req: NextRequest) {
       const userId = resource.custom_id;
       if (!userId) break;
 
+      // Idempotency: skip if subscription already has this status
+      const existing = await Subscription.findOne({ userId, paypalSubscriptionId: resource.id, status: 'active' }).lean();
+      if (existing) {
+        console.log(`[PayPal] Skipping duplicate ACTIVATED for ${userId} (already active)`);
+        break;
+      }
+
       const planId = planIdFromPayPalPlan(resource.plan_id);
       const periodStart = resource.billing_info?.last_payment?.time
         ? new Date(resource.billing_info.last_payment.time)
@@ -118,6 +125,13 @@ export async function POST(req: NextRequest) {
 
       const planId = planIdFromPayPalPlan(resource.plan_id);
       const status = mapStatus(resource.status);
+
+      // Idempotency: skip if subscription already matches this state
+      const existingUpd = await Subscription.findOne({ userId, paypalSubscriptionId: resource.id, plan: planId, status }).lean();
+      if (existingUpd) {
+        console.log(`[PayPal] Skipping duplicate UPDATED for ${userId} (already ${status}/${planId})`);
+        break;
+      }
       const periodEnd = resource.billing_info?.next_billing_time
         ? new Date(resource.billing_info.next_billing_time)
         : undefined;
@@ -140,6 +154,13 @@ export async function POST(req: NextRequest) {
       const userId = resource.custom_id;
       if (!userId) break;
 
+      // Idempotency: skip if already canceled
+      const existingCancel = await Subscription.findOne({ userId, paypalSubscriptionId: resource.id, status: 'canceled' }).lean();
+      if (existingCancel) {
+        console.log(`[PayPal] Skipping duplicate CANCELLED for ${userId} (already canceled)`);
+        break;
+      }
+
       await Subscription.findOneAndUpdate(
         { userId },
         { plan: 'free', status: 'canceled', cancelAtPeriodEnd: false }
@@ -152,6 +173,13 @@ export async function POST(req: NextRequest) {
     case 'BILLING.SUBSCRIPTION.SUSPENDED': {
       const userId = resource.custom_id;
       if (!userId) break;
+
+      // Idempotency: skip if already past_due
+      const existingSusp = await Subscription.findOne({ userId, paypalSubscriptionId: resource.id, status: 'past_due' }).lean();
+      if (existingSusp) {
+        console.log(`[PayPal] Skipping duplicate SUSPENDED for ${userId} (already past_due)`);
+        break;
+      }
 
       await Subscription.findOneAndUpdate(
         { userId },

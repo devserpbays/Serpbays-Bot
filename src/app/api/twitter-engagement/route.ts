@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { connectDB } from '@/lib/mongodb';
 import Post from '@/models/Post';
-import TwitterFollowed from '@/models/TwitterFollowed';
 
 const LIST_LIMIT = 15;
 
@@ -64,31 +63,7 @@ export async function GET(req: Request) {
     });
   }
 
-  if (list === 'followed') {
-    const filter: Record<string, any> = { userId };
-    if (dateCond) filter.followedAt = dateCond;
-    const [total, follows] = await Promise.all([
-      TwitterFollowed.countDocuments(filter),
-      TwitterFollowed.find(filter)
-        .sort({ followedAt: -1 })
-        .skip(skip)
-        .limit(LIST_LIMIT)
-        .lean(),
-    ]);
-    return NextResponse.json({
-      total,
-      page,
-      pages: Math.ceil(total / LIST_LIMIT),
-      follows: follows.map((f: any) => ({
-        id: f._id,
-        handle: f.targetHandle,
-        followedAt: f.followedAt,
-        isFollowing: f.isFollowing,
-      })),
-    });
-  }
-
-  // ── Summary mode (default): counts + recent follows ───────────────────────
+  // ── Summary mode (default): counts ────────────────────────────────────────
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
 
@@ -96,26 +71,17 @@ export async function GET(req: Request) {
     totalLiked, todayLiked,
     totalRetweeted, todayRetweeted,
     totalBookmarked,
-    currentlyFollowing,
-    recentFollows,
   ] = await Promise.all([
     Post.countDocuments({ userId, platform: 'twitter', likedByBot: true }),
     Post.countDocuments({ userId, platform: 'twitter', likedByBot: true, updatedAt: { $gte: todayStart } }),
     Post.countDocuments({ userId, platform: 'twitter', retweetedByBot: true }),
     Post.countDocuments({ userId, platform: 'twitter', retweetedByBot: true, updatedAt: { $gte: todayStart } }),
     Post.countDocuments({ userId, platform: 'twitter', bookmarkedByBot: true }),
-    TwitterFollowed.countDocuments({ userId, isFollowing: true }),
-    TwitterFollowed.find({ userId, isFollowing: true }).sort({ followedAt: -1 }).limit(5).lean(),
   ]);
 
   return NextResponse.json({
     totalLiked, todayLiked,
     totalRetweeted, todayRetweeted,
     totalBookmarked,
-    currentlyFollowing,
-    recentFollows: recentFollows.map((f: any) => ({
-      handle: f.targetHandle,
-      followedAt: f.followedAt,
-    })),
   });
 }

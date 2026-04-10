@@ -7,6 +7,7 @@ import Settings from '@/models/Settings';
 import Subscription from '@/models/Subscription';
 import ActivityLog from '@/models/ActivityLog';
 import Notification from '@/models/Notification';
+import User from '@/models/User';
 
 export async function GET(
   _req: NextRequest,
@@ -120,14 +121,8 @@ export async function DELETE(
   const { userId } = await params;
   await connectDB();
 
-  // Delete all user data from every collection
-  await Promise.all([
-    Settings.deleteOne({ userId }),
-    Subscription.deleteOne({ userId }),
-    Post.deleteMany({ userId }),
-    ActivityLog.deleteMany({ userId }),
-    Notification.deleteMany({ userId }),
-  ]);
+  // Delete all user data from every collection (cascade)
+  await User.cascadeDeleteUser(userId);
 
   // Delete user from Clerk (removes login access entirely)
   try {

@@ -15,6 +15,3 @@ export * from './postService';
 export * from './subscriptionService';
 export * from './notificationService';
 export * from './activityLogService';
-
-// cookieStore is already its own service at src/lib/cookieStore.ts
-// (handles encryption, so it stays separate)

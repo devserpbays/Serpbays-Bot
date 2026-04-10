@@ -21,7 +21,12 @@ export async function GET(req: NextRequest) {
   const query: Record<string, unknown> = { userId };
   if (level && level !== 'all') query.level = level;
   if (platform && platform !== 'all') query.platform = platform;
-  if (since) query.createdAt = { $gt: new Date(since) };
+  if (since) {
+    const sinceDate = new Date(since);
+    if (!isNaN(sinceDate.getTime())) {
+      query.createdAt = { $gt: sinceDate };
+    }
+  }
 
   const logs = await ActivityLog.find(query)
     .sort({ createdAt: -1 })

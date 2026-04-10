@@ -1,0 +1,81 @@
+{
+  "manifest_version": 3,
+  "name": "GetMention - Social Media Engagement Assistant",
+  "version": "1.0.0",
+  "description": "AI-powered social media engagement. Auto-discovers relevant posts and helps you comment, like, and engage across Twitter, YouTube, Facebook, Reddit, Quora, and Pinterest.",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "notifications",
+    "alarms",
+    "tabs",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://x.com/*",
+    "https://twitter.com/*",
+    "https://www.youtube.com/*",
+    "https://www.facebook.com/*",
+    "https://www.reddit.com/*",
+    "https://old.reddit.com/*",
+    "https://www.quora.com/*",
+    "https://www.pinterest.com/*",
+    "https://in.pinterest.com/*",
+    "https://www.skool.com/*",
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://x.com/*", "https://twitter.com/*"],
+      "js": ["content/autopost.js", "content/twitter.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["content/autopost.js", "content/youtube.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.facebook.com/*"],
+      "js": ["content/autopost.js", "content/facebook.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.reddit.com/*", "https://old.reddit.com/*"],
+      "js": ["content/autopost.js", "content/reddit.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.quora.com/*"],
+      "js": ["content/autopost.js", "content/quora.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.pinterest.com/*", "https://in.pinterest.com/*"],
+      "js": ["content/autopost.js", "content/pinterest.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.skool.com/*"],
+      "js": ["content/autopost.js", "content/skool.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

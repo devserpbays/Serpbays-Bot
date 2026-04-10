@@ -24,16 +24,6 @@ interface Stats {
   postedByPlatform: Record<string, number>;
 }
 
-interface PipelineResult {
-  scraped: number;
-  newPosts: number;
-  evaluated: number;
-  skipped: number;
-  errors: string[];
-  startedAt: string;
-  finishedAt: string;
-}
-
 // ── Platform config (same as SettingsPanel) ──────────────────────────────────
 
 interface PlatformMeta {
@@ -116,14 +106,8 @@ export default function Dashboard() {
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Individual action states
-  const [scraping, setScraping] = useState(false);
   const [evaluating, setEvaluating] = useState(false);
   const [actionMessage, setActionMessage] = useState('');
-
-  // Full pipeline state
-  const [pipelineRunning, setPipelineRunning] = useState(false);
-  const [pipelineStep, setPipelineStep] = useState('');
-  const [pipelineResult, setPipelineResult] = useState<PipelineResult | null>(null);
 
   const [stats, setStats] = useState<Stats>({
     total: 0, new: 0, evaluating: 0, evaluated: 0,
@@ -188,7 +172,10 @@ export default function Dashboard() {
       const res = await fetch('/api/cron-control');
       const data = await res.json();
       setCronPaused(data.paused ?? false);
-    } catch {/* silent */}
+    } catch (err) {
+      console.error('fetchCronStatus failed:', err);
+      setCronPaused(false);
+    }
   }, []);
 
   const handleToggleCron = async () => {
@@ -226,30 +213,6 @@ export default function Dashboard() {
 
   // ── Individual actions ─────────────────────────────────────────────────────
 
-  const handleScrape = async () => {
-    setScraping(true);
-    setActionMessage('');
-    try {
-      const res = await fetch('/api/scrape', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      const data = await res.json();
-      if (data.error) {
-        setActionMessage(`Error: ${data.error}`);
-      } else {
-        const errMsg = data.errors?.length ? ` (${data.errors.length} errors)` : '';
-        setActionMessage(`Scraped ${data.totalScraped} posts, ${data.newPosts} new${errMsg}`);
-        fetchPosts();
-        fetchStats();
-      }
-    } catch {
-      setActionMessage('Scrape failed');
-    }
-    setScraping(false);
-  };
-
   const handleEvaluate = async () => {
     setEvaluating(true);
     setActionMessage('');
@@ -269,34 +232,6 @@ export default function Dashboard() {
     setEvaluating(false);
   };
 
-  // ── Full pipeline ──────────────────────────────────────────────────────────
-
-  const handleRunPipeline = async () => {
-    setPipelineRunning(true);
-    setPipelineResult(null);
-    const platformNames = enabledPlatforms.length
-      ? enabledPlatforms.map((p) => PLATFORM_META.find((m) => m.id === p)?.label ?? p).join(', ')
-      : 'all platforms';
-    setPipelineStep(`Scraping ${platformNames}…`);
-
-    try {
-      const res = await fetch('/api/run-pipeline', { method: 'POST' });
-      const data: PipelineResult = await res.json();
-      setPipelineResult(data);
-      setPipelineStep('');
-      fetchPosts();
-      fetchStats();
-    } catch {
-      setPipelineStep('');
-      setPipelineResult({
-        scraped: 0, newPosts: 0, evaluated: 0, skipped: 0,
-        errors: ['Pipeline request failed — check server logs'],
-        startedAt: '', finishedAt: '',
-      });
-    }
-    setPipelineRunning(false);
-  };
-
   // ── Post update ────────────────────────────────────────────────────────────
 
   const handlePostUpdate = async (id: string, data: Record<string, unknown>) => {
@@ -310,7 +245,7 @@ export default function Dashboard() {
   };
 
   const totalPages = Math.ceil(total / 20);
-  const isAnyActionRunning = scraping || evaluating || pipelineRunning;
+  const isAnyActionRunning = evaluating;
 
   // Determine which platforms to show in the breakdown.
   // Show platforms that are either enabled in settings OR have posts.
@@ -436,102 +371,15 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* ── Primary Action: Run Full Pipeline ── */}
-        <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
-          <div className="flex items-start justify-between flex-wrap gap-4">
-            <div>
-              <h2 className="text-base font-semibold text-gray-900">Run Full Job</h2>
-              <p className="text-sm text-gray-500 mt-0.5">
-                Scrapes{' '}
-                {enabledPlatforms.length > 0
-                  ? enabledPlatforms.map((p) => PLATFORM_META.find((m) => m.id === p)?.label ?? p).join(', ')
-                  : 'all platforms'}
-                , then evaluates every new post in one click.
-              </p>
-            </div>
-            <button
-              onClick={handleRunPipeline}
-              disabled={isAnyActionRunning}
-              className="flex items-center gap-2 px-5 py-2.5 bg-gray-900 text-white text-sm font-semibold rounded-lg hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {pipelineRunning ? (
-                <>
-                  <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                  </svg>
-                  Running…
-                </>
-              ) : (
-                <>
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 3l14 9-14 9V3z" />
-                  </svg>
-                  Start Job
-                </>
-              )}
-            </button>
-          </div>
-
-          {/* Pipeline step progress */}
-          {pipelineStep && (
-            <div className="flex items-center gap-2 text-sm text-gray-600">
-              <svg className="animate-spin w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-              </svg>
-              {pipelineStep}
-            </div>
-          )}
-
-          {/* Pipeline result */}
-          {pipelineResult && !pipelineRunning && (
-            <div className={`rounded-lg p-4 text-sm space-y-1 ${
-              pipelineResult.errors.length ? 'bg-red-50 border border-red-200' : 'bg-green-50 border border-green-200'
-            }`}>
-              <p className={`font-semibold ${pipelineResult.errors.length ? 'text-red-700' : 'text-green-700'}`}>
-                Job complete
-              </p>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2">
-                {[
-                  { label: 'Scraped',   value: pipelineResult.scraped },
-                  { label: 'New Posts', value: pipelineResult.newPosts },
-                  { label: 'Evaluated', value: pipelineResult.evaluated },
-                  { label: 'Skipped',   value: pipelineResult.skipped },
-                ].map(({ label, value }) => (
-                  <div key={label} className="bg-white/70 rounded p-2 text-center">
-                    <div className="text-lg font-bold text-gray-800">{value}</div>
-                    <div className="text-xs text-gray-500">{label}</div>
-                  </div>
-                ))}
-              </div>
-              {pipelineResult.errors.length > 0 && (
-                <ul className="mt-2 space-y-1">
-                  {pipelineResult.errors.map((e, i) => (
-                    <li key={i} className="text-red-600 text-xs">• {e}</li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* ── Secondary Actions ── */}
+        {/* ── Manual Evaluate ── */}
         <div className="flex items-center gap-3 flex-wrap">
-          <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">Manual steps:</span>
-          <button
-            onClick={handleScrape}
-            disabled={isAnyActionRunning}
-            className="px-4 py-2 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 disabled:opacity-50"
-          >
-            {scraping ? 'Scraping…' : 'Scrape Only'}
-          </button>
+          <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">Manual:</span>
           <button
             onClick={handleEvaluate}
             disabled={isAnyActionRunning}
             className="px-4 py-2 bg-purple-600 text-white text-sm rounded-md hover:bg-purple-700 disabled:opacity-50"
           >
-            {evaluating ? 'Evaluating…' : 'Evaluate Only'}
+            {evaluating ? 'Evaluating…' : 'Re-evaluate New Posts'}
           </button>
           {actionMessage && (
             <span className={`text-sm ${actionMessage.startsWith('Error') ? 'text-red-600' : 'text-green-600'}`}>

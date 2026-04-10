@@ -18,18 +18,16 @@ export async function GET(req: NextRequest) {
 
   const from = searchParams.get('from');
   const to = searchParams.get('to');
-  const source = searchParams.get('source'); // 'community' | 'keyword' | 'original'
+  const source = searchParams.get('source'); // 'keyword'
 
   const filter: Record<string, unknown> = { userId };
   if (status) filter.status = status;
   if (platform) filter.platform = platform;
-  if (minScore) filter.aiRelevanceScore = { $gte: parseInt(minScore) };
-  if (source === 'community') {
-    filter.keywordsMatched = { $elemMatch: { $regex: '^community:' } };
-    filter.isOriginalTweet = { $ne: true };
-  } else if (source === 'original') {
-    filter.isOriginalTweet = true;
-  } else if (source === 'keyword') {
+  if (minScore) {
+    const parsed = parseInt(minScore);
+    if (!isNaN(parsed)) filter.aiRelevanceScore = { $gte: parsed };
+  }
+  if (source === 'keyword') {
     filter.keywordsMatched = { $not: { $elemMatch: { $regex: '^community:' } } };
     filter.isOriginalTweet = { $ne: true };
   }
@@ -41,8 +39,14 @@ export async function GET(req: NextRequest) {
   if (sharedByBot === 'true') filter.sharedByBot = true;
   if (from || to) {
     const dateFilter: Record<string, Date> = {};
-    if (from) dateFilter.$gte = new Date(from);
-    if (to) dateFilter.$lt = new Date(to);
+    if (from) {
+      const d = new Date(from);
+      if (!isNaN(d.getTime())) dateFilter.$gte = d;
+    }
+    if (to) {
+      const d = new Date(to);
+      if (!isNaN(d.getTime())) dateFilter.$lt = d;
+    }
     // Liked/shared posts have no postedAt — filter by updatedAt (set when bot action happened)
     const useBotActionDate = filter.likedByBot || filter.sharedByBot || filter.pinterestHeartLiked;
     filter[useBotActionDate ? 'updatedAt' : 'postedAt'] = dateFilter;
@@ -52,7 +56,7 @@ export async function GET(req: NextRequest) {
 
   const [posts, total] = await Promise.all([
     Post.find(filter)
-      .sort(useBotActionDate2 ? '-updatedAt' : '-postedAt -scrapedAt')
+      .sort(useBotActionDate2 ? '-updatedAt' : '-postedAt')
       .skip((page - 1) * limit)
       .limit(limit)
       .lean(),

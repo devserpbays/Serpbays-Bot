@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { connectDB } from '@/lib/mongodb';
 import { getAuthUserId } from '@/lib/apiAuth';
-import BrowserCookie from '@/models/BrowserCookie';
+import AccountState from '@/models/AccountState';
 import Post from '@/models/Post';
 import { computeHealthScore } from '@/lib/accountHealth';
 
@@ -13,10 +13,10 @@ export async function GET() {
 
   await connectDB();
 
-  const accounts = await BrowserCookie.find({ userId }).lean();
+  const accounts = await AccountState.find({ userId }).lean();
 
   // Aggregate real stats from Post collection — this is the source of truth
-  // since BrowserCookie counters may be zeroed (new feature, no backfill).
+  // since AccountState counters may be zeroed (new feature, no backfill).
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
   const [postedAgg, failedAgg, recentAgg, lastPostedAgg] = await Promise.all([
@@ -57,7 +57,7 @@ export async function GET() {
   const result = accounts.map((acc) => {
     const totalPosts  = postedMap[acc.platform]  ?? acc.totalPosts  ?? 0;
     const totalErrors = failedMap[acc.platform]  ?? acc.totalErrors ?? 0;
-    // lastPostedAt: prefer live Post data; fall back to BrowserCookie
+    // lastPostedAt: prefer live Post data; fall back to AccountState
     const lastPostedAt = lastPostedMap[acc.platform] ?? acc.lastPostedAt ?? null;
 
     // Re-compute health with real Post-derived counters
@@ -94,10 +94,10 @@ export async function GET() {
     };
   });
 
-  // Sync computed scores back to BrowserCookie so platform page chips stay consistent
+  // Sync computed scores back to AccountState so platform page chips stay consistent
   await Promise.all(
     result.map((r) =>
-      BrowserCookie.updateOne(
+      AccountState.updateOne(
         { userId, platform: r.platform },
         {
           $set: {
@@ -107,7 +107,9 @@ export async function GET() {
             lastPostedAt: r.lastPostedAt ?? undefined,
           },
         }
-      )
+      ).catch((err: Error) => {
+        console.error(`[account-health] Failed to sync health for ${r.platform}:`, err.message);
+      })
     )
   );
 
@@ -137,14 +139,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'platform required' }, { status: 400 });
   }
 
-  const acc = await BrowserCookie.findOne({ userId, platform });
+  const acc = await AccountState.findOne({ userId, platform });
   if (!acc) {
     return NextResponse.json({ error: 'Account not found' }, { status: 404 });
   }
 
   // Re-compute health after manual resume — give it a 50-point floor
   const newScore = Math.max(50, acc.healthScore ?? 50);
-  await BrowserCookie.updateOne(
+  await AccountState.updateOne(
     { _id: acc._id },
     { $set: { autoPaused: false, healthScore: newScore, errorCount: 0, backoffUntil: null } }
   );

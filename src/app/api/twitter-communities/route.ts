@@ -17,38 +17,11 @@ export async function GET() {
 }
 
 export async function POST() {
-  const userId = await getAuthUserId();
-  if (userId instanceof NextResponse) return userId;
-
-  await connectDB();
-
-  // Dynamically import twitter lib (uses Playwright — server only)
-  let communities: Array<{ id: string; name: string }> = [];
-  try {
-    const { getJoinedCommunities, closeBrowser } = await import('@/lib/twitter');
-    communities = await getJoinedCommunities();
-    await closeBrowser();
-  } catch (err) {
-    return NextResponse.json(
-      { error: 'Failed to scrape communities: ' + (err as Error).message },
-      { status: 500 }
-    );
-  }
-
-  if (communities.length === 0) {
-    return NextResponse.json({ communities: [], message: 'No joined communities found' });
-  }
-
-  // Merge with existing saved IDs (don't remove manually added ones)
-  const settings = await Settings.findOne({ userId }).lean() as Record<string, any> | null;
-  const existingIds: string[] = (settings?.twitterCommunityIds as string[]) ?? [];
-  const merged = Array.from(new Set([...existingIds, ...communities.map((c) => c.id)]));
-
-  await Settings.findOneAndUpdate(
-    { userId },
-    { $set: { twitterCommunityIds: merged } },
-    { upsert: true }
+  // Auto-discovery via Playwright is no longer supported (extension handles
+  // engagement directly using the user's live browser session). Users add
+  // community IDs manually in settings.
+  return NextResponse.json(
+    { error: 'Auto-discovery is no longer supported — add community IDs manually in Settings.' },
+    { status: 410 }
   );
-
-  return NextResponse.json({ communities, saved: merged.length });
 }

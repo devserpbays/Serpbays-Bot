@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { width: 420px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0a0a0c; color: #e4e4e7; overflow-x: hidden; }
+
+    /* ── Onboarding ───────────────────────────────────────────────── */
+    .onboard { padding: 28px 24px 24px; text-align: center; }
+    .onboard-logo { width: 56px; height: 56px; border-radius: 16px; background: linear-gradient(135deg, #6366f1, #0ea5e9); display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; box-shadow: 0 8px 32px rgba(99,102,241,0.35); animation: gm-float 3s ease-in-out infinite; }
+    .onboard-logo svg { width: 28px; height: 28px; fill: none; stroke: #fff; stroke-width: 2.2; }
+    .onboard h1 { font-size: 20px; font-weight: 800; letter-spacing: -0.04em; color: #f4f4f5; margin-bottom: 4px; }
+    .onboard .tagline { font-size: 12.5px; color: #71717a; margin-bottom: 24px; line-height: 1.5; }
+
+    /* Steps */
+    .step-indicator { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 22px; }
+    .step-dot { width: 8px; height: 8px; border-radius: 50%; background: #27272a; transition: all 0.3s; }
+    .step-dot.active { background: #6366f1; box-shadow: 0 0 8px rgba(99,102,241,0.5); width: 24px; border-radius: 4px; }
+    .step-dot.done { background: #22c55e; }
+
+    /* Step content */
+    .step { display: none; animation: gm-slide-in 0.3s ease; }
+    .step.active { display: block; }
+
+    /* Step 1: Welcome */
+    .welcome-features { text-align: left; display: flex; flex-direction: column; gap: 10px; margin: 16px 0 20px; }
+    .welcome-feature { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: #141416; border: 1px solid #1e1e22; border-radius: 12px; }
+    .welcome-feature-icon { width: 32px; height: 32px; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 14px; }
+    .welcome-feature-text { font-size: 12px; color: #a1a1aa; line-height: 1.4; }
+    .welcome-feature-text strong { color: #e4e4e7; font-weight: 600; }
+
+    /* Step 2: Sign Up */
+    .signup-card { background: linear-gradient(135deg, rgba(99,102,241,0.12), rgba(14,165,233,0.08)); border: 1px solid rgba(99,102,241,0.2); border-radius: 14px; padding: 18px 16px; margin: 12px 0 16px; text-align: left; }
+    .signup-card-title { font-size: 13px; font-weight: 700; color: #e4e4e7; margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
+    .signup-card-desc { font-size: 11.5px; color: #71717a; line-height: 1.6; }
+    .signup-steps { text-align: left; margin: 12px 0 0; display: flex; flex-direction: column; gap: 8px; }
+    .signup-step { display: flex; align-items: flex-start; gap: 10px; }
+    .signup-step-num { width: 22px; height: 22px; border-radius: 7px; background: rgba(99,102,241,0.15); border: 1px solid rgba(99,102,241,0.3); display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 800; color: #a5b4fc; flex-shrink: 0; }
+    .signup-step-text { font-size: 11.5px; color: #a1a1aa; line-height: 1.5; padding-top: 2px; }
+
+    /* Step 3: API Key */
+    .key-input-wrap { position: relative; margin: 12px 0; }
+    .key-input-wrap input { width: 100%; padding: 12px 16px; padding-right: 44px; border-radius: 12px; border: 1.5px solid #27272a; background: #111113; color: #e4e4e7; font-size: 13px; font-family: 'SF Mono', 'Fira Code', monospace; outline: none; transition: all 0.2s; letter-spacing: 0.02em; }
+    .key-input-wrap input:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.15); }
+    .key-input-wrap input::placeholder { color: #3f3f46; font-family: inherit; }
+    .key-input-paste { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); padding: 6px 8px; border-radius: 8px; border: none; background: rgba(99,102,241,0.15); color: #a5b4fc; font-size: 10px; font-weight: 700; cursor: pointer; transition: all 0.15s; }
+    .key-input-paste:hover { background: rgba(99,102,241,0.25); }
+
+    /* Buttons */
+    .btn-primary { width: 100%; padding: 12px; border-radius: 12px; border: none; background: linear-gradient(135deg, #6366f1, #4f46e5); color: #fff; font-size: 13.5px; font-weight: 700; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 16px rgba(99,102,241,0.3); display: flex; align-items: center; justify-content: center; gap: 8px; letter-spacing: -0.01em; }
+    .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 24px rgba(99,102,241,0.4); }
+    .btn-primary:active { transform: translateY(0); }
+    .btn-primary:disabled { opacity: 0.5; cursor: wait; transform: none; box-shadow: none; }
+    .btn-secondary { width: 100%; padding: 10px; border-radius: 12px; border: 1.5px solid #27272a; background: transparent; color: #a1a1aa; font-size: 12.5px; font-weight: 600; cursor: pointer; transition: all 0.15s; margin-top: 8px; }
+    .btn-secondary:hover { border-color: #3f3f46; color: #e4e4e7; background: #141416; }
+    .btn-link { background: none; border: none; color: #6366f1; font-size: 12px; font-weight: 600; cursor: pointer; padding: 0; text-decoration: none; }
+    .btn-link:hover { color: #818cf8; text-decoration: underline; }
+
+    /* ── Main Screen ──────────────────────────────────────────────── */
+
+    /* Header */
+    .header { padding: 14px 18px; display: flex; align-items: center; gap: 12px; background: linear-gradient(180deg, #0f0f12, #0a0a0c); border-bottom: 1px solid #18181b; }
+    .h-logo { width: 34px; height: 34px; border-radius: 10px; background: linear-gradient(135deg, #6366f1, #0ea5e9); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .h-logo svg { width: 16px; height: 16px; fill: none; stroke: #fff; stroke-width: 2.5; }
+    .h-info { flex: 1; min-width: 0; }
+    .h-title { font-size: 13.5px; font-weight: 700; color: #f4f4f5; letter-spacing: -0.02em; }
+    .h-sub { font-size: 10.5px; color: #52525b; margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .h-status { display: flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 20px; font-size: 10px; font-weight: 700; letter-spacing: 0.03em; }
+    .h-status.ok { background: rgba(34,197,94,0.1); color: #22c55e; border: 1px solid rgba(34,197,94,0.2); }
+    .h-status.off { background: rgba(239,68,68,0.08); color: #ef4444; border: 1px solid rgba(239,68,68,0.15); }
+    .h-status-dot { width: 6px; height: 6px; border-radius: 50%; }
+    .h-status.ok .h-status-dot { background: #22c55e; box-shadow: 0 0 6px rgba(34,197,94,0.5); }
+    .h-status.off .h-status-dot { background: #ef4444; }
+
+    /* Stats */
+    .stats { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px; padding: 12px 18px; }
+    .stat { text-align: center; padding: 12px 6px 10px; background: #111113; border: 1px solid #1c1c1f; border-radius: 12px; transition: border-color 0.2s; }
+    .stat:hover { border-color: #27272a; }
+    .stat-val { font-size: 22px; font-weight: 800; letter-spacing: -0.04em; line-height: 1; }
+    .stat-val.blue { color: #6366f1; }
+    .stat-val.green { color: #22c55e; }
+    .stat-val.amber { color: #f59e0b; }
+    .stat-val.red { color: #ef4444; }
+    .stat-lbl { font-size: 9px; color: #52525b; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; }
+
+    /* Controls */
+    .controls { display: flex; align-items: center; gap: 8px; padding: 8px 18px 10px; }
+    .ctrl-toggle { display: flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 20px; font-size: 11px; font-weight: 700; cursor: pointer; border: none; transition: all 0.2s; }
+    .ctrl-toggle.on { background: rgba(34,197,94,0.1); color: #22c55e; border: 1px solid rgba(34,197,94,0.2); }
+    .ctrl-toggle.off { background: rgba(113,113,122,0.08); color: #71717a; border: 1px solid #27272a; }
+    .ctrl-toggle-dot { width: 6px; height: 6px; border-radius: 50%; }
+    .ctrl-toggle.on .ctrl-toggle-dot { background: #22c55e; }
+    .ctrl-toggle.off .ctrl-toggle-dot { background: #52525b; }
+    .ctrl-btn { padding: 5px 12px; border-radius: 8px; border: 1px solid #27272a; background: transparent; color: #71717a; font-size: 10.5px; font-weight: 600; cursor: pointer; transition: all 0.15s; }
+    .ctrl-btn:hover { border-color: #3f3f46; color: #e4e4e7; background: #141416; }
+
+    /* Section */
+    .sec { padding: 8px 18px 10px; }
+    .sec-title { font-size: 9px; text-transform: uppercase; letter-spacing: 0.08em; color: #3f3f46; font-weight: 700; margin-bottom: 8px; }
+
+    /* Platform rows */
+    .plat { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid #111113; }
+    .plat:last-child { border-bottom: none; }
+    .plat-icon { width: 24px; height: 24px; border-radius: 7px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 800; flex-shrink: 0; }
+    .plat-name { font-size: 12px; color: #a1a1aa; flex: 1; }
+    .plat-count { font-size: 12px; font-weight: 700; color: #e4e4e7; min-width: 28px; text-align: right; }
+    .plat-bar-bg { width: 56px; height: 4px; background: #1c1c1f; border-radius: 2px; overflow: hidden; }
+    .plat-bar { height: 100%; border-radius: 2px; transition: width 0.4s ease; }
+    .plat-likes { font-size: 10.5px; color: #52525b; min-width: 32px; text-align: right; }
+
+    /* Activity */
+    .act { display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; }
+    .act-dot { width: 6px; height: 6px; border-radius: 50%; margin-top: 5px; flex-shrink: 0; }
+    .act-dot.ok { background: #22c55e; }
+    .act-dot.err { background: #ef4444; }
+    .act-dot.inf { background: #3b82f6; }
+    .act-text { font-size: 11px; color: #71717a; flex: 1; line-height: 1.45; }
+    .act-time { font-size: 10px; color: #27272a; flex-shrink: 0; margin-top: 1px; }
+
+    /* Footer */
+    .footer { display: flex; align-items: center; justify-content: space-between; padding: 10px 18px; border-top: 1px solid #141416; }
+    .footer a { color: #52525b; text-decoration: none; font-size: 10.5px; font-weight: 500; transition: color 0.15s; display: flex; align-items: center; gap: 4px; }
+    .footer a:hover { color: #6366f1; }
+    .footer-disc { background: none; border: none; color: #27272a; font-size: 10.5px; cursor: pointer; transition: color 0.15s; }
+    .footer-disc:hover { color: #ef4444; }
+    .footer-ver { font-size: 9px; color: #1e1e21; }
+
+    .msg { padding: 10px 14px; font-size: 12px; border-radius: 10px; margin-top: 10px; text-align: left; line-height: 1.4; }
+    .msg.success { background: rgba(34,197,94,0.08); color: #22c55e; border: 1px solid rgba(34,197,94,0.15); }
+    .msg.error { background: rgba(239,68,68,0.06); color: #ef4444; border: 1px solid rgba(239,68,68,0.12); }
+    .hidden { display: none !important; }
+    .muted { color: #52525b; font-size: 11px; }
+    .link-accent { color: #6366f1; font-weight: 600; text-decoration: none; }
+    .link-accent:hover { text-decoration: underline; }
+
+    @keyframes gm-float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+    @keyframes gm-slide-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes gm-spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+  <!-- ══════ Onboarding Screen ══════ -->
+  <div id="onboardSection" class="hidden">
+    <div class="onboard">
+      <div class="onboard-logo">
+        <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      </div>
+      <h1>GetMention</h1>
+      <p class="tagline">AI-powered social media engagement on autopilot</p>
+
+      <div class="step-indicator">
+        <div class="step-dot active" id="dot1"></div>
+        <div class="step-dot" id="dot2"></div>
+        <div class="step-dot" id="dot3"></div>
+      </div>
+
+      <!-- Step 1: Welcome -->
+      <div class="step active" id="step1">
+        <div class="welcome-features">
+          <div class="welcome-feature">
+            <div class="welcome-feature-icon" style="background:rgba(99,102,241,0.12);color:#818cf8;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            </div>
+            <div class="welcome-feature-text"><strong>Finds relevant posts</strong> across Twitter, Reddit, Facebook, Quora, Pinterest, YouTube &amp; Skool</div>
+          </div>
+          <div class="welcome-feature">
+            <div class="welcome-feature-icon" style="background:rgba(34,197,94,0.12);color:#4ade80;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            </div>
+            <div class="welcome-feature-text"><strong>AI writes natural replies</strong> that mention your brand — like a real person would</div>
+          </div>
+          <div class="welcome-feature">
+            <div class="welcome-feature-icon" style="background:rgba(245,158,11,0.12);color:#fbbf24;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            </div>
+            <div class="welcome-feature-text"><strong>Safe &amp; undetectable</strong> — uses your real browser session, not bots</div>
+          </div>
+        </div>
+        <button class="btn-primary" id="step1Next">Get started <span style="font-size:16px">→</span></button>
+      </div>
+
+      <!-- Step 2: Create Account -->
+      <div class="step" id="step2">
+        <div class="signup-card">
+          <div class="signup-card-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#818cf8" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+            Create your free account
+          </div>
+          <div class="signup-card-desc">Sign up on the GetMention dashboard to configure your brand, keywords, and platforms.</div>
+        </div>
+
+        <button class="btn-primary" id="openSignup">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          Open Dashboard &amp; Sign Up
+        </button>
+
+        <div class="signup-steps">
+          <div class="signup-step">
+            <div class="signup-step-num">1</div>
+            <div class="signup-step-text">Create an account on the dashboard</div>
+          </div>
+          <div class="signup-step">
+            <div class="signup-step-num">2</div>
+            <div class="signup-step-text">Complete the onboarding (brand, platforms, keywords)</div>
+          </div>
+          <div class="signup-step">
+            <div class="signup-step-num">3</div>
+            <div class="signup-step-text">Go to <strong style="color:#e4e4e7">Settings</strong> and copy your <strong style="color:#a5b4fc">API key</strong></div>
+          </div>
+        </div>
+
+        <button class="btn-secondary" id="step2Next">I have an API key →</button>
+        <div style="margin-top:8px"><button class="btn-link" id="step2Back">← Back</button></div>
+      </div>
+
+      <!-- Step 3: Connect API Key -->
+      <div class="step" id="step3">
+        <p style="font-size:13px;color:#a1a1aa;margin-bottom:4px;text-align:left;">Paste your API key from the dashboard</p>
+        <p style="font-size:11px;color:#3f3f46;margin-bottom:12px;text-align:left;">
+          Dashboard → Settings → top card → <span class="link-accent">Copy API key</span>
+        </p>
+
+        <div class="key-input-wrap">
+          <input type="text" id="apiKeyInput" placeholder="gm_xxxxxxxxxxxxxxxx" autocomplete="off" spellcheck="false" />
+          <button class="key-input-paste" id="pasteBtn" title="Paste from clipboard">Paste</button>
+        </div>
+
+        <button class="btn-primary" id="connectBtn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+          Connect
+        </button>
+        <div id="connectMsg" class="msg hidden"></div>
+
+        <div style="margin-top:10px"><button class="btn-link" id="step3Back">← Back</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════ Main Screen ══════ -->
+  <div id="mainSection" class="hidden">
+    <div class="header">
+      <div class="h-logo">
+        <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      </div>
+      <div class="h-info">
+        <div class="h-title">GetMention</div>
+        <div class="h-sub" id="companyName">Loading...</div>
+      </div>
+      <div class="h-status ok" id="statusBadge">
+        <div class="h-status-dot"></div>
+        <span id="statusLabel">Active</span>
+      </div>
+    </div>
+
+    <div class="stats">
+      <div class="stat">
+        <div class="stat-val blue" id="totalComments">0</div>
+        <div class="stat-lbl">Comments</div>
+      </div>
+      <div class="stat">
+        <div class="stat-val green" id="totalLikes">0</div>
+        <div class="stat-lbl">Likes</div>
+      </div>
+      <div class="stat">
+        <div class="stat-val amber" id="nextTimer">--</div>
+        <div class="stat-lbl">Next</div>
+      </div>
+      <div class="stat" title="Brand mentions today vs daily cap">
+        <div class="stat-val" id="brandCount" style="color:#a78bfa;">0/2</div>
+        <div class="stat-lbl">Brand</div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <button class="ctrl-toggle on" id="autoPostBtn">
+        <span class="ctrl-toggle-dot"></span>
+        <span id="autoPostLabel">Auto-posting ON</span>
+      </button>
+      <div style="flex:1"></div>
+      <button class="ctrl-btn" id="scrapeBtn">Scrape Now</button>
+      <button class="ctrl-btn" id="refreshBtn">Refresh</button>
+    </div>
+
+    <div class="sec">
+      <div class="sec-title">Platforms</div>
+      <div id="platformList"></div>
+    </div>
+
+    <div class="sec" id="activitySection">
+      <div class="sec-title">Recent Activity</div>
+      <div id="activityList">
+        <div class="muted" style="text-align:center;padding:8px 0;">No activity yet</div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <a href="#" id="dashboardLink">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        Dashboard
+      </a>
+      <span class="footer-ver" id="versionLabel"></span>
+      <button class="footer-disc" id="disconnectBtn">Disconnect</button>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

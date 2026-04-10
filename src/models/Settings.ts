@@ -16,7 +16,7 @@ const SettingsSchema = new Schema({
   companyName: { type: String, default: '' },
   companyDescription: { type: String, default: '' },
   keywords: [{ type: String }],
-  platforms: [{ type: String, enum: ['twitter', 'reddit', 'facebook', 'quora', 'youtube', 'pinterest'] }],
+  platforms: [{ type: String, enum: ['twitter', 'reddit', 'facebook', 'quora', 'youtube', 'pinterest', 'skool'] }],
   subreddits: [{ type: String }],
   promptTemplate: { type: String, default: '' },
   socialAccounts: { type: [SocialAccountSchema], default: [] },
@@ -77,9 +77,23 @@ const SettingsSchema = new Schema({
   notificationEmail: { type: String, default: '' },
   notifyViaEmail: { type: Boolean, default: true },
   lastNotificationEmailSentAt: { type: Date, default: null },
+  // Language preference for comments
+  replyLanguages: { type: [String], default: ['english'] },
+  // Browser extension
+  extensionApiKey: { type: String, default: '', index: true, sparse: true },
+  extensionMode: { type: Boolean, default: false },
+  extensionPlatforms: [{ type: String, enum: ['twitter', 'facebook', 'reddit', 'quora', 'youtube', 'pinterest', 'skool'] }],
+  skoolKeywords: [{ type: String }],
+  skoolCommunities: [{ type: String }],
+  skoolDailyLimit: { type: Number, default: 5 },
+  skoolAutoPostThreshold: { type: Number, default: 70 },
+  skoolBrandMentionRate: { type: Number, default: 25, min: 0, max: 100 },
+  skoolCooldownMinutes: { type: Number, default: 60, min: 30 },
 }, { timestamps: true });
 
 // Index for cron scheduler query: find active users not paused
 SettingsSchema.index({ autoPostingPaused: 1, userId: 1 });
+// Index for blockedUntil lookups (admin block/unblock, cron filtering)
+SettingsSchema.index({ blockedUntil: 1 });
 
 export default mongoose.models.Settings || mongoose.model('Settings', SettingsSchema);

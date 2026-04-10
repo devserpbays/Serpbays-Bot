@@ -16,11 +16,14 @@ interface AccountInfo {
 
 function readVerified(profileDir: string): AccountInfo | null {
   try {
-    const { resolve } = require('path');
-    const fullPath = resolve(process.cwd(), profileDir, '.verified');
-    const profilesBase = resolve(process.cwd(), 'profiles');
+    const path = require('path');
+    const fullPath = path.resolve(process.cwd(), profileDir, '.verified');
+    const profilesBase = path.resolve(process.cwd(), 'profiles');
+    const resolved = path.resolve(fullPath);
     // Block path traversal — only read within profiles/ directory
-    if (!fullPath.startsWith(profilesBase + '/')) return null;
+    if (!resolved.startsWith(profilesBase + path.sep)) return null;
+    const relative = path.relative(profilesBase, resolved);
+    if (relative.startsWith('..')) return null;
     const raw = readFileSync(fullPath, 'utf-8');
     const data = JSON.parse(raw);
     if (!data.loggedIn) return null;

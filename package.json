@@ -11,15 +11,14 @@
   "dependencies": {
     "@clerk/nextjs": "^7.0.4",
     "@clerk/themes": "^2.4.57",
-    "bullmq": "^5.71.0",
     "jose": "^6.2.0",
     "mongoose": "^9.2.1",
     "next": "16.1.6",
-    "playwright": "^1.58.2",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-toastify": "^11.0.5",
-    "resend": "^6.9.3"
+    "resend": "^6.9.3",
+    "youtubei.js": "^17.0.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

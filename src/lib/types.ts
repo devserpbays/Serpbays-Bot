@@ -33,8 +33,6 @@ export interface SocialAccount {
   accountIndex: number;
   addedAt: string;
   active?: boolean;
-  verifiedAt?: string;   // ISO string — when cookies were last verified
-  cookieVerified?: boolean;
   healthScore?: number;  // 0–100
   autoPaused?: boolean;
   totalPosts?: number;
@@ -88,6 +86,12 @@ export interface ISettings {
   pinterestAutoPostThreshold?: number;
   pinterestBrandMentionRate?: number;
   pinterestCooldownMinutes?: number;
+  skoolKeywords?: string[];
+  skoolCommunities?: string[];
+  skoolDailyLimit?: number;
+  skoolAutoPostThreshold?: number;
+  skoolBrandMentionRate?: number;
+  skoolCooldownMinutes?: number;
   cronTimezone?: string;
   cronStartHour?: number;
   cronEndHour?: number;
@@ -95,6 +99,11 @@ export interface ISettings {
   cronIntervalMinutes?: number;
   notificationEmail?: string;
   notifyViaEmail?: boolean;
+  replyLanguages?: string[];
+  extensionApiKey?: string;
+  extensionMode?: boolean;
+  extensionPlatforms?: string[];
+  maxDailyBrandMentions?: number;
 }
 
 export interface AIEvaluation {
