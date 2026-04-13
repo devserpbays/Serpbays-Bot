@@ -19,7 +19,7 @@
     if (msg.platform && msg.platform !== 'reddit') return;
 
     if (msg.type === 'EXECUTE_TASK') {
-      var timeout = setTimeout(function() { sendResponse({ success: false, error: 'Reddit content script timed out (90s)' }); }, 90000);
+      var timeout = setTimeout(function() { sendResponse({ success: false, error: 'Reddit content script timed out (100s)' }); }, 100000);
       handleTask(msg).then(function(r) { clearTimeout(timeout); sendResponse(r); }).catch(function(err) { clearTimeout(timeout); sendResponse({ success: false, error: err.message || 'Reddit error' }); });
       return true;
     }

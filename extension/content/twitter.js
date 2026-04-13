@@ -13,7 +13,7 @@
     if (msg.platform && msg.platform !== 'twitter') return;
 
     if (msg.type === 'EXECUTE_TASK') {
-      var timeout = setTimeout(function() { sendResponse({ success: false, error: 'Twitter content script timed out (60s)' }); }, 60000);
+      var timeout = setTimeout(function() { sendResponse({ success: false, error: 'Twitter content script timed out (100s)' }); }, 100000);
       handleTask(msg).then(function(r) { clearTimeout(timeout); sendResponse(r); }).catch(function(err) {
         clearTimeout(timeout);
         sendResponse({ success: false, error: (err && err.message) || String(err) || 'Twitter error' });

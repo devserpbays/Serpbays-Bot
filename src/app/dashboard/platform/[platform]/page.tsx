@@ -1091,6 +1091,22 @@ export default function PlatformPage() {
                                                         {log.message}
                                                     </div>
                                                 )}
+                                                {/* Clickable URL for likes/upvotes/comments */}
+                                                {(() => {
+                                                    const logUrl = (log.meta?.url as string) || (log.message || '').match(/https?:\/\/\S+/)?.[0] || '';
+                                                    return logUrl ? (
+                                                        <a href={logUrl} target="_blank" rel="noopener noreferrer" style={{
+                                                            display: 'inline-flex', alignItems: 'center', gap: 4,
+                                                            fontSize: 11, fontWeight: 600, color: 'var(--accent)',
+                                                            textDecoration: 'none', marginTop: 4,
+                                                        }}>
+                                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={11} height={11}>
+                                                                <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" />
+                                                            </svg>
+                                                            View post
+                                                        </a>
+                                                    ) : null;
+                                                })()}
                                             </div>
                                             <div style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0, marginTop: 2, whiteSpace: 'nowrap' }}>
                                                 {timeStr}

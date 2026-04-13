@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthUserId } from '@/lib/apiAuth';
 import { checkPlanLimit } from '@/lib/featureGate';
 import { getSettings, upsertSettings } from '@/services/settingsService';
+import { getAllowedPlatforms } from '@/lib/plans';
+import { getUserPlan } from '@/lib/subscription';
 import path from 'path';
 
 export async function GET() {
@@ -55,11 +57,15 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  // Enforce plan limits on platforms and keywords
-  if (body.platforms) {
-    const blocked = await checkPlanLimit(userId, 'platforms', body.platforms.length);
-    if (blocked) return blocked;
-  }
+  // Platforms are LOCKED to the plan tier — users cannot pick their own.
+  // Whatever the client sends for platforms/extensionPlatforms is ignored;
+  // we force-assign the plan's fixed platform list on every save.
+  const { plan } = await getUserPlan(userId);
+  const lockedPlatforms = Array.from(getAllowedPlatforms(plan));
+  body.platforms = lockedPlatforms;
+  body.extensionPlatforms = lockedPlatforms;
+
+  // Still enforce the keyword limit
   if (body.keywords) {
     const blocked = await checkPlanLimit(userId, 'keywords', body.keywords.length);
     if (blocked) return blocked;

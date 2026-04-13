@@ -14,7 +14,7 @@
 
     if (msg.type === 'EXECUTE_TASK') {
       // Extended timeout: watching the video (60-120s) + ad skip + commenting takes 2-3 min
-      var timeout = setTimeout(function() { sendResponse({ success: false, error: 'YouTube content script timed out (180s)' }); }, 180000);
+      var timeout = setTimeout(function() { sendResponse({ success: false, error: 'YouTube content script timed out (100s)' }); }, 100000);
       handleTask(msg).then(function(r) { clearTimeout(timeout); sendResponse(r); }).catch(function(err) {
         clearTimeout(timeout);
         sendResponse({ success: false, error: (err && err.message) || String(err) || 'YouTube error' });
@@ -54,7 +54,7 @@
   async function handleAds() {
     console.log('[GM YouTube] Checking for ads...');
 
-    for (var adAttempt = 0; adAttempt < 12; adAttempt++) {
+    for (var adAttempt = 0; adAttempt < 6; adAttempt++) {
       // Check if an ad is currently playing
       var adPlaying = !!document.querySelector('.ad-showing')
         || !!document.querySelector('.ytp-ad-player-overlay')
@@ -99,9 +99,9 @@
         await sleep(500);
       }
 
-      // No skip button — ad is non-skippable. Wait 5s and check again.
-      console.log('[GM YouTube] Non-skippable ad — waiting 5s...');
-      await sleep(5000);
+      // No skip button — ad is non-skippable. Wait 3s and check again.
+      console.log('[GM YouTube] Non-skippable ad — waiting 3s...');
+      await sleep(3000);
     }
 
     // Final check: make sure the real video player is visible
@@ -135,8 +135,9 @@
       await sleep(1000);
     }
 
-    // Random watch duration: 60–120 seconds
-    var watchSeconds = 60 + Math.floor(Math.random() * 60);
+    // Watch duration: 20–40 seconds (was 60-120s — too slow, caused 200s timeouts).
+    // 20-40s is still enough to look like a real viewer who skimmed the video.
+    var watchSeconds = 20 + Math.floor(Math.random() * 20);
     console.log('[GM YouTube] Will watch for ' + watchSeconds + 's');
 
     // Break the watch time into intervals with natural micro-actions
@@ -306,20 +307,10 @@
   }
 
   async function likeVideo() {
-    // Handle ads + watch a shorter clip before liking (30-60s — less than commenting)
+    // Skip ads if present, then immediately like — no watching needed for likes.
+    // Watching 30-60s before liking was causing 200s timeouts (7 failures today).
     await handleAds();
-
-    // Shorter watch for likes — 30-60s (enough to look real, not as long as commenting)
-    var watchSec = 30 + Math.floor(Math.random() * 30);
-    console.log('[GM YouTube] Watching ' + watchSec + 's before liking');
-    var video = document.querySelector('video');
-    if (video && video.paused) {
-      try {
-        var playBtn = document.querySelector('.ytp-play-button, [aria-label="Play"]');
-        if (playBtn) playBtn.click(); else video.play().catch(function(){});
-      } catch (e) {}
-    }
-    await sleep(watchSec * 1000);
+    await sleep(3000); // brief pause so page fully renders
 
     // Find like button with multiple selectors
     var likeBtn = null;

@@ -160,44 +160,34 @@ async function getOrCreateScrapeWindow() {
         scrapeWindowId = null;
       }
     }
-    // Position the popup OFFSCREEN at extreme negative coordinates so the
-    // user never sees a blank window in their taskbar/desktop. Chrome lets
-    // popup-type windows live offscreen as long as we don't pass `state`.
-    // We give it real width/height so the DOM still lays out properly for
-    // scraping (some sites collapse content at < 800px width).
+    // IMPORTANT: DO NOT use offscreen positioning (left:-32000).
+    // Chrome deprioritizes rendering for fully-offscreen windows, which causes
+    // content scripts to timeout because DOM elements never mount.
     //
-    // Note: Chrome's windows.create rejects `state: 'minimized'` when
-    // width/height are also specified, so we use offscreen positioning
-    // INSTEAD of minimize. This also avoids the taskbar entry that
-    // minimized popups create on Windows.
+    // Instead: create at normal position with real dimensions, then MINIMIZE.
+    // A minimized window still gets full DOM rendering from Chrome — the pages
+    // load properly, React hydrates, and content scripts can find elements.
+    // The user sees a small taskbar entry but ALL engagement actions work.
     let win;
     try {
+      // Step 1: create with real geometry (no state param — that conflicts with width/height)
       win = await chrome.windows.create({
         url: 'about:blank',
         type: 'popup',
         focused: false,
         width: 1280,
         height: 900,
-        left: -32000,
-        top: -32000,
       });
+      // Step 2: immediately minimize (state is allowed in update, just not create+geometry)
+      try { await chrome.windows.update(win.id, { state: 'minimized', focused: false }); } catch {}
     } catch (e) {
-      // Some Chrome builds reject extreme negative coords. Fall back to
-      // less-extreme but still-offscreen positioning.
+      // Fallback: bare create then minimize
       try {
-        win = await chrome.windows.create({
-          url: 'about:blank',
-          type: 'popup',
-          focused: false,
-          width: 1280,
-          height: 900,
-          left: -2000,
-          top: -2000,
-        });
-      } catch (e2) {
-        // Last-resort: bare create then minimize
         win = await chrome.windows.create({ url: 'about:blank', type: 'popup', focused: false });
         try { await chrome.windows.update(win.id, { state: 'minimized' }); } catch {}
+      } catch (e2) {
+        // Last resort: create in user's window as background tab (no separate window)
+        win = { id: chrome.windows.WINDOW_ID_CURRENT };
       }
     }
     scrapeWindowId = win.id;
@@ -415,7 +405,7 @@ async function scrapeOnePlatform() {
             await GetMentionAPI.sendLog('skool', 'warn', 'scrape_empty', emptyMsg,
               { community: communityName, keyword: focusKeyword, stats: s });
           }
-        } catch (err) { await GetMentionAPI.sendLog('skool', 'error', 'scrape_error', `Skool "${communityName}" scrape failed: ${err.message}`, { community: communityName }); }
+        } catch (err) { await GetMentionAPI.sendLog('skool', 'error', 'scrape_error', `Skool "${communityName}" scrape failed: ${((err && err.message) || String(err) || 'unknown')}`, { community: communityName }); }
         finally { clearTimeout(fc); extensionTabs.delete(tab.id); chrome.tabs.remove(tab.id).catch(() => {}); }
         return;
       }
@@ -582,7 +572,7 @@ async function scrapeRedditSubreddits(subreddits, keywords) {
           await sleep(2000);
         }
       } catch (injErr) {
-        await GetMentionAPI.sendLog('reddit', 'warn', 'scrape_empty', `Reddit inject failed: ${injErr.message}`);
+        await GetMentionAPI.sendLog('reddit', 'warn', 'scrape_empty', `Reddit inject failed: ${((injErr && injErr.message) || String(injErr) || 'unknown')}`);
       }
     }
     if (!ready) {
@@ -620,7 +610,7 @@ async function scrapeRedditSubreddits(subreddits, keywords) {
     }
   } catch (err) {
     await GetMentionAPI.sendLog('reddit', 'error', 'scrape_error',
-      `Reddit scrape failed: ${err.message}`);
+      `Reddit scrape failed: ${((err && err.message) || String(err) || 'unknown')}`);
   } finally {
     clearTimeout(forceCloseScrape);
     extensionTabs.delete(tab.id);
@@ -775,7 +765,7 @@ async function scrapeFbGroupSearch(groupId, groupLabel, keyword) {
     }
   } catch (err) {
     await GetMentionAPI.sendLog('facebook', 'error', 'scrape_error',
-      `Facebook scrape failed (${label}): ${err.message}`);
+      `Facebook scrape failed (${label}): ${((err && err.message) || String(err) || 'unknown')}`);
   } finally {
     clearTimeout(forceClose);
     extensionTabs.delete(tab.id);
@@ -875,7 +865,7 @@ async function scrapeSearchPage(platform, searchUrl, keyword) {
 
     return result?.posts || [];
   } catch (err) {
-    console.error(`[GetMention] scrapeSearchPage error:`, err.message);
+    console.error(`[GetMention] scrapeSearchPage error:`, ((err && err.message) || String(err) || 'unknown'));
     return [];
   } finally {
     extensionTabs.delete(tab.id);
@@ -1101,10 +1091,10 @@ async function processTasks() {
       markTaskProcessed(task.id);
       // executeTask already reported to server, just log
       await GetMentionAPI.sendLog(task.platform, 'error', 'post_failed',
-        `Task crashed: ${err.message}`, { url: task.url }).catch(() => {});
+        `Task crashed: ${((err && err.message) || String(err) || 'unknown')}`, { url: task.url }).catch(() => {});
     }
   } catch (err) {
-    console.error('[GetMention] Poll error:', err.message);
+    console.error('[GetMention] Poll error:', ((err && err.message) || String(err) || 'unknown'));
   } finally {
     isProcessing = false;
   }
@@ -1176,10 +1166,9 @@ async function cleanupStaleTabs() {
 async function executeTask(task) {
   const { platform, action, url, text } = task;
 
-  // Hard timeout per platform. YouTube needs longer because the extension
-  // watches the video for 60-120s before commenting (to look like a real viewer).
-  // Other platforms complete within 60-90s.
-  const timeoutMs = platform === 'youtube' ? 200_000 : 90_000;
+  // All platforms get 120s. YouTube watching was reduced from 60-120s to 20-40s
+  // so it no longer needs a special longer timeout.
+  const timeoutMs = 120_000;
   return Promise.race([
     _executeTaskInner(task),
     new Promise(resolve => setTimeout(() => {
@@ -1200,11 +1189,37 @@ async function _executeTaskInner(task) {
       tab = await createBackgroundTab(url);
     } catch (err2) {
       console.error('[GetMention] Could not open task tab:', err2);
-      return { success: false, error: 'Could not open tab: ' + ((err2 && err2.message) || 'unknown') };
+      return { success: false, error: 'Could not open tab: ' + ((err2 && ((err2 && err2.message) || String(err2) || 'unknown')) || 'unknown') };
     }
   }
   const tabId = tab.id;
   extensionTabs.add(tabId);
+
+  // ── Un-minimize the scrape window while executing a task ──────────
+  // Content scripts need a VISIBLE window for proper DOM rendering:
+  //  - getBoundingClientRect() returns zeros in minimized windows
+  //  - Reddit/Lexical editor ignores mouse events with zero coordinates
+  //  - Facebook/Twitter React apps may not hydrate fully when minimized
+  //
+  // We restore the window to 'normal' before the task starts, and
+  // re-minimize it once the task completes. This briefly shows the window
+  // but ensures every platform's DOM works correctly.
+  let windowWasMinimized = false;
+  if (scrapeWindowId !== null) {
+    try {
+      const winInfo = await chrome.windows.get(scrapeWindowId);
+      if (winInfo.state === 'minimized') {
+        windowWasMinimized = true;
+        await chrome.windows.update(scrapeWindowId, { state: 'normal', focused: false });
+        await sleep(500); // let Chrome render the restored window
+      }
+    } catch {}
+  }
+  async function reminimize() {
+    if (windowWasMinimized && scrapeWindowId !== null) {
+      try { await chrome.windows.update(scrapeWindowId, { state: 'minimized', focused: false }); } catch {}
+    }
+  }
 
   // Close ONLY our tab — but if removing it would leave its window with
   // zero tabs, Chrome closes the window (and exits if it's the last window).
@@ -1267,6 +1282,7 @@ async function _executeTaskInner(task) {
         : `Content script not loaded after ${maxPings * 3}s`;
       // Report failure to server so postAttempts increments
       try { await GetMentionAPI.completeTask(task.id, { success: false, error: errorMsg, action }); } catch {}
+      await reminimize();
       return { success: false, error: errorMsg };
     }
 
@@ -1305,7 +1321,7 @@ async function _executeTaskInner(task) {
         });
       });
     } catch (err) {
-      result = { success: false, error: err.message };
+      result = { success: false, error: (err && err.message) || String(err) || 'Unknown task error' };
     }
 
     // Clean up storage
@@ -1322,12 +1338,14 @@ async function _executeTaskInner(task) {
 
     return result;
   } catch (err) {
-    return { success: false, error: err.message || 'Task execution error' };
+    return { success: false, error: ((err && err.message) || String(err) || 'unknown') || 'Task execution error' };
   } finally {
     clearInterval(keepAlive);
     clearTimeout(forceClose);
     closeTab();
     setTimeout(closeTab, 2000);
+    // Re-minimize the scrape window after the task completes
+    await reminimize();
   }
 }
 
@@ -1391,7 +1409,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         // Send task directly back to the sender tab — platform content script is already there
         sendResponse({ started: true, task: data.task });
       } catch (err) {
-        sendResponse({ started: false, error: err.message });
+        sendResponse({ started: false, error: ((err && err.message) || String(err) || 'unknown') });
       }
     })();
     return true;
@@ -1466,7 +1484,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               catch { await new Promise(res => setTimeout(res, 1500)); }
             }
           } catch (injErr) {
-            console.error('[GetMention] Force-inject failed:', injErr.message);
+            console.error('[GetMention] Force-inject failed:', ((injErr && injErr.message) || String(injErr) || 'unknown'));
           }
         }
       }
@@ -1503,7 +1521,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     executeTask(msg.task)
       .then(result => GetMentionAPI.completeTask(msg.task.id, { ...result, action: msg.task.action }))
       .then(() => sendResponse({ ok: true }))
-      .catch(err => sendResponse({ ok: false, error: err.message }));
+      .catch(err => sendResponse({ ok: false, error: ((err && err.message) || String(err) || 'unknown') }));
     return true;
   }
   if (msg.type === 'GET_STATUS') {
@@ -1517,7 +1535,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     const senderTabId = sender.tab && sender.tab.id;
     if (senderTabId) {
       chrome.tabs.remove(senderTabId).catch(err => {
-        console.warn('[GetMention] CLOSE_MY_TAB failed:', err && err.message);
+        console.warn('[GetMention] CLOSE_MY_TAB failed:', err && ((err && err.message) || String(err) || 'unknown'));
       });
     }
     return false;

@@ -118,8 +118,8 @@ export function ThemeToggleCompact() {
         cursor: 'pointer', transition: 'all 180ms',
       }}
       onMouseEnter={(e) => {
-        e.currentTarget.style.background = 'rgba(14, 165, 233, 0.1)';
-        e.currentTarget.style.borderColor = 'rgba(14, 165, 233, 0.25)';
+        e.currentTarget.style.background = 'rgba(249, 115, 22, 0.1)';
+        e.currentTarget.style.borderColor = 'rgba(249, 115, 22, 0.25)';
         e.currentTarget.style.color = 'var(--text-primary)';
       }}
       onMouseLeave={(e) => {

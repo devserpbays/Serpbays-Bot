@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "GetMention - Social Media Engagement Assistant",
-  "version": "1.0.0",
+  "version": "1.0.4",
   "description": "AI-powered social media engagement. Auto-discovers relevant posts and helps you comment, like, and engage across Twitter, YouTube, Facebook, Reddit, Quora, and Pinterest.",
   "permissions": [
     "activeTab",

@@ -17,7 +17,7 @@
     if (msg.platform && msg.platform !== 'facebook') return;
 
     if (msg.type === 'EXECUTE_TASK') {
-      var timeout = setTimeout(function() { sendResponse({ success: false, error: 'Facebook content script timed out (60s)' }); }, 60000);
+      var timeout = setTimeout(function() { sendResponse({ success: false, error: 'Facebook content script timed out (100s)' }); }, 100000);
       handleTask(msg).then(function(r) { clearTimeout(timeout); sendResponse(r); }).catch(function(err) { clearTimeout(timeout); sendResponse({ success: false, error: err.message || 'Facebook error' }); });
       return true;
     }

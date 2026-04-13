@@ -75,9 +75,10 @@ function pl(platform: string) {
 function humanize(entry: ActivityLogEntry): HumanEntry {
     const meta = entry.meta || {};
     const msg  = entry.message;
+    const action = entry.action;
     const p    = pl(entry.platform);
 
-    switch (entry.action) {
+    switch (action) {
 
         case 'cron_start':
             return { category: 'system', title: `${p.name} session started`, description: `The bot woke up and is checking for new ${p.posts} to engage with.` };
@@ -151,18 +152,53 @@ function humanize(entry: ActivityLogEntry): HumanEntry {
             };
         }
 
+        case 'like':
+        case 'upvote': {
+            // Successful like/upvote — extract URL from message or meta
+            const likeUrl = (meta.url as string) || msg.match(/https?:\/\/\S+/)?.[0] || '';
+            const likeAction = action === 'upvote' ? 'Upvoted' : 'Liked';
+            const likeCount = msg.match(/\((\d+\/\d+)/)?.[1] || '';
+            return {
+                category: 'engagement',
+                title: `${likeAction} a ${p.post}${likeCount ? ` (${likeCount})` : ''}`,
+                description: `Engaged with a relevant ${p.post} on ${p.name}.`,
+                link: likeUrl ? { href: likeUrl, label: `View ${p.post} ↗` } : undefined,
+                isIssue: false,
+            };
+        }
+
+        case 'already_done': {
+            const alreadyUrl = (meta.url as string) || msg.match(/https?:\/\/\S+/)?.[0] || '';
+            return {
+                category: 'engagement',
+                title: `Already engaged — skipped`,
+                description: msg.replace('[Extension] ', ''),
+                link: alreadyUrl ? { href: alreadyUrl, label: `View ${p.post} ↗` } : undefined,
+                isIssue: false,
+            };
+        }
+
         case 'like_failed': {
             // Like/upvote failures are low-priority — show as info, not red error
+            const failLikeUrl = (meta.url as string) || msg.match(/https?:\/\/\S+/)?.[0] || '';
             let likeDesc = msg;
             if (msg.includes('Upvote button not found')) likeDesc = `Upvote button not found — skipped this post.`;
             else if (msg.includes('Like button not found')) likeDesc = `Like button not found — skipped this post.`;
             else if (msg.includes('Content script not loaded')) likeDesc = `${p.name} page didn't load in time — skipped.`;
             else if (msg.includes('Cloudflare') || msg.includes('captcha')) likeDesc = `${p.name} showed a verification page — skipped.`;
-            return { category: 'engagement', title: `Skipped ${p.name} like — will try another post`, description: likeDesc, isIssue: false };
+            else if (msg.includes('timed out') || msg.includes('Timeout')) likeDesc = `${p.name} like timed out — will retry.`;
+            return {
+                category: 'engagement',
+                title: `Skipped ${p.name} like — will try another post`,
+                description: likeDesc,
+                link: failLikeUrl ? { href: failLikeUrl, label: `View ${p.post} ↗` } : undefined,
+                isIssue: false,
+            };
         }
 
         case 'post_failed': {
             // Parse extension error messages into user-friendly descriptions
+            const failPostUrl = (meta.url as string) || msg.match(/https?:\/\/\S+/)?.[0] || '';
             let failDesc = msg;
             let failTitle = `${p.name} reply failed — will retry automatically`;
             if (msg.includes('Content script not loaded')) {
@@ -191,7 +227,10 @@ function humanize(entry: ActivityLogEntry): HumanEntry {
             } else if (msg.includes('Unknown') || msg.includes('No response') || msg.includes('Empty response')) {
                 failDesc = `${p.name} action failed without a clear reason. Will retry automatically.`;
             }
-            return { category: 'issue', title: failTitle, description: failDesc, isIssue: true };
+            return {
+                category: 'issue', title: failTitle, description: failDesc, isIssue: true,
+                link: failPostUrl ? { href: failPostUrl, label: `View ${p.post} ↗` } : undefined,
+            };
         }
 
         case 'post_rejected':
