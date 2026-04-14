@@ -16,7 +16,7 @@
 </div>
 
 > [!IMPORTANT]
-> **Project:** GetMention by SerpBays · **Working dir:** `/var/www/ai-bot/bot-serp` · **Production:** `http://88.222.214.19:3005` · **Last updated:** 2026-04-14
+> **Project:** GetMention by SerpBays · **Working dir:** `/var/www/ai-bot/bot-serp` · **Server:** `http://88.222.214.19:3005` · **Live docs:** [/docs](http://88.222.214.19:3005/docs) · **Last updated:** 2026-04-14
 
 ---
 
@@ -46,6 +46,7 @@ flowchart LR
 
 | I want to… | Read |
 |---|---|
+| 🚀 Set up the project locally for the first time | [getting-started.md](./getting-started.md) |
 | 🏛️ Understand the system end-to-end | [architecture.md](./architecture.md) |
 | 🔌 Find an API endpoint | [backend/api-routes.md](./backend/api-routes.md) |
 | 🗄️ Change the database schema | [backend/models.md](./backend/models.md) |
@@ -58,9 +59,13 @@ flowchart LR
 | 🔍 Understand how scraping works | [features/scraping.md](./features/scraping.md) |
 | 💬 Understand how commenting works | [features/commenting.md](./features/commenting.md) |
 | ❤️ Understand likes / upvotes / reactions | [features/engagement.md](./features/engagement.md) |
+| 🤖 Understand AI scoring + reply generation | [features/ai-evaluation.md](./features/ai-evaluation.md) |
 | 🏬 Publish to the Chrome Web Store | [chrome-web-store-submission.md](./chrome-web-store-submission.md) |
 | 🚢 Deploy to production | [operations/deployment.md](./operations/deployment.md) |
+| 🗄️ Operate MongoDB (backup, migrate, debug) | [operations/database.md](./operations/database.md) |
 | 🔐 Set up environment variables | [operations/environment.md](./operations/environment.md) |
+| 🩺 Debug errors / build failures / 500s | [troubleshooting.md](./troubleshooting.md) |
+| 🌱 Contribute code, commit style, release flow | [contributing.md](./contributing.md) |
 
 ---
 
@@ -69,7 +74,10 @@ flowchart LR
 ```mermaid
 flowchart TB
     R[📘 README.md]
+    GS[🚀 getting-started.md]
     A[🏛️ architecture.md]
+    TS[🩺 troubleshooting.md]
+    CN[🌱 contributing.md]
 
     subgraph BE [🔙 backend]
         BA[api-routes.md]
@@ -92,16 +100,21 @@ flowchart TB
         FS[scraping.md]
         FCM[commenting.md]
         FEN[engagement.md]
+        FAI[ai-evaluation.md]
     end
 
     subgraph OPS [🚢 operations]
         OD[deployment.md]
+        ODB[database.md]
         OE[environment.md]
     end
 
     CWS[🏬 chrome-web-store-submission.md]
 
+    R --> GS
     R --> A
+    R --> TS
+    R --> CN
     R --> BE
     R --> FE
     R --> EX
@@ -110,7 +123,10 @@ flowchart TB
     R --> CWS
 
     style R fill:#0ea5e9,color:#fff
+    style GS fill:#10b981,color:#fff
     style A fill:#8b5cf6,color:#fff
+    style TS fill:#ef4444,color:#fff
+    style CN fill:#14b8a6,color:#fff
     style BE fill:#10b98122
     style FE fill:#ec489922
     style EX fill:#f59e0b22
