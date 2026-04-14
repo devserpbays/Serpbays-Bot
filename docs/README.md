@@ -47,6 +47,7 @@ flowchart LR
 | I want to… | Read |
 |---|---|
 | 🚀 Set up the project locally for the first time | [getting-started.md](./getting-started.md) |
+| 🗺️ See the full user journey (signup → first live comment) | [user-journey.md](./user-journey.md) |
 | 🏛️ Understand the system end-to-end | [architecture.md](./architecture.md) |
 | 🔌 Find an API endpoint | [backend/api-routes.md](./backend/api-routes.md) |
 | 🗄️ Change the database schema | [backend/models.md](./backend/models.md) |
@@ -55,11 +56,13 @@ flowchart LR
 | 🧱 Build or style a component | [frontend/components.md](./frontend/components.md) |
 | 🧩 Understand how the extension works | [extension/overview.md](./extension/overview.md) |
 | ⚙️ Change the extension service worker | [extension/background.md](./extension/background.md) |
-| 🕸️ Fix a platform content script | [extension/content-scripts.md](./extension/content-scripts.md) |
-| 🔍 Understand how scraping works | [features/scraping.md](./features/scraping.md) |
-| 💬 Understand how commenting works | [features/commenting.md](./features/commenting.md) |
+| 🕸️ Fix a platform content script (cross-platform patterns) | [extension/content-scripts.md](./extension/content-scripts.md) |
+| 🎯 **Fix / understand ONE specific platform end-to-end** | [platforms/twitter.md](./platforms/twitter.md) · [reddit](./platforms/reddit.md) · [facebook](./platforms/facebook.md) · [quora](./platforms/quora.md) · [youtube](./platforms/youtube.md) · [pinterest](./platforms/pinterest.md) · [skool](./platforms/skool.md) |
+| 🔍 Understand how scraping works (cross-platform) | [features/scraping.md](./features/scraping.md) |
+| 💬 Understand how commenting works (cross-platform) | [features/commenting.md](./features/commenting.md) |
 | ❤️ Understand likes / upvotes / reactions | [features/engagement.md](./features/engagement.md) |
 | 🤖 Understand AI scoring + reply generation | [features/ai-evaluation.md](./features/ai-evaluation.md) |
+| 📋 Look up a log action type + its meta shape | [reference/logs.md](./reference/logs.md) |
 | 🏬 Publish to the Chrome Web Store | [chrome-web-store-submission.md](./chrome-web-store-submission.md) |
 | 🚢 Deploy to production | [operations/deployment.md](./operations/deployment.md) |
 | 🗄️ Operate MongoDB (backup, migrate, debug) | [operations/database.md](./operations/database.md) |
@@ -75,6 +78,7 @@ flowchart LR
 flowchart TB
     R[📘 README.md]
     GS[🚀 getting-started.md]
+    UJ[🗺️ user-journey.md]
     A[🏛️ architecture.md]
     TS[🩺 troubleshooting.md]
     CN[🌱 contributing.md]
@@ -96,6 +100,16 @@ flowchart TB
         ECS[content-scripts.md]
     end
 
+    subgraph PL [🎯 platforms]
+        PT[twitter.md]
+        PR[reddit.md]
+        PF[facebook.md]
+        PQ[quora.md]
+        PY[youtube.md]
+        PP[pinterest.md]
+        PS[skool.md]
+    end
+
     subgraph FT [⚡ features]
         FS[scraping.md]
         FCM[commenting.md]
@@ -109,29 +123,39 @@ flowchart TB
         OE[environment.md]
     end
 
+    subgraph REF [📋 reference]
+        RL[logs.md]
+    end
+
     CWS[🏬 chrome-web-store-submission.md]
 
     R --> GS
+    R --> UJ
     R --> A
     R --> TS
     R --> CN
     R --> BE
     R --> FE
     R --> EX
+    R --> PL
     R --> FT
     R --> OPS
+    R --> REF
     R --> CWS
 
     style R fill:#0ea5e9,color:#fff
     style GS fill:#10b981,color:#fff
+    style UJ fill:#8b5cf6,color:#fff
     style A fill:#8b5cf6,color:#fff
     style TS fill:#ef4444,color:#fff
     style CN fill:#14b8a6,color:#fff
     style BE fill:#10b98122
     style FE fill:#ec489922
     style EX fill:#f59e0b22
+    style PL fill:#ec489922
     style FT fill:#ef444422
     style OPS fill:#64748b22
+    style REF fill:#6c47ff22
 ```
 
 ---
