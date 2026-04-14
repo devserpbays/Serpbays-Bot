@@ -5,8 +5,6 @@
  */
 
 (() => {
-  const SERVER_URL = 'http://88.222.214.19:3005';
-
   let taskId = null;
   const hashMatch = window.location.hash.match(/gm_task=([a-f0-9]+)/i);
   const queryMatch = new URLSearchParams(window.location.search).get('gm_task');
@@ -43,9 +41,12 @@
       // Wait a bit more for the page to be interactive
       await sleep(3000);
 
-      // Send EXECUTE_TASK to platform content script via background relay
+      // Send EXECUTE_TASK to platform content script via background relay.
+      // Timeout is platform-aware — YouTube's ad + watch + post flow needs
+      // the full ~150s window, others finish well under 90s.
+      const platformTimeoutMs = task.platform === 'youtube' ? 230000 : 90000;
       const result = await new Promise((resolve) => {
-        const timeout = setTimeout(() => resolve({ success: false, error: 'Timeout — no response in 45s' }), 45000);
+        const timeout = setTimeout(() => resolve({ success: false, error: `Timeout — no response in ${platformTimeoutMs/1000}s (${task.platform})` }), platformTimeoutMs);
 
         chrome.runtime.sendMessage({
           type: 'RELAY_EXECUTE_TASK',
@@ -64,14 +65,19 @@
 
       console.log('[GM AutoPost] Result:', JSON.stringify(result));
 
-      // Report to server via background
+      // Report to server via background. Prefer the specific post URL the
+      // content script captured (Facebook post permalink, Quora verified
+      // URL, Reddit post URL after any redirect) over the task URL — which
+      // for FB is often the group URL, not the specific post.
       chrome.runtime.sendMessage({
         type: 'REPORT_TASK_RESULT',
         taskId: task.id,
         success: result.success,
         error: result.error,
         platform: task.platform,
-        url: task.url,
+        url: result.postUrl || task.url,
+        postUrl: result.postUrl || null,
+        verifyMethod: result.verifyMethod || null,
       });
 
       if (result.success) {

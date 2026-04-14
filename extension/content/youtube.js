@@ -13,8 +13,11 @@
     if (msg.platform && msg.platform !== 'youtube') return;
 
     if (msg.type === 'EXECUTE_TASK') {
-      // Extended timeout: watching the video (60-120s) + ad skip + commenting takes 2-3 min
-      var timeout = setTimeout(function() { sendResponse({ success: false, error: 'YouTube content script timed out (100s)' }); }, 100000);
+      // Extended timeout: ad handling (≤9s) + human watch (40-65s) +
+      // comment section mount (≤8s) + read pause (2-5s) + editor find +
+      // humanType + multi-strategy submit + verify polling (12s) =
+      // ~115s typical, ~140s worst case. 220s gives ample headroom.
+      var timeout = setTimeout(function() { sendResponse({ success: false, error: 'YouTube content script timed out (220s)' }); }, 220000);
       handleTask(msg).then(function(r) { clearTimeout(timeout); sendResponse(r); }).catch(function(err) {
         clearTimeout(timeout);
         sendResponse({ success: false, error: (err && err.message) || String(err) || 'YouTube error' });
@@ -54,7 +57,9 @@
   async function handleAds() {
     console.log('[GM YouTube] Checking for ads...');
 
-    for (var adAttempt = 0; adAttempt < 6; adAttempt++) {
+    // Cap at 3 attempts (was 6) — most ads are either skippable within 5s
+    // or a 6s bumper. 6 attempts × 3s wait = 18s of potentially wasted budget.
+    for (var adAttempt = 0; adAttempt < 3; adAttempt++) {
       // Check if an ad is currently playing
       var adPlaying = !!document.querySelector('.ad-showing')
         || !!document.querySelector('.ytp-ad-player-overlay')
@@ -135,9 +140,10 @@
       await sleep(1000);
     }
 
-    // Watch duration: 20–40 seconds (was 60-120s — too slow, caused 200s timeouts).
-    // 20-40s is still enough to look like a real viewer who skimmed the video.
-    var watchSeconds = 20 + Math.floor(Math.random() * 20);
+    // Watch duration: 40–65 seconds — long enough to look genuinely human
+    // without slipping past the extended 240s task budget. Most real
+    // commenters watch 30-60s of a video before dropping a reply.
+    var watchSeconds = 40 + Math.floor(Math.random() * 25);
     console.log('[GM YouTube] Will watch for ' + watchSeconds + 's');
 
     // Break the watch time into intervals with natural micro-actions
@@ -171,139 +177,349 @@
     console.log('[GM YouTube] Done watching (' + watchSeconds + 's)');
   }
 
+  function commentsAreDisabled() {
+    // YouTube renders a <ytd-message-renderer> in #comments with text like
+    // "Comments are turned off." when the uploader disables them.
+    var msgEl = document.querySelector('ytd-comments ytd-message-renderer, #comments ytd-message-renderer');
+    if (msgEl) {
+      var t = (msgEl.textContent || '').toLowerCase();
+      if (t.indexOf('turned off') !== -1 || t.indexOf('disabled') !== -1) return true;
+    }
+    // Membership-only / age-gated videos also suppress the commentbox.
+    var pageText = (document.body.innerText || '').toLowerCase();
+    if (pageText.indexOf('comments are turned off') !== -1) return true;
+    return false;
+  }
+
+  async function alreadyCommentedWithText(text) {
+    // Scroll once to force the comments section to mount, then look for an
+    // existing comment that matches ours (first 60 chars is plenty unique).
+    var snippet = (text || '').slice(0, 60).trim();
+    if (snippet.length < 15) return false;
+    // Give the comments renderer time to load a few top comments.
+    for (var i = 0; i < 3; i++) {
+      var commentEls = document.querySelectorAll('ytd-comment-thread-renderer #content-text, ytd-comment-view-model #content-text, #content-text');
+      for (var j = 0; j < commentEls.length; j++) {
+        var ct = (commentEls[j].textContent || '').trim();
+        if (ct && ct.indexOf(snippet) !== -1) return true;
+      }
+      await sleep(1500);
+    }
+    return false;
+  }
+
   async function postComment(text) {
+    // ── Step -1: Random human-like skip ─────────────────────────────
+    // Real viewers don't comment on every video they watch. ~8% of the
+    // time, politely skip with a clear reason. Makes engagement pattern
+    // statistically indistinguishable from a human who watches lots
+    // of videos but only replies to some.
+    if (Math.random() < 0.08) {
+      return {
+        success: false, skipped: true, reason: 'human_skip',
+        error: 'Skipped — human-like random skip (watched but chose not to comment this time)',
+        postUrl: window.location.href,
+      };
+    }
+
     // ── Step 0: Handle ads + watch video ──────────────────────────────
     // This makes the comment look like it came from a real viewer who
     // watched the video first, not a bot that instantly commented.
     await handleAds();
     await watchVideoLikeHuman();
 
-    // ── Step 1: Scroll to comments section ───────────────────────────
-    console.log('[GM YouTube] Step 1: Scrolling to comments');
-    window.scrollTo({ top: 500, behavior: 'smooth' });
-    await sleep(2000);
+    // ── Step 1: Mount the comments section via aggressive scroll ─────
+    // Comment composer is LAZILY mounted by YouTube when the user scrolls
+    // past the video into the #comments section. If we skip this and go
+    // straight to findYTPlaceholder(), the composer doesn't exist yet
+    // and we get "placeholder not found". Force the mount with repeated
+    // small scrolls so YouTube's IntersectionObserver fires.
+    console.log('[GM YouTube] Step 1: Forcing comments section to mount');
+    for (var s = 0; s < 6; s++) {
+      window.scrollBy({ top: 400 + Math.random() * 200, behavior: 'smooth' });
+      await sleep(900 + Math.random() * 600);
+      // Stop once #comments or ytd-comments has actually mounted
+      if (document.querySelector('ytd-comments, #comments, ytd-commentbox, ytd-comment-simplebox-renderer')) break;
+    }
+    // Give lazy-mount 1 more beat to render composer
+    await sleep(1500 + Math.random() * 1500);
 
-    // Step 2: Find and click placeholder to open editor
+    // ── Step 1a: Skip if comments are turned off ─────────────────────
+    if (commentsAreDisabled()) {
+      return { success: false, skipped: true, reason: 'comments_disabled', error: 'Skipped — comments are turned off on this video', postUrl: window.location.href };
+    }
+
+    // ── Step 1b: Skip if we already commented on this video ──────────
+    if (await alreadyCommentedWithText(text)) {
+      return { success: false, skipped: true, reason: 'already_commented', error: 'Skipped — identical comment already exists on this video', postUrl: window.location.href };
+    }
+
+    // Simulate a human reading a couple of existing comments before typing
+    await sleep(2000 + Math.random() * 3000);
+
+    // Step 2: Find the placeholder that opens the composer. Modern YouTube
+    // uses <ytd-commentbox> with a #placeholder-area OR #simplebox-placeholder
+    // — but has also shipped variants with just a "Add a comment..." <yt-formatted-string>
+    // or a plain <div role="button">. Scan widely.
+    function findYTPlaceholder() {
+      return document.querySelector('#placeholder-area')
+        || document.querySelector('#simplebox-placeholder')
+        || document.querySelector('ytd-commentbox #placeholder-area')
+        || document.querySelector('ytd-commentbox #placeholder')
+        || document.querySelector('ytd-comment-simplebox-renderer #placeholder-area')
+        || Array.from(document.querySelectorAll('ytd-commentbox [role="button"], ytd-comment-simplebox-renderer [role="button"], ytd-commentbox yt-formatted-string'))
+             .find(function(el) {
+               var t = (el.textContent || '').trim().toLowerCase();
+               return t.indexOf('add a comment') !== -1 || t.indexOf('add a public comment') !== -1;
+             });
+    }
+
     console.log('[GM YouTube] Step 2: Finding placeholder');
     let placeholder = null;
-    for (var i = 0; i < 4; i++) {
-      placeholder = document.getElementById('placeholder-area')
-        || document.getElementById('simplebox-placeholder');
+    for (var i = 0; i < 5; i++) {
+      placeholder = findYTPlaceholder();
       if (placeholder && placeholder.offsetParent !== null) break;
       placeholder = null;
       window.scrollBy({ top: 300, behavior: 'smooth' });
-      await sleep(2000);
+      await sleep(1800);
     }
-    if (!placeholder) return { success: false, error: 'Comment placeholder not found — comments may be disabled' };
+    if (!placeholder) {
+      if (commentsAreDisabled()) {
+        return { success: false, skipped: true, reason: 'comments_disabled', error: 'Skipped — comments are turned off on this video', postUrl: window.location.href };
+      }
+      // ── DOM forensic snapshot — tells us exactly what's in the DOM ──
+      // Next time this fails, the log includes the actual structure so we
+      // can match it without guessing.
+      var snap = {
+        comments_elem: !!document.querySelector('ytd-comments, #comments'),
+        commentbox: !!document.querySelector('ytd-commentbox'),
+        simplebox: !!document.querySelector('ytd-comment-simplebox-renderer'),
+        placeholder_area: !!document.getElementById('placeholder-area'),
+        simplebox_placeholder: !!document.getElementById('simplebox-placeholder'),
+        contenteditable_count: document.querySelectorAll('[contenteditable="true"]').length,
+        role_textbox_count: document.querySelectorAll('[role="textbox"]').length,
+        comments_disabled_text_on_page: (document.body.innerText || '').toLowerCase().includes('comments are turned off'),
+        scrollY: Math.round(window.scrollY),
+        videoHeight: document.querySelector('video') ? document.querySelector('video').offsetHeight : 0,
+      };
+      // Also sample the first 3 ytd-* tag names visible — helps identify
+      // new composer element names we should add to our selectors.
+      var ytdTags = Array.from(document.querySelectorAll('*'))
+        .filter(function(el) { return el.tagName && el.tagName.toLowerCase().startsWith('ytd-comment'); })
+        .slice(0, 5)
+        .map(function(el) { return el.tagName.toLowerCase() + (el.id ? '#' + el.id : ''); });
+      snap.ytd_comment_tags = ytdTags.join(',') || 'NONE';
+      return {
+        success: false,
+        error: 'Comment placeholder not found — DOM snapshot: ' + JSON.stringify(snap),
+        postUrl: window.location.href,
+      };
+    }
 
     console.log('[GM YouTube] Clicking placeholder');
-    placeholder.click();
+    // Full pointer sequence (YT uses pointer handlers on the placeholder)
+    try {
+      var pr = placeholder.getBoundingClientRect();
+      var popts = { bubbles: true, cancelable: true, view: window, clientX: pr.left + pr.width/2, clientY: pr.top + pr.height/2, button: 0, pointerId: 1, pointerType: 'mouse', isPrimary: true };
+      placeholder.dispatchEvent(new PointerEvent('pointerdown', popts));
+      placeholder.dispatchEvent(new MouseEvent('mousedown', popts));
+      placeholder.dispatchEvent(new PointerEvent('pointerup', popts));
+      placeholder.dispatchEvent(new MouseEvent('mouseup', popts));
+      placeholder.dispatchEvent(new MouseEvent('click', popts));
+    } catch (e) {}
+    try { placeholder.click(); } catch (e) {}
     await sleep(2000);
 
-    // Step 3: Find editor (#contenteditable-root)
+    // Step 3: Find editor — YouTube's composer contenteditable now appears
+    // under several selectors depending on account state / experiment bucket.
+    function findYTEditor() {
+      return document.getElementById('contenteditable-root')
+        || document.querySelector('ytd-commentbox #contenteditable-root')
+        || document.querySelector('ytd-commentbox [contenteditable="true"]')
+        || document.querySelector('yt-formatted-string[contenteditable="true"]')
+        || document.querySelector('div[contenteditable="true"][role="textbox"]')
+        || document.querySelector('[contenteditable="true"][aria-label*="comment" i]')
+        || document.querySelector('[contenteditable="true"]');
+    }
+
     var editor = null;
-    for (var j = 0; j < 3; j++) {
-      editor = document.getElementById('contenteditable-root');
+    for (var j = 0; j < 5; j++) {
+      editor = findYTEditor();
       if (editor) break;
+      // Re-click placeholder every other attempt in case the click was swallowed
+      if (j === 2) { try { placeholder.click(); } catch (e) {} }
       await sleep(1500);
     }
-    if (!editor) return { success: false, error: 'Comment editor (#contenteditable-root) not found' };
+    if (!editor) {
+      // Forensic snapshot — tells us exactly what's in the DOM after placeholder click
+      var editorSnap = {
+        placeholder_still_exists: document.contains(placeholder),
+        contenteditable_count: document.querySelectorAll('[contenteditable="true"]').length,
+        contenteditable_sample: Array.from(document.querySelectorAll('[contenteditable="true"]')).slice(0, 3).map(function(el) {
+          return (el.tagName || '').toLowerCase() + (el.id ? '#' + el.id : '') + (el.className ? '.' + String(el.className).slice(0, 40) : '');
+        }).join(' | '),
+        role_textbox: !!document.querySelector('[role="textbox"]'),
+        commentbox_still_mounted: !!document.querySelector('ytd-commentbox'),
+        simplebox_renderer: !!document.querySelector('ytd-comment-simplebox-renderer'),
+      };
+      return {
+        success: false,
+        error: 'YouTube editor not found after placeholder click — DOM: ' + JSON.stringify(editorSnap),
+        postUrl: window.location.href,
+      };
+    }
 
     console.log('[GM YouTube] Editor found, height:', editor.offsetHeight);
     editor.click();
     editor.focus();
     await sleep(500);
 
-    // Step 4: Type text — try paste first (works on most editors)
-    var dt = new DataTransfer();
-    dt.setData('text/plain', text);
-    editor.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
-    await sleep(800);
-
-    // Check if paste worked
-    if ((editor.textContent || '').trim().length < 5) {
-      // Fallback: execCommand
-      console.log('[GM YouTube] Paste failed, trying execCommand');
-      editor.focus();
-      for (var k = 0; k < text.length; k++) {
-        document.execCommand('insertText', false, text.charAt(k));
-        await sleep(20);
+    // Step 4: humanType — same proven pattern as Twitter/FB/Reddit/Quora
+    async function ytHumanType(el, s) {
+      el.focus();
+      for (var c = 0; c < s.length; c++) {
+        var ch = s.charAt(c);
+        try { document.execCommand('insertText', false, ch); } catch (e) {}
+        await sleep(30 + Math.random() * 60);
+        if ('.!?,;:'.indexOf(ch) !== -1) await sleep(100 + Math.random() * 200);
       }
-      await sleep(500);
     }
 
+    await ytHumanType(editor, text);
+    await sleep(400);
+
     if ((editor.textContent || '').trim().length < 5) {
-      return { success: false, error: 'Could not type in YouTube editor' };
+      // Fallback 1: clipboard paste
+      try {
+        editor.focus();
+        var dt = new DataTransfer();
+        dt.setData('text/plain', text);
+        editor.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+      } catch (e) {}
+      await sleep(700);
+    }
+    if ((editor.textContent || '').trim().length < 5) {
+      return { success: false, error: 'Could not type in YouTube editor (humanType + paste both failed)', postUrl: window.location.href };
     }
 
     console.log('[GM YouTube] Text entered, length:', editor.textContent.trim().length);
-    await sleep(1000);
+    // Human pause: re-read what we just typed before hitting Comment (2.5-5s)
+    await sleep(2500 + Math.random() * 2500);
 
     // Step 5: Click submit button (wait for it to become enabled).
     // YouTube's comment-box has a #submit-button (the real submit) and a
     // #cancel-button sibling. Older markup used <ytd-button-renderer>,
     // newer uses a plain <button>. We try multiple strategies.
     function findYouTubeSubmitBtn() {
-      // Strategy A: aria-label matches (most stable across redesigns)
+      // Strategy A: aria-label matches (most stable — YouTube rarely renames these)
       var byAria = document.querySelector('#submit-button button[aria-label*="omment" i]')
+        || document.querySelector('ytd-commentbox button[aria-label*="omment" i]')
         || document.querySelector('button[aria-label="Comment"]')
-        || document.querySelector('button[aria-label="Reply"]');
+        || document.querySelector('button[aria-label="Reply"]')
+        || document.querySelector('button[aria-label*="Post comment" i]');
       if (byAria) return byAria;
       // Strategy B: direct button inside #submit-button
-      var byId = document.querySelector('#submit-button button');
+      var byId = document.querySelector('#submit-button button')
+        || document.querySelector('ytd-commentbox #submit-button button');
       if (byId) return byId;
       // Strategy C: button inside ytd-button-renderer#submit-button
       var byRenderer = document.querySelector('ytd-button-renderer#submit-button button');
       if (byRenderer) return byRenderer;
-      // Strategy D: any visible button whose text is "Comment" / "Reply" that
-      // isn't the cancel button
-      var candidates = Array.from(document.querySelectorAll('button'));
+      // Strategy D: scope to composer, text match on non-cancel buttons
+      var composer = document.querySelector('ytd-commentbox') || document.querySelector('ytd-comment-simplebox-renderer') || document;
+      var candidates = Array.from(composer.querySelectorAll('button, tp-yt-paper-button'));
       return candidates.find(function(b) {
-        if (b.disabled) return false;
+        if (b.disabled || b.getAttribute('aria-disabled') === 'true') return false;
         var t = (b.textContent || '').trim().toLowerCase();
         var aria = (b.getAttribute('aria-label') || '').toLowerCase();
         if (t === 'cancel' || aria === 'cancel') return false;
-        return t === 'comment' || t === 'reply' || aria === 'comment' || aria === 'reply';
+        return t === 'comment' || t === 'reply' || t === 'post' || aria === 'comment' || aria === 'reply' || aria.indexOf('post comment') !== -1;
       });
     }
 
     var submitBtn = null;
-    for (var m = 0; m < 6; m++) {
+    for (var m = 0; m < 8; m++) {
       submitBtn = findYouTubeSubmitBtn();
-      if (submitBtn && !submitBtn.disabled) break;
+      if (submitBtn && !submitBtn.disabled && submitBtn.getAttribute('aria-disabled') !== 'true') break;
       submitBtn = null;
       await sleep(1000);
     }
 
-    if (!submitBtn) {
-      // Try Ctrl+Enter as fallback
-      console.log('[GM YouTube] Submit disabled, trying Ctrl+Enter');
-      editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }));
-      await sleep(5000);
-      var fallbackEditor = document.getElementById('contenteditable-root');
-      var fallbackCleared = !fallbackEditor || (fallbackEditor.textContent || '').trim().length < 5;
-      var fallbackSnippet = text.slice(0, 40).trim();
-      var fallbackFound = (document.body.innerText || '').includes(fallbackSnippet);
-      var fallbackPosted = fallbackCleared || fallbackFound;
-      if (!fallbackPosted) return { success: false, error: 'Comment submitted via Ctrl+Enter but not confirmed' };
-      return { success: true, verified: true };
+    async function ytFireClick(el) {
+      try {
+        el.scrollIntoView({ block: 'center' });
+        await sleep(150);
+        var r = el.getBoundingClientRect();
+        var opts = { bubbles: true, cancelable: true, view: window, clientX: r.left + r.width/2, clientY: r.top + r.height/2, button: 0, pointerId: 1, pointerType: 'mouse', isPrimary: true };
+        el.dispatchEvent(new PointerEvent('pointerover', opts));
+        el.dispatchEvent(new PointerEvent('pointerdown', opts));
+        el.dispatchEvent(new MouseEvent('mousedown', opts));
+        try { el.focus(); } catch (e) {}
+        await sleep(40);
+        el.dispatchEvent(new PointerEvent('pointerup', opts));
+        el.dispatchEvent(new MouseEvent('mouseup', opts));
+        el.dispatchEvent(new MouseEvent('click', opts));
+        try { el.click(); } catch (e) {}
+      } catch (err) {
+        try { el.click(); } catch (e) {}
+      }
     }
 
-    console.log('[GM YouTube] Clicking submit');
-    submitBtn.click();
-    await sleep(5000);
-
-    // Verify: check if editor is now empty (YouTube clears it on success)
-    var editorAfter = document.getElementById('contenteditable-root');
-    var editorCleared = !editorAfter || (editorAfter.textContent || '').trim().length < 5;
-
-    // Also check if our text snippet appears in comments
     var snippet = text.slice(0, 40).trim();
-    var textFound = (document.body.innerText || '').includes(snippet);
-    var posted = editorCleared || textFound;
 
-    if (!posted) return { success: false, error: 'Comment submitted but not confirmed on page' };
-    return { success: true, verified: true };
+    // Multi-strategy submit cascade (same pattern as Reddit/Quora)
+    var attempts = { click: false, requestSubmit: false, ctrlEnter: false };
+    async function tryClick() { if (!submitBtn || attempts.click) return; attempts.click = true; await ytFireClick(submitBtn); }
+    function tryRequestSubmit() {
+      if (attempts.requestSubmit) return;
+      attempts.requestSubmit = true;
+      try {
+        var form = (submitBtn && submitBtn.closest('form')) || editor.closest('form');
+        if (form && typeof form.requestSubmit === 'function') form.requestSubmit();
+      } catch (e) {}
+    }
+    function tryCtrlEnter() {
+      if (attempts.ctrlEnter) return;
+      attempts.ctrlEnter = true;
+      try {
+        editor.focus();
+        var ev = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, ctrlKey: true, metaKey: true, bubbles: true, cancelable: true };
+        editor.dispatchEvent(new KeyboardEvent('keydown', ev));
+        editor.dispatchEvent(new KeyboardEvent('keyup', ev));
+      } catch (e) {}
+    }
+
+    if (submitBtn) {
+      console.log('[GM YouTube] Clicking submit');
+      await tryClick();
+    } else {
+      console.log('[GM YouTube] Submit button not visible — falling back to Ctrl+Enter');
+      tryCtrlEnter();
+    }
+
+    // Poll up to 12s for confirmation. Escalate strategies along the way.
+    var posted = false;
+    var verifyMethod = '';
+    for (var poll = 0; poll < 12; poll++) {
+      await sleep(1000);
+      if (poll === 3) tryRequestSubmit();
+      if (poll === 6) tryCtrlEnter();
+      if (poll === 9 && submitBtn) { try { await ytFireClick(submitBtn); } catch (e) {} }
+
+      // Signal 1: editor cleared
+      var curEditor = findYTEditor();
+      if (!curEditor || (curEditor.textContent || '').trim().length < 5) { posted = true; verifyMethod = 'editor_cleared'; break; }
+      // Signal 2: our snippet visible on page
+      if ((document.body.innerText || '').indexOf(snippet) !== -1) { posted = true; verifyMethod = 'text_on_page'; break; }
+      // Signal 3: submit button gone or disabled post-click
+      if (submitBtn && (!document.contains(submitBtn) || submitBtn.disabled)) { posted = true; verifyMethod = 'submit_gone'; break; }
+    }
+
+    if (!posted) {
+      var tried = Object.keys(attempts).filter(function(k) { return attempts[k]; }).join(',');
+      return { success: false, error: 'YouTube comment not confirmed after 12s — tried: ' + tried, postUrl: window.location.href };
+    }
+    return { success: true, verified: true, verifyMethod: verifyMethod, postUrl: window.location.href };
   }
 
   async function likeVideo() {
@@ -326,13 +542,13 @@
       window.scrollTo({ top: 0, behavior: 'smooth' });
       await sleep(1500);
     }
-    if (!likeBtn) return { success: false, error: 'Like button not found on YouTube' };
-    if (likeBtn.getAttribute('aria-pressed') === 'true') return { success: true, alreadyLiked: true };
+    if (!likeBtn) return { success: false, error: 'Like button not found on YouTube', postUrl: window.location.href };
+    if (likeBtn.getAttribute('aria-pressed') === 'true') return { success: true, alreadyLiked: true, postUrl: window.location.href };
 
     likeBtn.click();
     await sleep(1500);
     var liked = likeBtn.getAttribute('aria-pressed') === 'true';
-    return { success: liked || true, verified: liked };
+    return { success: liked || true, verified: liked, verifyMethod: liked ? 'aria_pressed' : 'clicked_unverified', postUrl: window.location.href };
   }
 
   // ── Scraping ────────────────────────────────────────────────────────────

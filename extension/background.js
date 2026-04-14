@@ -354,59 +354,76 @@ async function scrapeOnePlatform() {
       return;
     }
 
-    // Skool: scrape from communities (similar to Facebook groups)
+    // Skool: scrape from ALL configured communities each cycle.
+    // Previously we picked one random community per cycle — with N communities
+    // that meant each got scraped only once every N cycles. Now we loop so all
+    // communities contribute posts to the queue and get comments distributed
+    // across them.
     if (platform === 'skool') {
       const skoolCommunities = settingsData.skoolCommunities || [];
       if (skoolCommunities.length > 0) {
-        // Pick 1 random community
-        const community = skoolCommunities[Math.floor(Math.random() * skoolCommunities.length)];
-        const scrapeUrl = community.endsWith('/') ? community : community + '/';
-        // Extract community slug for friendly logging (e.g. "skool.com/dropshipping" → "dropshipping")
-        const communityName = scrapeUrl.replace(/\/$/, '').split('/').pop() || 'community';
-        // Pick a keyword to mention in the log (content script filters posts by ALL keywords)
-        const focusKeyword = platformKeywords.length > 0
-          ? platformKeywords[Math.floor(Math.random() * platformKeywords.length)]
-          : null;
-        const startMsg = focusKeyword
-          ? `Scraping Skool community "${communityName}" for "${focusKeyword}"`
-          : `Scraping Skool community "${communityName}"`;
-        await GetMentionAPI.sendLog('skool', 'info', 'scrape_start', startMsg,
-          { community: communityName, keyword: focusKeyword });
+        for (let ci = 0; ci < skoolCommunities.length; ci++) {
+          const community = skoolCommunities[ci];
+          const scrapeUrl = community.endsWith('/') ? community : community + '/';
+          const communityName = scrapeUrl.replace(/\/$/, '').split('/').pop() || 'community';
+          // Rotate focus keyword per community so logs are varied
+          const focusKeyword = platformKeywords.length > 0
+            ? platformKeywords[(ci + Math.floor(Math.random() * platformKeywords.length)) % platformKeywords.length]
+            : null;
+          const startMsg = focusKeyword
+            ? `Scraping Skool community "${communityName}" for "${focusKeyword}" (${ci+1}/${skoolCommunities.length})`
+            : `Scraping Skool community "${communityName}" (${ci+1}/${skoolCommunities.length})`;
+          await GetMentionAPI.sendLog('skool', 'info', 'scrape_start', startMsg,
+            { community: communityName, keyword: focusKeyword, index: ci+1, total: skoolCommunities.length });
 
-        let tab;
-        try { tab = await createBackgroundTab(scrapeUrl); } catch { return; }
-        extensionTabs.add(tab.id);
-        const fc = setTimeout(() => { extensionTabs.delete(tab.id); chrome.tabs.remove(tab.id).catch(() => {}); }, 45000);
-        try {
-          await waitForTabLoad(tab.id);
-          await sleep(4000);
-          // Join community
-          try { await chrome.tabs.sendMessage(tab.id, { type: 'JOIN_COMMUNITY' }); } catch {}
-          await sleep(1500);
-          await chrome.tabs.sendMessage(tab.id, { type: 'SCROLL_DOWN' }).catch(() => {});
-          await sleep(2000);
-          const result = await chrome.tabs.sendMessage(tab.id, { type: 'SCRAPE_POSTS', platform: 'skool', keywords: platformKeywords }).catch(() => ({ posts: [] }));
-          const posts = result?.posts || [];
-          if (posts.length > 0) {
-            const sr = await GetMentionAPI.submitScrapedPosts(posts);
-            const doneMsg = focusKeyword
-              ? `Skool "${communityName}" — "${focusKeyword}": ${posts.length} found, ${sr.created} new, ${sr.evaluated} evaluated`
-              : `Skool "${communityName}": ${posts.length} found, ${sr.created} new, ${sr.evaluated} evaluated`;
-            await GetMentionAPI.sendLog('skool', 'success', 'scrape_done', doneMsg,
-              { community: communityName, keyword: focusKeyword, found: posts.length, created: sr.created, duplicates: sr.duplicates, evaluated: sr.evaluated });
-          } else {
-            const s = result?.stats || {};
-            const reason = (s.kept || 0) === 0
-              ? `0 post cards in DOM (community "${communityName}" may be empty or page not loaded)`
-              : `${s.kept} cards scanned but 0 matched keywords (community may be off-topic for your keywords)`;
-            const emptyMsg = focusKeyword
-              ? `No posts found for "${focusKeyword}" in Skool community "${communityName}" — ${reason}`
-              : `No posts found in Skool community "${communityName}" — ${reason}`;
-            await GetMentionAPI.sendLog('skool', 'warn', 'scrape_empty', emptyMsg,
-              { community: communityName, keyword: focusKeyword, stats: s });
+          let tab;
+          try { tab = await createBackgroundTab(scrapeUrl); }
+          catch (err) {
+            await GetMentionAPI.sendLog('skool', 'error', 'scrape_error',
+              `Failed to open tab for "${communityName}": ${((err && err.message) || String(err) || 'unknown')}`,
+              { community: communityName });
+            continue;
           }
-        } catch (err) { await GetMentionAPI.sendLog('skool', 'error', 'scrape_error', `Skool "${communityName}" scrape failed: ${((err && err.message) || String(err) || 'unknown')}`, { community: communityName }); }
-        finally { clearTimeout(fc); extensionTabs.delete(tab.id); chrome.tabs.remove(tab.id).catch(() => {}); }
+          extensionTabs.add(tab.id);
+          const fc = setTimeout(() => { extensionTabs.delete(tab.id); chrome.tabs.remove(tab.id).catch(() => {}); }, 45000);
+          try {
+            await waitForTabLoad(tab.id);
+            await sleep(4000);
+            // Auto-join so new communities start contributing posts immediately
+            try { await chrome.tabs.sendMessage(tab.id, { type: 'JOIN_COMMUNITY' }); } catch {}
+            await sleep(1500);
+            await chrome.tabs.sendMessage(tab.id, { type: 'SCROLL_DOWN' }).catch(() => {});
+            await sleep(2000);
+            const result = await chrome.tabs.sendMessage(tab.id, { type: 'SCRAPE_POSTS', platform: 'skool', keywords: platformKeywords }).catch(() => ({ posts: [] }));
+            const posts = result?.posts || [];
+            if (posts.length > 0) {
+              const sr = await GetMentionAPI.submitScrapedPosts(posts);
+              const doneMsg = focusKeyword
+                ? `Skool "${communityName}" — "${focusKeyword}": ${posts.length} found, ${sr.created} new, ${sr.evaluated} evaluated`
+                : `Skool "${communityName}": ${posts.length} found, ${sr.created} new, ${sr.evaluated} evaluated`;
+              await GetMentionAPI.sendLog('skool', 'success', 'scrape_done', doneMsg,
+                { community: communityName, keyword: focusKeyword, found: posts.length, created: sr.created, duplicates: sr.duplicates, evaluated: sr.evaluated });
+            } else {
+              const s = result?.stats || {};
+              const reason = (s.kept || 0) === 0
+                ? `0 post cards in DOM (community "${communityName}" may be empty or page not loaded)`
+                : `${s.kept} cards scanned but 0 matched keywords`;
+              const emptyMsg = focusKeyword
+                ? `No posts found for "${focusKeyword}" in "${communityName}" — ${reason}`
+                : `No posts found in "${communityName}" — ${reason}`;
+              await GetMentionAPI.sendLog('skool', 'warn', 'scrape_empty', emptyMsg,
+                { community: communityName, keyword: focusKeyword, stats: s });
+            }
+          } catch (err) {
+            await GetMentionAPI.sendLog('skool', 'error', 'scrape_error',
+              `Skool "${communityName}" scrape failed: ${((err && err.message) || String(err) || 'unknown')}`,
+              { community: communityName });
+          }
+          finally { clearTimeout(fc); extensionTabs.delete(tab.id); chrome.tabs.remove(tab.id).catch(() => {}); }
+
+          // Polite pause between communities so we don't hammer Skool back-to-back
+          if (ci < skoolCommunities.length - 1) await sleep(3000 + Math.random() * 2000);
+        }
         return;
       }
       // Fall through to keyword search if no communities configured
@@ -759,7 +776,7 @@ async function scrapeFbGroupSearch(groupId, groupLabel, keyword) {
       const s = result?.stats || {};
       const reason = s.items === 0
         ? 'no result cards in DOM (search may have returned zero hits or page is gated)'
-        : `scanned ${s.items} items: ${s.noLinks||0} no-links, ${s.noUrl||0} no-url, ${s.shortContent||0} short, ${s.kwMiss||0} kw-miss, ${s.dupe||0} dupe${s.sampleHref ? ` | sample: ${s.sampleHref}` : ''}`;
+        : `scanned ${s.items} items: ${s.noLinks||0} no-links, ${s.noUrl||0} no-url, ${s.shortContent||0} short, ${s.kwMiss||0} kw-miss, ${s.dupe||0} dupe${s.sweptAnchors!=null ? `; sweep:${s.sweptAnchors} viaSweep:${s.viaSweep||0}` : ''}${s.sampleHref ? ` | sample: ${s.sampleHref}` : ''}`;
       await GetMentionAPI.sendLog('facebook', 'warn', 'scrape_empty',
         `${label}: no posts found — ${reason}`, { group: groupLabel, keyword, stats: s });
     }
@@ -1060,38 +1077,89 @@ async function processTasks() {
       const result = await executeTask(task);
       markTaskProcessed(task.id);
 
+      // ── Post-task: Quora answer verification on /stats ─────────────
+      // For Quora comment actions that reported success, open the user's
+      // /stats page and match the answer we just posted. This proves the
+      // answer is actually published and gives us the canonical URL.
+      if (task.platform === 'quora' && task.action === 'comment' && result.success && !result.alreadyCommented) {
+        try {
+          await GetMentionAPI.sendLog('quora', 'info', 'verify_start',
+            `Verifying Quora answer on /stats for ${task.url}`, { url: task.url });
+          // Quora needs a few seconds to index the new answer into /stats
+          await sleep(5000);
+          const v = await verifyQuoraOnStats({ snippet: result.answerSnippet || task.text, postedAt: result.postedAt });
+          if (v.verified && v.url) {
+            result.verifiedAnswerUrl = v.url;
+            result.verifiedMethod = v.method;
+          } else {
+            result.statsVerifyFailed = v.reason || 'unknown';
+          }
+        } catch (e) {
+          result.statsVerifyFailed = (e && e.message) || 'verify_threw';
+        }
+      }
+
+      // Prefer the verified answer URL (from /stats) > content-script-reported
+      // postUrl > the original task URL. The verified URL is the canonical one.
+      const logUrl = result.verifiedAnswerUrl || result.postUrl || task.url;
+      // Normalized action label used in messages (like → Liked, upvote → Upvoted, comment → Commented)
+      const actionLabel = task.action === 'upvote' ? 'Upvoted' : task.action === 'like' ? 'Liked' : 'Commented';
+
       if (result.success) {
+        // Trust the content script's verified flag — but surface HOW it was
+        // verified in the log meta so any "success" that isn't confidently
+        // verified is still visible to the user.
+        const verifyInfo = result.verifyMethod ? ` [verified: ${result.verifyMethod}]` : '';
+
+        // For Quora comments, add a stats-verification receipt so logs show
+        // whether the answer was confirmed by matching on /stats.
+        const statsVerify = (task.platform === 'quora' && task.action === 'comment')
+          ? (result.verifiedAnswerUrl
+              ? ` [✓ verified on Quora /stats: ${result.verifiedMethod}]`
+              : (result.statsVerifyFailed ? ` [⚠ /stats verify: ${result.statsVerifyFailed}]` : ''))
+          : '';
+
         if (result.alreadyCommented || result.alreadyUpvoted || result.alreadyLiked) {
           await GetMentionAPI.sendLog(task.platform, 'info', 'already_done',
-            `Already ${task.action}ed on ${task.url} — skipped`, { url: task.url });
+            `Already ${task.action}ed on ${task.platform} — ${logUrl}${verifyInfo}`,
+            { url: logUrl, action: task.action, verifyMethod: result.verifyMethod || 'none' });
         } else if (task.action === 'comment') {
           const platformLimit = serverPlatformLimits[task.platform] || 10;
           const updated = await incrementPlatformCounter(task.platform, 'comments');
           const newCount = getPlatformCount(updated, task.platform, 'comments');
           await GetMentionAPI.sendLog(task.platform, 'success', 'post',
-            `Comment posted (${newCount}/${platformLimit} ${task.platform} today) on ${task.url}`,
-            { url: task.url, textPreview: task.text?.slice(0, 80), platformCount: newCount, platformLimit });
+            `${actionLabel} on ${task.platform} (${newCount}/${platformLimit} today) — ${logUrl}${verifyInfo}${statsVerify}`,
+            { url: logUrl, action: task.action, textPreview: task.text?.slice(0, 80), platformCount: newCount, platformLimit, verifyMethod: result.verifyMethod || 'none', verifiedAnswerUrl: result.verifiedAnswerUrl || null, statsVerifyFailed: result.statsVerifyFailed || null });
         } else {
+          // like / upvote
           const updated = await incrementPlatformCounter(task.platform, 'likes');
           const newCount = getPlatformCount(updated, task.platform, 'likes');
-          await GetMentionAPI.sendLog(task.platform, 'success', 'like',
-            `Liked (${newCount}/10 ${task.platform} today) on ${task.url}`,
-            { url: task.url, platformCount: newCount });
+          await GetMentionAPI.sendLog(task.platform, 'success', task.action === 'upvote' ? 'upvote' : 'like',
+            `${actionLabel} on ${task.platform} (${newCount}/10 today) — ${logUrl}${verifyInfo}`,
+            { url: logUrl, action: task.action, platformCount: newCount, verifyMethod: result.verifyMethod || 'none' });
         }
+      } else if (result.skipped) {
+        // Intentional skip (comments off, already commented, cloudflare, banned, etc.)
+        const reasonLabel = result.reason ? ` (${result.reason})` : '';
+        await GetMentionAPI.sendLog(task.platform, 'info', 'post_skipped',
+          `Skipped ${task.action} on ${task.platform}${reasonLabel} — ${logUrl}${result.error ? ' | ' + result.error : ''}`,
+          { url: logUrl, action: task.action, reason: result.reason || 'unknown' });
       } else {
-        // Like/upvote failures are low-risk — log as warning, not error
+        // Real failure — log level depends on action severity
         const isLikeAction = task.action === 'like' || task.action === 'upvote';
         const logLevel = isLikeAction ? 'warn' : 'error';
-        const logType = isLikeAction ? 'like_failed' : 'post_failed';
+        const logType = isLikeAction ? (task.action === 'upvote' ? 'upvote_failed' : 'like_failed') : 'post_failed';
+        const errSummary = (result.error || 'Unknown error').slice(0, 180);
         await GetMentionAPI.sendLog(task.platform, logLevel, logType,
-          `Failed on ${task.platform}: ${result.error || 'Unknown'}`,
-          { url: task.url, error: result.error });
+          `Failed ${task.action} on ${task.platform} — ${logUrl} | ${errSummary}`,
+          { url: logUrl, action: task.action, error: result.error || 'Unknown error' });
       }
     } catch (err) {
       markTaskProcessed(task.id);
-      // executeTask already reported to server, just log
+      const crashMsg = ((err && err.message) || String(err) || 'unknown');
       await GetMentionAPI.sendLog(task.platform, 'error', 'post_failed',
-        `Task crashed: ${((err && err.message) || String(err) || 'unknown')}`, { url: task.url }).catch(() => {});
+        `Task crashed: ${task.action} on ${task.platform} — ${task.url} | ${crashMsg}`,
+        { url: task.url, action: task.action, error: crashMsg }).catch(() => {});
     }
   } catch (err) {
     console.error('[GetMention] Poll error:', ((err && err.message) || String(err) || 'unknown'));
@@ -1163,12 +1231,110 @@ async function cleanupStaleTabs() {
   }
 }
 
+/**
+ * After the extension posts an answer on Quora, open /stats in a background
+ * tab and look for our just-posted answer (match by snippet OR by recency
+ * relative to the post time). Returns the canonical answer URL if found.
+ *
+ * This is how we prove to the dashboard that the answer actually exists on
+ * Quora — not just that our submit didn't throw. /stats is Quora's official
+ * "your content" view and only shows answers that are published and visible.
+ */
+async function verifyQuoraOnStats({ snippet, postedAt }) {
+  if (!snippet || snippet.length < 15) return { verified: false, reason: 'no_snippet' };
+
+  let tab;
+  try {
+    tab = await createBackgroundTab('https://www.quora.com/stats');
+  } catch {
+    return { verified: false, reason: 'tab_create_failed' };
+  }
+  extensionTabs.add(tab.id);
+  const forceCloseVerify = setTimeout(() => {
+    extensionTabs.delete(tab.id);
+    chrome.tabs.remove(tab.id).catch(() => {});
+  }, 30000);
+
+  try {
+    await waitForTabLoad(tab.id);
+    // Let Quora's SPA render the answers list
+    await sleep(4000);
+    // Scroll so lazy-rendered rows appear
+    try { await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => window.scrollBy(0, 800) }); } catch {}
+    await sleep(1500);
+
+    // Inject a reader that scans for every answer link on /stats and returns
+    // (url, title, visibleText) tuples. We'll match in background context.
+    const [{ result } = {}] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => {
+        try {
+          const seen = new Set();
+          const rows = [];
+          // Quora renders answers as <a href*="/answer/"> inside each row.
+          // Grab every candidate and pull the nearest row-like ancestor's text.
+          const anchors = document.querySelectorAll('a[href*="/answer/"], a[href*="/unanswered/answer/"]');
+          for (const a of anchors) {
+            try {
+              let u = a.href;
+              if (!u) continue;
+              // Clean tracking garbage
+              u = u.split('?')[0].split('#')[0];
+              if (seen.has(u)) continue;
+              seen.add(u);
+              // Walk up to a sensible row container for richer text context
+              let row = a.closest('li, tr, article, [role="listitem"]') || a.parentElement || a;
+              const text = (row.innerText || '').trim().slice(0, 600);
+              rows.push({ url: u, text });
+              if (rows.length >= 40) break;
+            } catch (e) {}
+          }
+          return { ok: true, rows, pageTitle: document.title, pathname: location.pathname };
+        } catch (e) {
+          return { ok: false, error: String(e) };
+        }
+      },
+    });
+
+    if (!result || !result.ok) return { verified: false, reason: 'reader_failed' };
+    if (!result.rows || result.rows.length === 0) {
+      return { verified: false, reason: 'no_answer_rows', pageTitle: result.pageTitle };
+    }
+
+    // Primary match: our snippet appears in a row's text
+    const snippetLower = snippet.toLowerCase();
+    // Walk the snippet down — strongly unique first 60 chars, then fallback to 30
+    for (const tryLen of [80, 60, 40, 25]) {
+      const needle = snippetLower.slice(0, tryLen).trim();
+      if (needle.length < 15) continue;
+      const hit = result.rows.find(r => (r.text || '').toLowerCase().includes(needle));
+      if (hit) return { verified: true, method: 'snippet_match_' + tryLen, url: hit.url };
+    }
+
+    // Fallback: if our post timestamp is very recent (<5min), the topmost
+    // row on /stats is almost certainly ours. Log the URL but mark as
+    // timing-only verification (lower confidence).
+    const ageMs = Date.now() - (postedAt || 0);
+    if (ageMs > 0 && ageMs < 5 * 60 * 1000) {
+      return { verified: true, method: 'top_row_recency', url: result.rows[0].url };
+    }
+
+    return { verified: false, reason: 'no_match', rowCount: result.rows.length };
+  } catch (err) {
+    return { verified: false, reason: 'verify_exception', error: (err && err.message) || String(err) };
+  } finally {
+    clearTimeout(forceCloseVerify);
+    extensionTabs.delete(tab.id);
+    chrome.tabs.remove(tab.id).catch(() => {});
+  }
+}
+
 async function executeTask(task) {
   const { platform, action, url, text } = task;
 
-  // All platforms get 120s. YouTube watching was reduced from 60-120s to 20-40s
-  // so it no longer needs a special longer timeout.
-  const timeoutMs = 120_000;
+  // YouTube gets 240s (watch 40-65s + ads + mount + human pauses + submit +
+  // verify polling). Other platforms get 120s.
+  const timeoutMs = platform === 'youtube' ? 240_000 : 120_000;
   return Promise.race([
     _executeTaskInner(task),
     new Promise(resolve => setTimeout(() => {
@@ -1292,16 +1458,18 @@ async function _executeTaskInner(task) {
     let result = null;
     try {
       result = await new Promise((resolve) => {
+        // Per-platform ACK timeout (wait for content script's response).
+        // YouTube needs ~150s worst case; everything else finishes under 100s.
+        const ackMs = platform === 'youtube' ? 230000 : 170000;
         const timeout = setTimeout(async () => {
-          // Before resolving as timeout, check if content script saved a result
           const { lastQuoraResult, lastRedditResult } = await chrome.storage.local.get(['lastQuoraResult', 'lastRedditResult']);
           const stored = platform === 'quora' ? lastQuoraResult : platform === 'reddit' ? lastRedditResult : null;
           if (stored && stored.timestamp > Date.now() - 120000) {
             resolve({ success: stored.success, verified: true, fromStorage: true });
           } else {
-            resolve({ success: false, error: 'Timeout after 90s' });
+            resolve({ success: false, error: `Timeout after ${ackMs/1000}s` });
           }
-        }, 90000);
+        }, ackMs);
 
         chrome.tabs.sendMessage(tabId, { type: 'EXECUTE_TASK', action, text, platform }, (response) => {
           clearTimeout(timeout);
@@ -1420,15 +1588,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       try {
         const serverUrl = await GetMentionAPI.getServerUrl();
         const apiKey = await GetMentionAPI.getApiKey();
+        // Pass postUrl to the server so the Post model's replyUrl field is
+        // updated with the specific post permalink (not the group URL).
         await fetch(`${serverUrl}/api/extension/immediate`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Extension-Key': apiKey },
-          body: JSON.stringify({ taskId: msg.taskId, success: msg.success, error: msg.error }),
+          body: JSON.stringify({ taskId: msg.taskId, success: msg.success, error: msg.error, postUrl: msg.postUrl || msg.url }),
         });
+        const logUrl = msg.postUrl || msg.url;
+        const verifyInfo = msg.verifyMethod ? ` [verified: ${msg.verifyMethod}]` : '';
         await GetMentionAPI.sendLog(msg.platform, msg.success ? 'success' : 'error',
           msg.success ? 'post' : 'post_failed',
-          msg.success ? `Dashboard approve: posted on ${msg.url}` : `Dashboard approve failed: ${msg.error}`,
-          { url: msg.url, via: 'dashboard-approve' });
+          msg.success
+            ? `Dashboard approve: posted on ${msg.platform} — ${logUrl}${verifyInfo}`
+            : `Dashboard approve failed on ${msg.platform} — ${logUrl} | ${msg.error}`,
+          { url: logUrl, via: 'dashboard-approve', verifyMethod: msg.verifyMethod || 'none' });
       } catch {}
     })();
     return;

@@ -1,8 +1,11 @@
 {
   "manifest_version": 3,
-  "name": "GetMention - Social Media Engagement Assistant",
-  "version": "1.0.4",
-  "description": "AI-powered social media engagement. Auto-discovers relevant posts and helps you comment, like, and engage across Twitter, YouTube, Facebook, Reddit, Quora, and Pinterest.",
+  "name": "GetMention - AI Social Engagement",
+  "short_name": "GetMention",
+  "version": "1.0.24",
+  "description": "AI finds relevant posts across 7 social platforms and helps you comment, like, and engage naturally — on autopilot.",
+  "author": "GetMention by SerpBays",
+  "homepage_url": "https://ai-bot.serpbays.com",
   "permissions": [
     "activeTab",
     "storage",
@@ -22,8 +25,7 @@
     "https://www.pinterest.com/*",
     "https://in.pinterest.com/*",
     "https://www.skool.com/*",
-    "http://*/*",
-    "https://*/*"
+    "https://ai-bot.serpbays.com/*"
   ],
   "background": {
     "service_worker": "background.js"

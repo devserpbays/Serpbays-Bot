@@ -1110,7 +1110,7 @@ select.input option:hover {
   margin-bottom: 0;
   position: relative;
   overflow: hidden;
-  animation: gm-slide-up 0.4s ease-out both;
+  animation: gm-fade-in 0.3s ease-out both;
 }
 
 .form-section::before {
@@ -1138,6 +1138,11 @@ select.input option:hover {
 @keyframes gm-slide-up {
   from { opacity: 0; transform: translateY(12px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes gm-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 /* ── Tag / Chip input ────────────────────────────────────────────────────────── */

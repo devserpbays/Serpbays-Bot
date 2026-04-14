@@ -3,7 +3,7 @@
  * Handles authentication, task fetching, and result reporting.
  */
 
-const DEFAULT_SERVER = 'http://88.222.214.19:3005';
+const DEFAULT_SERVER = 'https://ai-bot.serpbays.com';
 
 async function getServerUrl() {
   const { serverUrl } = await chrome.storage.sync.get('serverUrl');

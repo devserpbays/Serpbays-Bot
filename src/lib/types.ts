@@ -18,6 +18,8 @@ export interface IPost {
   sharedByBot?: boolean;
   editedReply?: string;
   replyUrl?: string;
+  verifiedAnswerUrl?: string;
+  verifiedAt?: Date;
   evaluatedAt?: Date;
   approvedAt?: Date;
   postedAt?: Date;

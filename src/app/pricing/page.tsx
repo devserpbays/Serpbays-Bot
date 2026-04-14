@@ -22,8 +22,9 @@ const plans = [
     cta: 'Get Started Free',
     ctaHref: '/signup',
     popular: false,
+    platforms: ['Twitter'],
     features: [
-      '2 social platforms',
+      'Twitter / X only',
       '3 posts per day',
       '5 keywords',
       'AI-powered replies',
@@ -33,12 +34,13 @@ const plans = [
   {
     name: 'Pro',
     price: 49,
-    description: 'For growing brands that need multi-platform reach.',
+    description: 'For growing brands ready to scale engagement.',
     cta: 'Start Pro Trial',
     ctaHref: '/signup',
     popular: true,
+    platforms: ['Twitter', 'Facebook', 'Pinterest', 'Skool'],
     features: [
-      '4 social platforms',
+      'Twitter, Facebook, Pinterest, Skool',
       '15 posts per day per platform',
       '25 keywords',
       'AI-powered replies',
@@ -50,12 +52,13 @@ const plans = [
   {
     name: 'Business',
     price: 149,
-    description: 'Full power for teams and agencies at scale.',
+    description: 'Full power across all 7 platforms.',
     cta: 'Contact Sales',
     ctaHref: '/signup',
     popular: false,
+    platforms: ['Twitter', 'Facebook', 'Pinterest', 'Skool', 'Reddit', 'Quora', 'YouTube'],
     features: [
-      'All 6 platforms',
+      'All 7 platforms (+ Reddit, Quora, YouTube)',
       '50 posts per day per platform',
       '100 keywords',
       'AI-powered replies',
@@ -71,7 +74,7 @@ const faqs = [
   {
     question: 'Which social platforms are supported?',
     answer:
-      'GetMention supports Twitter, Reddit, Facebook, Quora, YouTube, and Pinterest. The Starter plan includes 2 platforms, Pro includes 4, and Business gives you access to all 6.',
+      'GetMention supports 7 platforms — Twitter/X, Facebook, Reddit, Quora, YouTube, Pinterest, and Skool. Platforms are fixed by plan: Free gets Twitter only, Pro adds Facebook, Pinterest, and Skool, and Business unlocks all 7.',
   },
   {
     question: 'How does AI-powered reply generation work?',
@@ -98,6 +101,29 @@ const faqs = [
 export default function PricingPage() {
   return (
     <div className="min-h-screen" style={{ backgroundColor: '#0a0a0f', color: '#e4e4e7' }}>
+      {/* Minimal scoped animations — subtle fade-up on load, gentle lift on hover */}
+      <style>{`
+        @keyframes pricing-fade-up {
+          from { opacity: 0; transform: translateY(12px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        .pricing-card {
+          animation: pricing-fade-up 0.5s ease-out both;
+          transition: transform 0.25s ease, box-shadow 0.25s ease;
+        }
+        .pricing-card:hover {
+          transform: translateY(-3px);
+          box-shadow: 0 12px 32px rgba(14,165,233,0.12);
+        }
+        .pricing-card:nth-child(1) { animation-delay: 0s; }
+        .pricing-card:nth-child(2) { animation-delay: 0.08s; }
+        .pricing-card:nth-child(3) { animation-delay: 0.16s; }
+        .faq-card {
+          animation: pricing-fade-up 0.5s ease-out both;
+          transition: border-color 0.2s ease;
+        }
+        .faq-card:hover { border-color: rgba(255,255,255,0.16) !important; }
+      `}</style>
       {/* Header */}
       <header className="border-b border-white/10">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
@@ -150,7 +176,7 @@ export default function PricingPage() {
           {plans.map((plan) => (
             <div
               key={plan.name}
-              className="relative rounded-2xl flex flex-col"
+              className="pricing-card relative rounded-2xl flex flex-col"
               style={
                 plan.popular
                   ? {
@@ -187,6 +213,23 @@ export default function PricingPage() {
                     ${plan.price}
                   </span>
                   <span className="text-zinc-500 text-sm">/mo</span>
+                </div>
+
+                {/* Platform badges (plan-locked) */}
+                <div className="mt-5 flex flex-wrap gap-1.5">
+                  {plan.platforms.map((pName) => (
+                    <span
+                      key={pName}
+                      className="text-[10px] font-semibold px-2 py-1 rounded-md"
+                      style={{
+                        backgroundColor: 'rgba(14,165,233,0.1)',
+                        border: '1px solid rgba(14,165,233,0.2)',
+                        color: '#38bdf8',
+                      }}
+                    >
+                      {pName}
+                    </span>
+                  ))}
                 </div>
 
                 <Link
@@ -231,7 +274,7 @@ export default function PricingPage() {
           {faqs.map((faq) => (
             <div
               key={faq.question}
-              className="rounded-xl p-6"
+              className="faq-card rounded-xl p-6"
               style={{
                 backgroundColor: '#0f0f17',
                 border: '1px solid rgba(255,255,255,0.08)',

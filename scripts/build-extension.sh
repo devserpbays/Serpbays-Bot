@@ -34,7 +34,11 @@ mkdir -p "$BUILDS_DIR"
 rm -f "$TMP_ZIP"
 
 cd "$EXT_DIR"
-zip -rq "$TMP_ZIP" . -x "*.DS_Store" "*.map" ".git*"
+# Exclude dev/debug files from the CWS-ready build
+zip -rq "$TMP_ZIP" . \
+  -x "*.DS_Store" "*.map" ".git*" \
+     "debug/*" "debug" \
+     "*.bak" "*.orig"
 
 cp "$TMP_ZIP" "$STABLE_ZIP"
 

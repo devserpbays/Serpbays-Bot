@@ -19,7 +19,7 @@
     if (msg.platform && msg.platform !== 'reddit') return;
 
     if (msg.type === 'EXECUTE_TASK') {
-      var timeout = setTimeout(function() { sendResponse({ success: false, error: 'Reddit content script timed out (100s)' }); }, 100000);
+      var timeout = setTimeout(function() { sendResponse({ success: false, error: 'Reddit content script timed out (110s)' }); }, 110000);
       handleTask(msg).then(function(r) { clearTimeout(timeout); sendResponse(r); }).catch(function(err) { clearTimeout(timeout); sendResponse({ success: false, error: err.message || 'Reddit error' }); });
       return true;
     }
@@ -222,102 +222,314 @@
     } catch {}
     await sleep(200);
 
-    // Step 4: Insert text — Lexical responds to execCommand('insertText')
-    var inserted = false;
-    try {
-      inserted = document.execCommand('insertText', false, text);
-    } catch {}
-    await sleep(800);
-
-    // Check if it worked
-    var editorText = (editor.textContent || '').trim();
-
-    // Fallback 1: beforeinput event (some Lexical builds need this)
-    if (editorText.length < 5) {
-      try {
-        editor.focus();
-        editor.dispatchEvent(new InputEvent('beforeinput', {
-          inputType: 'insertText',
-          data: text,
-          bubbles: true,
-          cancelable: true,
-        }));
-      } catch {}
-      await sleep(800);
-      editorText = (editor.textContent || '').trim();
+    // Step 4: Human-type character-by-character — same pattern that works on
+    // Twitter and Facebook. Each execCommand('insertText') fires a real
+    // beforeinput+input event sequence per character, which Lexical treats
+    // as genuine user typing and uses to enable the submit button. One-shot
+    // insertion sometimes fails to trigger Lexical's validation.
+    async function humanType(el, s) {
+      el.focus();
+      for (var i = 0; i < s.length; i++) {
+        var ch = s.charAt(i);
+        try { document.execCommand('insertText', false, ch); } catch (e) {}
+        await sleep(35 + Math.random() * 65);
+        if ('.!?,;:'.indexOf(ch) !== -1) await sleep(120 + Math.random() * 220);
+      }
     }
 
-    // Fallback 2: ClipboardEvent paste (works on some legacy editors)
+    await humanType(editor, text);
+    await sleep(400);
+
+    var editorText = (editor.textContent || '').trim();
+
+    // Fallback: paste + innerHTML if per-char typing was blocked by Lexical
     if (editorText.length < 5) {
       try {
         editor.focus();
         var dt = new DataTransfer();
         dt.setData('text/plain', text);
-        editor.dispatchEvent(new ClipboardEvent('paste', {
-          clipboardData: dt, bubbles: true, cancelable: true,
-        }));
-      } catch {}
-      await sleep(800);
+        editor.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+      } catch (e) {}
+      await sleep(700);
       editorText = (editor.textContent || '').trim();
     }
-
-    // Fallback 3: direct innerHTML + input event (last resort)
     if (editorText.length < 5) {
       try {
         editor.focus();
         editor.innerHTML = '<p>' + text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</p>';
         editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
-      } catch {}
-      await sleep(800);
+      } catch (e) {}
+      await sleep(700);
       editorText = (editor.textContent || '').trim();
     }
-
     if (editorText.length < 5) {
-      return { success: false, error: 'Paste failed — all 4 insertion methods produced empty editor (inserted=' + inserted + ')' };
+      return { success: false, error: 'Reddit editor rejected all typing methods (humanType + paste + innerHTML) — composer may be muted or DOM changed' };
     }
 
-    // Step 4: Find and click submit button
+    // Step 4: Find submit button, waiting until it is actually enabled
+    function isSubmitDisabled(b) {
+      if (!b) return true;
+      if (b.disabled) return true;
+      if (b.getAttribute && b.getAttribute('aria-disabled') === 'true') return true;
+      return false;
+    }
+
+    // Deep search: Reddit's submit button often lives in shreddit-composer's
+    // shadow DOM. Walk every shadow root recursively and return the first
+    // match for a set of prioritized selectors.
+    function deepFindSubmit() {
+      var selectors = [
+        'button[aria-label="Submit comment" i]',
+        'button[aria-label*="submit comment" i]',
+        'button[aria-label*="Post comment" i]',
+        'button[slot="submit-button"]',
+        'button[type="submit"]',
+      ];
+      var found = null;
+      function walk(root) {
+        if (!root || found) return;
+        for (var i = 0; i < selectors.length; i++) {
+          try {
+            var m = root.querySelector(selectors[i]);
+            if (m) { found = m; return; }
+          } catch (e) {}
+        }
+        try {
+          var all = root.querySelectorAll('*');
+          for (var j = 0; j < all.length; j++) {
+            if (all[j].shadowRoot) walk(all[j].shadowRoot);
+            if (found) return;
+          }
+        } catch (e) {}
+      }
+      walk(document);
+      return found;
+    }
+
+    // Text-based fallback across the whole page (prefers composer-scoped)
+    function findSubmitByText() {
+      var scope = document.querySelector('shreddit-composer') || document;
+      var btns = scope.querySelectorAll('button, [role="button"]');
+      for (var i = 0; i < btns.length; i++) {
+        var b = btns[i];
+        var t = (b.textContent || '').trim().toLowerCase();
+        var aria = ((b.getAttribute && b.getAttribute('aria-label')) || '').toLowerCase();
+        if (aria.indexOf('cancel') !== -1) continue;
+        if (t === 'cancel' || t === 'discard') continue;
+        if (t === 'comment' || t === 'reply' || t === 'submit' || t === 'post') return b;
+        if (aria === 'submit comment' || aria === 'post comment') return b;
+      }
+      return null;
+    }
+
     await sleep(500);
     var submitBtn = null;
-    for (var subAttempt = 0; subAttempt < 3; subAttempt++) {
-      submitBtn = document.querySelector('button[slot="submit-button"]')
-        || document.querySelector('shreddit-composer button[type="submit"]');
+    for (var subAttempt = 0; subAttempt < 8; subAttempt++) {
+      var candidate = deepFindSubmit() || findSubmitByText();
 
-      if (!submitBtn) {
-        // Scan all buttons for Comment/Reply/Submit text
-        var allBtns = document.querySelectorAll('button');
-        for (var bi = 0; bi < allBtns.length; bi++) {
-          var btnText = (allBtns[bi].textContent || '').trim().toLowerCase();
-          if ((btnText === 'comment' || btnText === 'reply' || btnText === 'submit') && !allBtns[bi].disabled) {
-            submitBtn = allBtns[bi];
-            break;
-          }
-        }
+      if (candidate && !isSubmitDisabled(candidate)) {
+        submitBtn = candidate;
+        break;
       }
-      if (submitBtn) break;
-      await sleep(1500);
+      // Button found but still disabled — re-poke Lexical to mark the editor dirty
+      try {
+        editor.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertText', data: ' ' }));
+        editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: ' ' }));
+        editor.dispatchEvent(new KeyboardEvent('keyup', { key: 'a', bubbles: true }));
+      } catch (e) {}
+      await sleep(1200);
     }
 
-    if (!submitBtn) return { success: false, error: 'Submit button not found' };
+    if (!submitBtn) {
+      return { success: false, error: 'Submit button never became enabled — Lexical did not register the text (likely needs an input event the editor did not fire)' };
+    }
 
-    submitBtn.click();
-    await sleep(5000);
-
-    // Step 5: Verify comment was posted
+    // Snapshot BEFORE state — used for multi-signal polling
+    var urlBefore = window.location.href;
+    var editorRef = editor;
+    var submitRef = submitBtn;
     var verifySnippet = text.slice(0, 40).trim();
-    var pageText = document.body.innerText || '';
-    var verified = pageText.includes(verifySnippet);
 
-    var editorAfter = document.querySelector('[data-lexical-editor="true"]')
-      || document.querySelector('shreddit-composer [contenteditable="true"]');
-    var editorCleared = !editorAfter || (editorAfter.textContent || '').trim().length < 5;
-    var posted = verified || editorCleared;
+    // Click with a full pointer + mouse + click sequence. Reddit's React
+    // handlers are primarily wired to pointer events; a plain .click() fires
+    // only the click phase and React may not recognize it as user intent.
+    async function fireClick(el) {
+      try {
+        el.scrollIntoView({ block: 'center' });
+        await sleep(200);
+        var r = el.getBoundingClientRect();
+        var cx = r.left + r.width / 2;
+        var cy = r.top + r.height / 2;
+        var opts = { bubbles: true, cancelable: true, view: window, clientX: cx, clientY: cy, button: 0, pointerId: 1, pointerType: 'mouse', isPrimary: true };
+        // Order matters: enter → over → down → up → click, with focus in between
+        el.dispatchEvent(new PointerEvent('pointerover', opts));
+        el.dispatchEvent(new PointerEvent('pointerenter', opts));
+        el.dispatchEvent(new MouseEvent('mouseover', opts));
+        el.dispatchEvent(new PointerEvent('pointerdown', opts));
+        el.dispatchEvent(new MouseEvent('mousedown', opts));
+        try { el.focus(); } catch (e) {}
+        await sleep(40);
+        el.dispatchEvent(new PointerEvent('pointerup', opts));
+        el.dispatchEvent(new MouseEvent('mouseup', opts));
+        el.dispatchEvent(new MouseEvent('click', opts));
+        // Native click as a backstop — does nothing if React already handled above
+        try { el.click(); } catch (e) {}
+      } catch (err) {
+        try { el.click(); } catch (e2) {}
+      }
+    }
 
-    // Save result to storage IMMEDIATELY
-    try { chrome.storage.local.set({ lastRedditResult: { success: posted, url: window.location.href, timestamp: Date.now() } }); } catch (e) {}
+    // ── Multi-strategy submit (like react-testing-library userEvent.click) ──
+    //
+    // We escalate through 4 independent submit paths. The first one that
+    // posts wins. Any can succeed on its own without the others.
+    //
+    //   A. Pointer-event click on the submit button
+    //   B. HTMLFormElement.requestSubmit() on the enclosing <form>
+    //      (native browser API — fires the form's onSubmit handler)
+    //   C. Ctrl+Enter keyboard shortcut on the editor (Reddit's native)
+    //   D. Direct submit() method call on shreddit-composer web component
 
-    if (!posted) return { success: false, error: 'Comment submitted but not confirmed on page' };
-    return { success: true, verified: true };
+    var attempts = { click: false, requestSubmit: false, ctrlEnter: false, componentSubmit: false };
+
+    async function tryClick() {
+      if (attempts.click) return;
+      attempts.click = true;
+      await fireClick(submitBtn);
+    }
+
+    function tryRequestSubmit() {
+      if (attempts.requestSubmit) return;
+      attempts.requestSubmit = true;
+      try {
+        var form = submitBtn.closest('form') || editorRef.closest('form');
+        if (form && typeof form.requestSubmit === 'function') {
+          form.requestSubmit(typeof submitBtn.form !== 'undefined' ? submitBtn : undefined);
+          return true;
+        }
+      } catch (e) {}
+      return false;
+    }
+
+    function tryCtrlEnter() {
+      if (attempts.ctrlEnter) return;
+      attempts.ctrlEnter = true;
+      try {
+        editorRef.focus();
+        var isMac = navigator.platform.indexOf('Mac') !== -1;
+        var ev = {
+          key: 'Enter', code: 'Enter', keyCode: 13, which: 13,
+          ctrlKey: !isMac, metaKey: isMac,
+          bubbles: true, cancelable: true,
+        };
+        editorRef.dispatchEvent(new KeyboardEvent('keydown', ev));
+        editorRef.dispatchEvent(new KeyboardEvent('keypress', ev));
+        editorRef.dispatchEvent(new KeyboardEvent('keyup', ev));
+        // Also target the document — some Reddit keyboard handlers bind at document level
+        document.dispatchEvent(new KeyboardEvent('keydown', ev));
+      } catch (e) {}
+    }
+
+    function tryComponentSubmit() {
+      if (attempts.componentSubmit) return;
+      attempts.componentSubmit = true;
+      try {
+        var composer = document.querySelector('shreddit-composer');
+        if (composer) {
+          // Some web components expose a submit() method directly
+          if (typeof composer.submit === 'function') { composer.submit(); return true; }
+          // Or dispatch a custom event the component listens to
+          composer.dispatchEvent(new CustomEvent('submit', { bubbles: true, cancelable: true }));
+          composer.dispatchEvent(new Event('shreddit:submit', { bubbles: true }));
+        }
+      } catch (e) {}
+      return false;
+    }
+
+    // Fire Strategy A first (most natural), then escalate by second.
+    await tryClick();
+
+    // Poll for up to 15 seconds, escalating strategies along the way.
+    var posted = false;
+    var verifyMethod = '';
+    var rejectReason = '';
+    for (var poll = 0; poll < 15; poll++) {
+      await sleep(1000);
+      // Strategy escalation timeline
+      if (poll === 2) tryRequestSubmit();
+      if (poll === 5) tryCtrlEnter();
+      if (poll === 8) tryComponentSubmit();
+      if (poll === 11) { try { await fireClick(submitBtn); } catch (e) {} } // re-click in case first was racy
+
+      // Signal 0: Reddit surfaced a rejection toast/banner — bail early with a real reason.
+      var pageLower = (document.body.innerText || '').toLowerCase();
+      var rejectMatch = [
+        ['doing that too much', 'rate_limited'],
+        ['you are doing that too much', 'rate_limited'],
+        ['try again in', 'rate_limited'],
+        ['something went wrong', 'reddit_error'],
+        ['whoops, we had an issue', 'reddit_error'],
+        ['submission has been filtered', 'spam_filter'],
+        ['removed by reddit', 'spam_filter'],
+        ['unable to create comment', 'reddit_error'],
+        ['please slow down', 'rate_limited'],
+        ['requires you to have', 'karma_gate'],
+        ['must have at least', 'karma_gate'],
+      ].find(function(pair) { return pageLower.indexOf(pair[0]) !== -1; });
+      if (rejectMatch) {
+        rejectReason = rejectMatch[1];
+        break;
+      }
+
+      // Signal 1: URL changed (e.g. redirected to /comments/...#new-comment)
+      if (window.location.href !== urlBefore) {
+        posted = true; verifyMethod = 'url_changed'; break;
+      }
+
+      // Signal 2: editor element is gone from the DOM (composer was removed)
+      if (!document.contains(editorRef)) {
+        posted = true; verifyMethod = 'editor_removed'; break;
+      }
+
+      // Signal 3: editor cleared (submit emptied it)
+      if ((editorRef.textContent || '').trim().length < 5) {
+        posted = true; verifyMethod = 'editor_cleared'; break;
+      }
+
+      // Signal 4: submit button gone or now disabled
+      if (!document.contains(submitRef) || submitRef.disabled) {
+        posted = true; verifyMethod = 'submit_gone'; break;
+      }
+
+      // Signal 5: our snippet appears in any comment (light DOM)
+      if ((document.body.innerText || '').indexOf(verifySnippet) !== -1) {
+        posted = true; verifyMethod = 'text_on_page'; break;
+      }
+
+      // Signal 6: our snippet appears in shreddit-comment shadow DOMs
+      try {
+        var comments = document.querySelectorAll('shreddit-comment');
+        for (var c = 0; c < comments.length; c++) {
+          var ct = (comments[c].textContent || '');
+          if (ct.indexOf(verifySnippet) !== -1) {
+            posted = true; verifyMethod = 'text_in_comment'; break;
+          }
+        }
+        if (posted) break;
+      } catch (e) {}
+    }
+
+    // Save result to storage IMMEDIATELY — before service worker can die
+    try { chrome.storage.local.set({ lastRedditResult: { success: posted, url: window.location.href, verifyMethod: verifyMethod, rejectReason: rejectReason, timestamp: Date.now() } }); } catch (e) {}
+
+    if (!posted) {
+      if (rejectReason) {
+        return { success: false, skipped: true, reason: rejectReason, error: 'Reddit rejected comment: ' + rejectReason.replace(/_/g, ' '), postUrl: window.location.href };
+      }
+      var tried = Object.keys(attempts).filter(function(k) { return attempts[k]; }).join(',');
+      return { success: false, error: 'Comment not confirmed after 15s — tried strategies: ' + tried, postUrl: window.location.href };
+    }
+    return { success: true, verified: true, verifyMethod: verifyMethod, postUrl: window.location.href };
   }
 
   // ── Upvote ──────────────────────────────────────────────────────
@@ -443,23 +655,71 @@
     }
     if (isAlreadyUpvoted(btn)) return { success: true, alreadyUpvoted: true };
 
-    try { btn.scrollIntoView({ block: 'center' }); } catch {}
-    await sleep(200);
-    try {
-      var rect = btn.getBoundingClientRect();
-      ['mousedown', 'mouseup', 'click'].forEach(function(type) {
-        btn.dispatchEvent(new MouseEvent(type, {
-          bubbles: true, cancelable: true, view: window,
-          clientX: rect.left + rect.width / 2,
-          clientY: rect.top + rect.height / 2,
-        }));
-      });
-    } catch {
-      try { btn.click(); } catch {}
+    // Reddit's vote button sits inside shreddit-vote-button (web component)
+    // with its own handlers listening to pointer events. Plain .click()
+    // often reaches the outer wrapper and not the inner button, so we
+    // dispatch the full pointer + mouse + click sequence.
+    async function fireVoteClick(el) {
+      try {
+        el.scrollIntoView({ block: 'center' });
+        await sleep(200);
+        var r = el.getBoundingClientRect();
+        var cx = r.left + r.width / 2;
+        var cy = r.top + r.height / 2;
+        var opts = { bubbles: true, cancelable: true, view: window, clientX: cx, clientY: cy, button: 0, pointerId: 1, pointerType: 'mouse', isPrimary: true };
+        el.dispatchEvent(new PointerEvent('pointerover', opts));
+        el.dispatchEvent(new PointerEvent('pointerenter', opts));
+        el.dispatchEvent(new MouseEvent('mouseover', opts));
+        el.dispatchEvent(new PointerEvent('pointerdown', opts));
+        el.dispatchEvent(new MouseEvent('mousedown', opts));
+        try { el.focus && el.focus(); } catch (e) {}
+        await sleep(40);
+        el.dispatchEvent(new PointerEvent('pointerup', opts));
+        el.dispatchEvent(new MouseEvent('mouseup', opts));
+        el.dispatchEvent(new MouseEvent('click', opts));
+        try { el.click(); } catch (e) {}
+      } catch (err) {
+        try { el.click(); } catch (e2) {}
+      }
     }
-    await sleep(1500);
-    // Verify state changed
-    return { success: true, verified: isAlreadyUpvoted(btn) };
+
+    // Try clicking the candidate; if the element is a web-component wrapper
+    // (e.g. shreddit-vote-button), also try its internal shadow-DOM button.
+    await fireVoteClick(btn);
+
+    // Poll up to 6s for state change. Reddit's vote button sometimes re-renders.
+    var verified = false;
+    var verifyMethod2 = '';
+    for (var vp = 0; vp < 6; vp++) {
+      await sleep(1000);
+      var current = document.contains(btn) ? btn : (deepFindUpvote().filter(isUpvoteCandidate)[0] || null);
+      if (current && isAlreadyUpvoted(current)) { verified = true; verifyMethod2 = 'state_flipped'; break; }
+      // Also check any upvote-fill svg appeared
+      if (document.querySelector('svg[icon-name="upvote-fill"]')) { verified = true; verifyMethod2 = 'svg_filled'; break; }
+      // If still not verified, try clicking the inner shadow-root button
+      if (vp === 2 && btn.shadowRoot) {
+        try {
+          var innerBtn = btn.shadowRoot.querySelector('button[aria-label*="upvote" i]') || btn.shadowRoot.querySelector('button');
+          if (innerBtn) await fireVoteClick(innerBtn);
+        } catch (e) {}
+      }
+      // Keyboard shortcut as late fallback (Reddit: 'a' = upvote focused post)
+      if (vp === 4) {
+        try {
+          var postEl = document.querySelector('shreddit-post') || document.body;
+          postEl.scrollIntoView && postEl.scrollIntoView({ block: 'center' });
+          postEl.focus && postEl.focus();
+          ['keydown','keypress','keyup'].forEach(function(t) {
+            document.body.dispatchEvent(new KeyboardEvent(t, { key: 'a', code: 'KeyA', keyCode: 65, which: 65, bubbles: true, cancelable: true }));
+          });
+        } catch (e) {}
+      }
+    }
+
+    if (!verified) {
+      return { success: false, error: 'Upvote clicked but state did not flip after 6s (likely intercepted by Reddit or button moved)', postUrl: window.location.href };
+    }
+    return { success: true, verified: true, verifyMethod: verifyMethod2, postUrl: window.location.href };
   }
 
   // ── Join subreddit ──────────────────────────────────────────────

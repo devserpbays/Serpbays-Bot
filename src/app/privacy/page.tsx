@@ -30,36 +30,57 @@ export default function PrivacyPolicy() {
         <h1 style={{ color: "#ffffff", fontSize: "2.25rem", fontWeight: 700, marginBottom: "0.5rem" }}>
           Privacy Policy
         </h1>
-        <p style={{ color: "#888", marginBottom: "3rem" }}>Last updated: March 9, 2026</p>
+        <p style={{ color: "#888", marginBottom: "1rem" }}>Last updated: April 14, 2026</p>
+
+        <section style={{ marginBottom: "2.5rem", padding: "1rem 1.25rem", border: "1px solid #1e2a3a", borderRadius: 8, background: "#0d1520" }}>
+          <p style={{ lineHeight: 1.75, margin: 0, color: "#cdd5e0" }}>
+            <strong style={{ color: "#ffffff" }}>How GetMention works:</strong> GetMention is a Chrome extension plus a
+            web dashboard. The extension runs <strong>entirely in your own browser</strong> and uses your already
+            logged-in sessions to read posts and submit comments you approve. Your social-media passwords and session
+            cookies <strong>never leave your computer</strong> and are never transmitted to GetMention servers.
+          </p>
+        </section>
 
         <section style={{ marginBottom: "2.5rem" }}>
           <h2 style={{ color: "#ffffff", fontSize: "1.4rem", fontWeight: 600, marginBottom: "1rem" }}>
             1. Information We Collect
           </h2>
           <p style={{ lineHeight: 1.75, marginBottom: "1rem" }}>
-            GetMention ("we," "us," or "our") collects the following types of information when you use our platform:
+            GetMention ("we," "us," or "our") collects only the information necessary to run the Service:
           </p>
           <ul style={{ lineHeight: 1.75, paddingLeft: "1.5rem" }}>
             <li style={{ marginBottom: "0.5rem" }}>
-              <strong style={{ color: "#ffffff" }}>Account Information:</strong> When you register through Clerk, our
-              authentication provider, we receive your name, email address, and profile details. We do not store your
-              password directly; authentication is managed entirely by Clerk.
+              <strong style={{ color: "#ffffff" }}>Account Information:</strong> Registration is handled by Clerk (our
+              authentication provider), which supplies your name and email. We never receive or store your password —
+              Clerk manages authentication end to end.
             </li>
             <li style={{ marginBottom: "0.5rem" }}>
-              <strong style={{ color: "#ffffff" }}>Usage Data:</strong> We collect information about how you interact
-              with the Service, including keywords configured, posts discovered, comments generated, approval and
-              posting activity, and engagement metrics.
+              <strong style={{ color: "#ffffff" }}>Configuration Data:</strong> The keywords, platforms, posting
+              cadence, and other preferences you set in the dashboard.
             </li>
             <li style={{ marginBottom: "0.5rem" }}>
-              <strong style={{ color: "#ffffff" }}>Social Media Cookies:</strong> To automate engagement on your behalf,
-              we store browser session cookies for the social media platforms you connect (Twitter, Reddit, Facebook,
-              Quora, YouTube, Pinterest). These cookies are used solely to maintain authenticated sessions for posting.
+              <strong style={{ color: "#ffffff" }}>Public Post Metadata:</strong> URL, author handle, title/body text,
+              and timestamp of posts the extension scrapes while you browse. This is all content that is already public
+              on the source platform.
             </li>
             <li style={{ marginBottom: "0.5rem" }}>
-              <strong style={{ color: "#ffffff" }}>Technical Data:</strong> We may collect IP addresses, browser type,
-              device information, and access timestamps for security and operational purposes.
+              <strong style={{ color: "#ffffff" }}>Generated Replies & Activity Logs:</strong> AI-drafted comments,
+              approval decisions, and the outcome of each posting attempt (success / failure / skipped-reason).
+            </li>
+            <li style={{ marginBottom: "0.5rem" }}>
+              <strong style={{ color: "#ffffff" }}>Billing Data:</strong> Subscription status and PayPal subscription
+              ID — PayPal holds all payment details directly, we do not see card numbers.
+            </li>
+            <li style={{ marginBottom: "0.5rem" }}>
+              <strong style={{ color: "#ffffff" }}>Technical Data:</strong> IP address, user-agent, and access
+              timestamps for security, abuse prevention, and debugging.
             </li>
           </ul>
+          <p style={{ lineHeight: 1.75, marginTop: "1rem", padding: "0.75rem 1rem", background: "#1a1108", border: "1px solid #3a2a0a", borderRadius: 6, color: "#ffd6a5" }}>
+            <strong style={{ color: "#ffb865" }}>What we do NOT collect:</strong> social-media passwords, session
+            cookies, private messages, friends lists, account balances, or any data from accounts you have not connected
+            to GetMention.
+          </p>
         </section>
 
         <section style={{ marginBottom: "2.5rem" }}>
@@ -83,12 +104,13 @@ export default function PrivacyPolicy() {
             3. Data Storage
           </h2>
           <p style={{ lineHeight: 1.75 }}>
-            Your data is stored in MongoDB databases with encryption at rest enabled. Social media session cookies are
-            stored in isolated browser profile directories on our servers, separated by user account. All data
-            transmission between your browser and our servers is encrypted via TLS. We implement industry-standard
-            security measures to protect your data against unauthorized access, alteration, disclosure, or destruction.
-            However, no method of electronic storage or transmission is 100% secure, and we cannot guarantee absolute
-            security.
+            Dashboard data (account info, configuration, scraped post metadata, generated replies, activity logs) is
+            stored in MongoDB with encryption at rest. Your API key — the token the extension uses to authenticate with
+            our API — is stored locally in Chrome's <code style={{ background: "#1a1a2a", padding: "1px 5px", borderRadius: 3 }}>chrome.storage.sync</code> and
+            on our servers in hashed form. Your social-media session cookies remain on your device only; we have no
+            server-side copy and no way to retrieve them. All transport between the extension, the dashboard, and our
+            API is encrypted via TLS. We apply industry-standard controls against unauthorized access, but no method of
+            electronic storage is 100% secure, and we cannot guarantee absolute security.
           </p>
         </section>
 
@@ -105,13 +127,19 @@ export default function PrivacyPolicy() {
               session management. Clerk processes your email, name, and login credentials under its own privacy policy.
             </li>
             <li style={{ marginBottom: "0.5rem" }}>
-              <strong style={{ color: "#ffffff" }}>PayPal</strong> — Processes subscription payments and billing. PayPal
-              handles your payment details directly; we do not store your payment information on our servers.
+              <strong style={{ color: "#ffffff" }}>PayPal</strong> — Processes subscription payments. PayPal holds
+              your payment details directly under PCI-DSS compliance; GetMention only receives the subscription status
+              and PayPal subscription ID.
             </li>
             <li style={{ marginBottom: "0.5rem" }}>
-              <strong style={{ color: "#ffffff" }}>AI Services</strong> — We use artificial intelligence services for
-              content generation (comment and reply drafting). Content you submit for AI processing may be sent to
-              third-party AI providers. We do not use your data to train AI models.
+              <strong style={{ color: "#ffffff" }}>AI Providers</strong> — We use third-party language models (e.g.,
+              Anthropic, OpenAI) to evaluate post relevance and draft replies. Only the public post text and your
+              configured writing style are sent; no personal identifiers are shared. Our providers are contractually
+              prohibited from training models on your data.
+            </li>
+            <li style={{ marginBottom: "0.5rem" }}>
+              <strong style={{ color: "#ffffff" }}>MongoDB Atlas</strong> — Hosted database provider for the dashboard
+              data described in Section 3.
             </li>
           </ul>
           <p style={{ lineHeight: 1.75 }}>
@@ -121,14 +149,40 @@ export default function PrivacyPolicy() {
 
         <section style={{ marginBottom: "2.5rem" }}>
           <h2 style={{ color: "#ffffff", fontSize: "1.4rem", fontWeight: 600, marginBottom: "1rem" }}>
-            5. Cookies & Browser Data
+            5. Extension Permissions & Local Storage
           </h2>
-          <p style={{ lineHeight: 1.75 }}>
-            GetMention stores browser cookies and session data for the social media platforms you connect to the Service.
-            These cookies are essential for maintaining authenticated sessions that allow the platform to perform
-            engagement actions on your behalf. This data is stored in secure, isolated browser profile directories on our
-            servers and is accessible only through your account. We do not use tracking cookies for advertising purposes.
-            You may disconnect a platform at any time, which will delete the associated session cookies from our servers.
+          <p style={{ lineHeight: 1.75, marginBottom: "1rem" }}>
+            The GetMention Chrome extension requests the following permissions. Each is used strictly for the purpose
+            stated — never for advertising, analytics tracking, or cross-site profiling:
+          </p>
+          <ul style={{ lineHeight: 1.75, paddingLeft: "1.5rem" }}>
+            <li style={{ marginBottom: "0.5rem" }}>
+              <strong style={{ color: "#ffffff" }}>activeTab / tabs / scripting</strong> — to open the relevant
+              platform tab, scrape publicly visible posts that match your keywords, and submit comments you approve.
+            </li>
+            <li style={{ marginBottom: "0.5rem" }}>
+              <strong style={{ color: "#ffffff" }}>storage</strong> — to remember your API key and extension settings
+              locally in <code style={{ background: "#1a1a2a", padding: "1px 5px", borderRadius: 3 }}>chrome.storage.sync</code>.
+            </li>
+            <li style={{ marginBottom: "0.5rem" }}>
+              <strong style={{ color: "#ffffff" }}>alarms</strong> — to run the scraping/posting cycle on a schedule
+              you control.
+            </li>
+            <li style={{ marginBottom: "0.5rem" }}>
+              <strong style={{ color: "#ffffff" }}>notifications</strong> — to alert you when the extension finds
+              posts that need your review.
+            </li>
+            <li style={{ marginBottom: "0.5rem" }}>
+              <strong style={{ color: "#ffffff" }}>Host permissions</strong> (x.com, youtube.com, facebook.com,
+              reddit.com, quora.com, pinterest.com, skool.com) — required by Chrome so the extension can inject the
+              content scripts that read posts and submit replies on those sites.
+            </li>
+          </ul>
+          <p style={{ lineHeight: 1.75, marginTop: "1rem" }}>
+            The extension does <strong>not</strong> use remote code, does <strong>not</strong> inject ads, does{" "}
+            <strong>not</strong> read page content on sites not listed above, and does <strong>not</strong> upload your
+            session cookies to our servers. You can disconnect a platform at any time from the dashboard; you can
+            remove the extension at any time from <code style={{ background: "#1a1a2a", padding: "1px 5px", borderRadius: 3 }}>chrome://extensions</code>, which wipes all local extension storage.
           </p>
         </section>
 
@@ -189,8 +243,8 @@ export default function PrivacyPolicy() {
           </ul>
           <p style={{ lineHeight: 1.75, marginTop: "1rem" }}>
             To exercise any of these rights, contact us at{" "}
-            <a href="mailto:support@getmention.com" style={{ color: "#0ea5e9", textDecoration: "none" }}>
-              support@getmention.com
+            <a href="mailto:support@serpbays.com" style={{ color: "#0ea5e9", textDecoration: "none" }}>
+              support@serpbays.com
             </a>
             .
           </p>
@@ -207,8 +261,8 @@ export default function PrivacyPolicy() {
             Service), and consent (where explicitly provided). You have the right to lodge a complaint with your local
             data protection authority if you believe your data is being processed unlawfully. For data subject access
             requests or any GDPR-related inquiries, please contact us at{" "}
-            <a href="mailto:support@getmention.com" style={{ color: "#0ea5e9", textDecoration: "none" }}>
-              support@getmention.com
+            <a href="mailto:support@serpbays.com" style={{ color: "#0ea5e9", textDecoration: "none" }}>
+              support@serpbays.com
             </a>
             . We will respond to all legitimate requests within 30 days.
           </p>
@@ -234,8 +288,8 @@ export default function PrivacyPolicy() {
           <p style={{ lineHeight: 1.75 }}>
             If you have any questions or concerns about this Privacy Policy or our data practices, please contact us
             at{" "}
-            <a href="mailto:support@getmention.com" style={{ color: "#0ea5e9", textDecoration: "none" }}>
-              support@getmention.com
+            <a href="mailto:support@serpbays.com" style={{ color: "#0ea5e9", textDecoration: "none" }}>
+              support@serpbays.com
             </a>
             .
           </p>

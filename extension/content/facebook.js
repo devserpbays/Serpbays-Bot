@@ -30,6 +30,71 @@
     }
   });
 
+  // ── Post permalink extraction ───────────────────────────────────────────
+  // After liking/commenting, we need the specific post URL (not the group URL)
+  // for activity logs. FB sometimes opens posts in a modal that doesn't change
+  // window.location, and group-level tasks arrive with the group URL. So we
+  // scan the visible post container for a timestamp-style <a> that links to
+  // /groups/.../posts/... — that's the canonical permalink.
+
+  function getSpecificPostUrl() {
+    try {
+      // Strip the tracking garbage off an href (the __cft__ and __tn__ params
+      // leak the scraping user's session — never log them).
+      function clean(href) {
+        if (!href) return '';
+        try {
+          var u = new URL(href);
+          // Keep only useful params (comment_id). Drop everything else.
+          var keepCommentId = u.searchParams.get('comment_id');
+          u.search = '';
+          u.hash = '';
+          if (keepCommentId) u.searchParams.set('comment_id', keepCommentId);
+          return u.toString();
+        } catch (e) {
+          return href.split('?')[0].split('#')[0];
+        }
+      }
+
+      function isPostPermalink(href) {
+        if (!href) return false;
+        // Must be a post/permalink/story pattern; NOT a user/profile/members link
+        if (/\/user\//.test(href) || /\/members\//.test(href) || /\/profile\.php/.test(href)) return false;
+        return (
+          /\/groups\/[^/]+\/posts\//.test(href) ||
+          /\/groups\/[^/]+\/permalink\//.test(href) ||
+          /\/posts\//.test(href) ||
+          /\/permalink\//.test(href) ||
+          /\/share\/p\//.test(href) ||
+          /story_fbid=/.test(href) ||
+          /\/story\.php/.test(href)
+        );
+      }
+
+      // Strategy 1: If the browser URL itself is a post permalink, use it.
+      if (isPostPermalink(location.href)) return clean(location.href);
+
+      // Strategy 2: Find an <a> inside a timestamp/abbr — FB wraps the post
+      // timestamp in a link that points to the canonical permalink.
+      var timeLinks = document.querySelectorAll(
+        'a[href*="/posts/"] abbr, a[href*="/permalink/"] abbr, ' +
+        'a[href*="/posts/"] time, a[href*="/permalink/"] time, ' +
+        'a[href*="/posts/"][aria-label*="ago" i], a[href*="/permalink/"][aria-label*="ago" i]'
+      );
+      for (var i = 0; i < timeLinks.length; i++) {
+        var link = timeLinks[i].closest('a[href]') || timeLinks[i];
+        if (link && link.href && isPostPermalink(link.href)) return clean(link.href);
+      }
+
+      // Strategy 3: first permalink-style <a> visible on the page
+      var allLinks = document.querySelectorAll('a[href*="/posts/"], a[href*="/permalink/"], a[href*="/share/p/"]');
+      for (var j = 0; j < allLinks.length; j++) {
+        if (isPostPermalink(allLinks[j].href)) return clean(allLinks[j].href);
+      }
+    } catch (e) {}
+    return '';
+  }
+
   // ── Task execution ──────────────────────────────────────────────────────
 
   async function handleTask({ action, text }) {
@@ -153,7 +218,7 @@
       const commentAuthors = document.querySelectorAll('[role="article"] a[role="link"] strong span, [role="article"] h3 a span');
       for (const a of commentAuthors) {
         if (a.textContent?.trim() === myName) {
-          return { success: true, alreadyCommented: true };
+          return { success: true, alreadyCommented: true, postUrl: getSpecificPostUrl() };
         }
       }
     }
@@ -266,8 +331,9 @@
     const textFound = (document.body.innerText || '').includes(snippet);
     const posted = editorCleared || textFound;
 
-    if (!posted) return { success: false, error: 'Comment submitted but not confirmed on page' };
-    return { success: true, verified: true };
+    var postUrl = getSpecificPostUrl();
+    if (!posted) return { success: false, error: 'Comment submitted but not confirmed on page', postUrl: postUrl };
+    return { success: true, verified: true, postUrl: postUrl };
   }
 
   async function likePost() {
@@ -277,7 +343,7 @@
     const alreadyLiked = document.querySelector('[aria-label="Remove Like"]')
       || document.querySelector('[aria-label*="Unlike"]')
       || document.querySelector('[aria-pressed="true"][aria-label*="like" i]');
-    if (alreadyLiked) return { success: true, alreadyLiked: true };
+    if (alreadyLiked) return { success: true, alreadyLiked: true, postUrl: getSpecificPostUrl() };
 
     // Try multiple selectors — Facebook changes DOM frequently
     const likeBtn = document.querySelector('div[aria-label="Like"][role="button"]')
@@ -309,7 +375,7 @@
     const verified = !!document.querySelector('[aria-label="Remove Like"]')
       || !!document.querySelector('[aria-label*="Unlike"]')
       || !!document.querySelector('[aria-pressed="true"][aria-label*="like" i]');
-    return { success: verified, verified };
+    return { success: verified, verified, postUrl: getSpecificPostUrl() };
   }
 
   // ── Scraping ────────────────────────────────────────────────────────────
@@ -474,6 +540,68 @@
         posts.push({ url, content: content.slice(0, 2000), author, platform: 'facebook' });
       } catch {}
     });
+
+    // ── Strategy Z: Global anchor sweep ─────────────────────────────
+    // If the per-feedItem scan came up empty, Facebook has likely moved to a
+    // layout where each post's clickable surface is a <div role="link"> (no
+    // href) while the real permalink lives on a nested timestamp anchor that
+    // our existing selectors miss. Sweep EVERY <a> on the page whose href
+    // looks like a post, then resolve each to its nearest content container.
+    if (posts.length === 0) {
+      const permaSelector = 'a[href*="/posts/"], a[href*="/permalink/"], a[href*="/share/p/"], a[href*="story_fbid"]';
+      const swept = document.querySelectorAll(permaSelector);
+      stats.sweptAnchors = swept.length;
+      swept.forEach(a => {
+        try {
+          const url = matchPermalink(a.href || '');
+          if (!url) return;
+          if (seen.has(url)) { stats.dupe++; return; }
+
+          // Find the nearest post container so we can extract content text.
+          // Walk up from the anchor until we hit a reasonable article-like ancestor.
+          let container = a.closest('[role="article"]')
+            || a.closest('[data-pagelet*="FeedUnit"]')
+            || a.closest('[data-pagelet*="GroupFeed"]')
+            || a.closest('[data-pagelet*="Search"]')
+            || a.closest('[data-ad-preview]');
+          if (!container) {
+            // Walk up ~8 levels looking for a div that has meaningful content
+            let el = a.parentElement;
+            for (let depth = 0; depth < 8 && el; depth++) {
+              if ((el.textContent || '').trim().length >= 40) { container = el; break; }
+              el = el.parentElement;
+            }
+          }
+          if (!container) return;
+
+          // Extract content
+          const textEls = container.querySelectorAll(
+            '[data-ad-preview="message"], [data-ad-comet-preview="message"], ' +
+            'div[dir="auto"]:not([role="button"]):not([role="link"]), span[dir="auto"]'
+          );
+          let content = '';
+          textEls.forEach(el => {
+            const t = (el.textContent || '').trim();
+            if (t.length > content.length) content = t;
+          });
+          if (!content || content.length < 15) content = (container.textContent || '').trim().slice(0, 600);
+          if (!content || content.length < 10) { stats.shortContent++; return; }
+
+          if (keywords.length > 0) {
+            const lower = content.toLowerCase();
+            if (!keywords.some(kw => lower.includes(kw.toLowerCase()))) { stats.kwMiss++; return; }
+          }
+
+          const authorEl = container.querySelector('strong a, h3 a, h4 a, [aria-labelledby] strong');
+          const author = (authorEl?.textContent || '').trim() || 'Unknown';
+
+          seen.add(url);
+          stats.ok++;
+          stats.viaSweep = (stats.viaSweep || 0) + 1;
+          posts.push({ url, content: content.slice(0, 2000), author, platform: 'facebook' });
+        } catch {}
+      });
+    }
 
     console.log('[GM Facebook] Scrape stats:', JSON.stringify(stats));
     return { posts: posts.slice(0, 15), stats };

@@ -46,8 +46,56 @@
 
   // ── Post Comment ────────────────────────────────────────────────
 
+  // Detect community-level restrictions on Skool. When a user is banned,
+  // muted, or not approved for the community, Skool still renders the post
+  // but hides the comment composer entirely. Scan the visible page text for
+  // the specific phrases Skool surfaces in these cases.
+  function detectSkoolRestriction() {
+    var text = (document.body.innerText || '').toLowerCase();
+    var checks = [
+      ['you are not a member',                'not_member'],
+      ['join this community to',              'not_member'],
+      ['join to comment',                     'not_member'],
+      ["you can't comment",                   'restricted'],
+      ['you cannot comment',                  'restricted'],
+      ['commenting is disabled',              'comments_disabled'],
+      ['comments are closed',                 'comments_disabled'],
+      ['you have been banned',                'banned'],
+      ['you are banned',                      'banned'],
+      ['your membership has been removed',    'banned'],
+      ['access denied',                       'banned'],
+      ['pending approval',                    'pending_approval'],
+      ['awaiting approval',                   'pending_approval'],
+      ['muted in this community',             'muted'],
+      ['you are muted',                       'muted'],
+    ];
+    for (var i = 0; i < checks.length; i++) {
+      if (text.indexOf(checks[i][0]) !== -1) return checks[i][1];
+    }
+    // Also check if the "Join" CTA is the only interactive element for this post
+    var joinBtn = Array.from(document.querySelectorAll('button')).find(function(b) {
+      var t = (b.textContent || '').trim().toLowerCase();
+      return t === 'join' || t === 'join community' || t === 'request to join';
+    });
+    if (joinBtn && joinBtn.offsetParent !== null) return 'not_member';
+    return '';
+  }
+
   async function postComment(text) {
     await sleep(1000);
+
+    // Step 0: Before trying the editor, check if the community has
+    // restricted us. This gives an actionable error instead of the generic
+    // "editor not found" that used to hide real bans.
+    var preRestriction = detectSkoolRestriction();
+    if (preRestriction) {
+      return {
+        success: false,
+        skipped: true,
+        reason: preRestriction,
+        error: 'Skool community restriction: ' + preRestriction.replace(/_/g, ' ') + ' — comment composer is hidden by Skool',
+      };
+    }
 
     // Step 1: Click "Reply" button to open editor.
     // No visibility checks (offsetHeight/offsetParent) — those return 0 in
@@ -68,7 +116,21 @@
         || document.querySelector('div[contenteditable="true"][role="textbox"]')
         || document.querySelector('[contenteditable="true"]');
     }
-    if (!editor) return { success: false, error: 'Skool editor not found' };
+    if (!editor) {
+      // Second-chance restriction check — Skool sometimes lazy-renders the
+      // restriction banner after the post body. If nothing mounted and no
+      // banner exists either, report the raw DOM failure instead.
+      var postRestriction = detectSkoolRestriction();
+      if (postRestriction) {
+        return {
+          success: false,
+          skipped: true,
+          reason: postRestriction,
+          error: 'Skool community restriction: ' + postRestriction.replace(/_/g, ' ') + ' — no editor because Skool hid it',
+        };
+      }
+      return { success: false, error: 'Skool editor not found (no known restriction detected — DOM may have changed)' };
+    }
 
     // Step 3: Focus the editor and place caret at end
     try { editor.scrollIntoView({ block: 'center' }); } catch (e) {}

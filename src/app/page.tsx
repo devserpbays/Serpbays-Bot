@@ -1,96 +1,528 @@
 import Link from 'next/link';
 import { auth } from '@clerk/nextjs/server';
 import { redirect } from 'next/navigation';
+import HeroSpotlight from '@/components/HeroSpotlight';
 
 export const dynamic = 'force-dynamic';
 
+/* ── Platforms ────────────────────────────────────────────────────── */
 const PLATFORMS = [
-  { name: 'Twitter / X', color: '#1d9bf0', icon: <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.73-8.835L1.254 2.25H8.08l4.258 5.63 5.906-5.63zm-1.161 17.52h1.833L7.084 4.126H5.117z" /></svg> },
-  { name: 'Reddit', color: '#3b82f6', icon: <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><path d="M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm5.01 4.744c.688 0 1.25.561 1.25 1.249a1.25 1.25 0 0 1-2.498.056l-2.597-.547-.8 3.747c1.824.07 3.48.632 4.674 1.488.308-.309.73-.491 1.207-.491.968 0 1.754.786 1.754 1.754 0 .716-.435 1.333-1.01 1.614a3.111 3.111 0 0 1 .042.52c0 2.694-3.13 4.87-7.004 4.87-3.874 0-7.004-2.176-7.004-4.87 0-.183.015-.366.043-.534A1.748 1.748 0 0 1 4.028 12c0-.968.786-1.754 1.754-1.754.463 0 .898.196 1.207.49 1.207-.883 2.878-1.43 4.744-1.487l.885-4.182a.342.342 0 0 1 .14-.197.35.35 0 0 1 .238-.042l2.906.617a1.214 1.214 0 0 1 1.108-.701zM9.25 12C8.561 12 8 12.562 8 13.25c0 .687.561 1.248 1.25 1.248.687 0 1.248-.561 1.248-1.249 0-.688-.561-1.249-1.249-1.249zm5.5 0c-.687 0-1.248.561-1.248 1.25 0 .687.561 1.248 1.249 1.248.688 0 1.249-.561 1.249-1.249 0-.687-.562-1.249-1.25-1.249z" /></svg> },
-  { name: 'Facebook', color: '#1877f2', icon: <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" /></svg> },
-  { name: 'Quora', color: '#2563eb', icon: <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><path d="M12.071 0C5.4 0 .001 5.4.001 12.071c0 6.248 4.759 11.41 10.85 12.003-.044-.562-.094-1.407-.094-2.001 0-.666.023-1.406.068-2.028-.447.045-.896.068-1.349.068-3.734 0-5.941-2.162-5.941-5.95 0-3.78 2.207-5.941 5.941-5.941 3.733 0 5.94 2.161 5.94 5.941 0 1.873-.509 3.374-1.407 4.38l1.047 1.986c.423.806.847 1.166 1.336 1.166.888 0 1.406-.949 1.406-2.688V12.07C17.8 6.37 15.292 0 12.071 0z" /></svg> },
-  { name: 'YouTube', color: '#0ea5e9', icon: <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.546 12 3.546 12 3.546s-7.505 0-9.377.504A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.504 9.376.504 9.376.504s7.505 0 9.377-.504a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z" /></svg> },
-  { name: 'Pinterest', color: '#6366f1', icon: <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><path d="M12.017 0C5.396 0 .029 5.367.029 11.987c0 5.079 3.158 9.417 7.618 11.162-.105-.949-.199-2.403.041-3.439.219-.937 1.406-5.957 1.406-5.957s-.359-.72-.359-1.781c0-1.668.967-2.914 2.171-2.914 1.023 0 1.518.769 1.518 1.69 0 1.029-.655 2.568-.994 3.995-.283 1.194.599 2.169 1.777 2.169 2.133 0 3.772-2.249 3.772-5.495 0-2.873-2.064-4.882-5.012-4.882-3.414 0-5.418 2.561-5.418 5.207 0 1.031.397 2.138.893 2.738a.36.36 0 0 1 .083.345l-.333 1.36c-.053.22-.174.267-.402.161-1.499-.698-2.436-2.889-2.436-4.649 0-3.785 2.75-7.262 7.929-7.262 4.163 0 7.398 2.967 7.398 6.931 0 4.136-2.607 7.464-6.227 7.464-1.216 0-2.359-.631-2.75-1.378l-.748 2.853c-.271 1.043-1.002 2.35-1.492 3.146C9.57 23.812 10.763 24 12.017 24c6.624 0 11.99-5.367 11.99-11.988C24.007 5.367 18.641.001 12.017.001z" /></svg> },
+  { name: 'Twitter / X', color: '#1d9bf0', letter: '𝕏' },
+  { name: 'Reddit',      color: '#ff4500', letter: 'R' },
+  { name: 'Facebook',    color: '#1877f2', letter: 'f' },
+  { name: 'Quora',       color: '#b92b27', letter: 'Q' },
+  { name: 'YouTube',     color: '#ff0000', letter: '▶' },
+  { name: 'Pinterest',   color: '#e60023', letter: 'P' },
+  { name: 'Skool',       color: '#5865f2', letter: 'S' },
 ];
 
+/* ── Features ─────────────────────────────────────────────────────── */
 const FEATURES = [
-  {
-    icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} width="28" height="28"><path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>,
-    title: 'AI-Generated Replies',
-    description: 'GPT-powered responses that sound natural and relevant, tailored to each post and platform context.',
-  },
-  {
-    icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} width="28" height="28"><path d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>,
-    title: 'Auto-Posting',
-    description: 'Set a relevance threshold and let GetMention auto-post replies that score high enough — zero manual work.',
-  },
-  {
-    icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} width="28" height="28"><path d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" /></svg>,
-    title: 'Multi-Platform',
-    description: 'One dashboard for Twitter, Reddit, Facebook, Quora, YouTube, and Pinterest. Connect once, engage everywhere.',
-  },
-  {
-    icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} width="28" height="28"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
-    title: 'Smart Scheduling',
-    description: 'Cron-based scheduling scrapes and posts at optimal intervals, keeping your engagement consistent 24/7.',
-  },
-  {
-    icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} width="28" height="28"><path d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>,
-    title: 'Activity Logs',
-    description: 'Full visibility into every scrape, evaluation, and posted reply. Track performance and debug with ease.',
-  },
-  {
-    icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} width="28" height="28"><path d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>,
-    title: 'Safe Daily Limits',
-    description: 'Set per-platform daily reply limits to keep your accounts safe and avoid triggering spam filters.',
-  },
+  { icon: '💬', title: 'AI-Generated Replies', description: 'GPT-powered responses that sound natural — casual tone, specific to each post, never templated.' },
+  { icon: '⚡', title: 'Auto-Posting', description: 'Set a relevance threshold and let GetMention auto-post replies that score high enough — zero manual work.' },
+  { icon: '🌐', title: 'Multi-Platform', description: 'One dashboard for 7 platforms: Twitter, Facebook, Reddit, Quora, YouTube, Pinterest, Skool.' },
+  { icon: '⏱', title: 'Smart Scheduling', description: 'Cron-based scheduling posts at optimal intervals with natural jitter — keeps engagement 24/7.' },
+  { icon: '📊', title: 'Activity Logs', description: 'Full visibility into every scrape, evaluation, and reply. Click through to verify on-platform.' },
+  { icon: '🛡', title: 'Safe by Design', description: 'Per-platform daily limits, account health scoring, auto-pause on detection — your accounts stay safe.' },
 ];
 
+/* ── How it works ─────────────────────────────────────────────────── */
 const STEPS = [
-  {
-    num: '01',
-    title: 'Connect Your Accounts',
-    description: 'Log into your social accounts in Chrome, install the free Cookie-Editor extension, export your session as JSON, and paste it in. No passwords stored.',
-  },
-  {
-    num: '02',
-    title: 'AI Scrapes & Evaluates',
-    description: 'GetMention finds trending posts matching your keywords, then scores each for relevance and engagement potential.',
-  },
-  {
-    num: '03',
-    title: 'Auto-Posts Replies',
-    description: 'High-scoring posts get AI-crafted replies posted automatically. Review the rest from your dashboard.',
-  },
+  { num: '01', title: 'Install the Extension', description: 'Download the Chrome extension from your dashboard, paste your API key. Takes under 2 minutes. No passwords, no cookies — uses your real browser session.', icon: '⬇' },
+  { num: '02', title: 'AI Finds & Evaluates Posts', description: 'The extension searches your enabled platforms every 5 minutes using your keywords. Each post is scored 0-100 for relevance and gets an AI-generated reply.', icon: '🔍' },
+  { num: '03', title: 'Auto-Engages Like You Would', description: 'Comments, likes, and upvotes post from your real browser — indistinguishable from manual activity. YouTube watches videos and skips ads before commenting.', icon: '🚀' },
 ];
 
-const PLANS = [
-  {
-    name: 'Starter', price: 0, period: 'forever', popular: false,
-    features: ['2 platforms', '3 posts per day', 'AI-powered replies', '5 keywords', 'Manual posting only'],
-  },
-  {
-    name: 'Pro', price: 49, period: '/month', popular: true,
-    features: ['4 social platforms', '15 posts per day', '25 keywords', 'Auto-posting', 'Cron scheduling', 'Activity logs'],
-  },
-  {
-    name: 'Business', price: 149, period: '/month', popular: false,
-    features: ['All 6 platforms', '50 posts per day', '100 keywords', 'Auto-posting', 'Cron scheduling', 'Priority support'],
-  },
+/* ── Comparison table ─────────────────────────────────────────────── */
+const COMPARISON = [
+  { feature: 'Auto-find relevant posts by keyword',     gm: true,  manual: false, hootsuite: false, taplio: false },
+  { feature: 'AI-generated natural replies',             gm: true,  manual: false, hootsuite: false, taplio: true  },
+  { feature: '7 platform support',                       gm: true,  manual: true,  hootsuite: true,  taplio: false },
+  { feature: 'Comments + Likes + Upvotes',               gm: true,  manual: true,  hootsuite: false, taplio: false },
+  { feature: 'Uses YOUR real browser (undetectable)',    gm: true,  manual: true,  hootsuite: false, taplio: false },
+  { feature: 'YouTube ad-skip + watch before comment',   gm: true,  manual: false, hootsuite: false, taplio: false },
+  { feature: 'Smart brand mention cap (1-2/day)',        gm: true,  manual: false, hootsuite: false, taplio: false },
+  { feature: 'Works when Chrome is minimized',           gm: true,  manual: false, hootsuite: true,  taplio: true  },
+  { feature: 'No API keys or passwords needed',          gm: true,  manual: true,  hootsuite: false, taplio: false },
+  { feature: 'Price',                                    gm: 'Free – $149', manual: 'Your time', hootsuite: '$99+', taplio: '$49+' },
 ];
+
+/* ── Plans ─────────────────────────────────────────────────────────── */
+const PLANS = [
+  { name: 'Starter', price: 0, period: 'forever', popular: false,
+    platforms: ['Twitter'],
+    features: ['Twitter / X only', '3 posts per day', '5 keywords', 'AI-powered replies', 'Manual posting only'] },
+  { name: 'Pro', price: 49, period: '/month', popular: true,
+    platforms: ['Twitter', 'Facebook', 'Pinterest', 'Skool'],
+    features: ['Twitter, Facebook, Pinterest, Skool', '15 posts per day per platform', '25 keywords', 'Auto-posting', 'Cron scheduling', 'Activity logs'] },
+  { name: 'Business', price: 149, period: '/month', popular: false,
+    platforms: ['Twitter', 'Facebook', 'Pinterest', 'Skool', 'Reddit', 'Quora', 'YouTube'],
+    features: ['All 7 platforms', '50 posts per day per platform', '100 keywords', 'Auto-posting', 'Priority support', 'Brand mention control'] },
+];
+
+/* ══════════════════════════════════════════════════════════════════ */
 
 export default async function LandingPage() {
   const { userId } = await auth();
   if (userId) redirect('/dashboard');
-  return (
-    <div style={{ minHeight: '100vh', backgroundColor: '#09090b', color: '#fafafa', fontFamily: 'var(--font-sans)' }}>
 
-      {/* ── Nav ── */}
+  return (
+    <div style={{ minHeight: '100vh', backgroundColor: '#09090b', color: '#fafafa', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+
+      {/* ══════ Scoped Animations (light but polished) ══════ */}
+      <style>{`
+        /* Subtle fade-up on load, staggered */
+        @keyframes lp-fade-up {
+          from { opacity: 0; transform: translateY(16px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes lp-fade-in {
+          from { opacity: 0; }
+          to   { opacity: 1; }
+        }
+        /* Gradient text shimmer — slow, once a minute feel */
+        @keyframes lp-gradient {
+          0%   { background-position: 0% 50%; }
+          50%  { background-position: 100% 50%; }
+          100% { background-position: 0% 50%; }
+        }
+        /* Gentle breathing glow */
+        @keyframes lp-glow {
+          0%,100% { opacity: 0.6; }
+          50%     { opacity: 1; }
+        }
+        /* Timeline line draws in */
+        @keyframes lp-line-draw {
+          from { height: 0; }
+          to   { height: 100%; }
+        }
+        /* Subtle floating — used once for the hero badge */
+        @keyframes lp-float-y {
+          0%,100% { transform: translateY(0); }
+          50%     { transform: translateY(-4px); }
+        }
+        /* Live dot pulse */
+        @keyframes lp-pulse-dot {
+          0%,100% { box-shadow: 0 0 0 0 rgba(16,185,129,0.7); }
+          50%     { box-shadow: 0 0 0 6px rgba(16,185,129,0); }
+        }
+        /* Card hover lift — smoother easing + stronger glow */
+        .lp-card {
+          transition:
+            transform 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+            border-color 0.4s ease,
+            box-shadow 0.4s ease,
+            background 0.4s ease;
+        }
+        .lp-card:hover {
+          transform: translateY(-6px);
+          border-color: rgba(14,165,233,0.45) !important;
+          box-shadow: 0 18px 42px rgba(14,165,233,0.14), 0 2px 6px rgba(14,165,233,0.08);
+        }
+        /* Platform icon hover pop */
+        .lp-plat-float {
+          transition: transform 0.35s cubic-bezier(0.22,1,0.36,1), filter 0.35s ease;
+        }
+        .lp-plat-float:hover {
+          transform: scale(1.14) rotate(-3deg) !important;
+          filter: brightness(1.15) drop-shadow(0 6px 14px rgba(14,165,233,0.35));
+        }
+        /* Nav links with underline sweep */
+        .lp-nav {
+          color: #a1a1aa; text-decoration: none;
+          font-size: 14px; font-weight: 500;
+          position: relative;
+          transition: color 0.2s ease;
+        }
+        .lp-nav::after {
+          content: ''; position: absolute; bottom: -4px; left: 0;
+          width: 0; height: 1px; background: #0ea5e9;
+          transition: width 0.25s ease;
+        }
+        .lp-nav:hover { color: #fafafa; }
+        .lp-nav:hover::after { width: 100%; }
+        /* Primary button with shine */
+        .lp-btn-primary {
+          position: relative; overflow: hidden;
+          transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .lp-btn-primary:hover {
+          transform: translateY(-1px);
+          box-shadow: 0 8px 24px rgba(14,165,233,0.35);
+        }
+        .lp-btn-primary::before {
+          content: ''; position: absolute; inset: 0;
+          background: linear-gradient(120deg, transparent 30%, rgba(255,255,255,0.18) 50%, transparent 70%);
+          transform: translateX(-100%);
+          transition: transform 0.7s ease;
+        }
+        .lp-btn-primary:hover::before { transform: translateX(100%); }
+        /* Comparison row hover */
+        .lp-compare-row { transition: background 0.2s ease; }
+        .lp-compare-row:hover { background: rgba(14,165,233,0.04); }
+        /* Staggered load for grid items */
+        .lp-stagger-1 { animation: lp-fade-up 0.6s ease-out 0.05s both; }
+        .lp-stagger-2 { animation: lp-fade-up 0.6s ease-out 0.10s both; }
+        .lp-stagger-3 { animation: lp-fade-up 0.6s ease-out 0.15s both; }
+        .lp-stagger-4 { animation: lp-fade-up 0.6s ease-out 0.20s both; }
+        .lp-stagger-5 { animation: lp-fade-up 0.6s ease-out 0.25s both; }
+        .lp-stagger-6 { animation: lp-fade-up 0.6s ease-out 0.30s both; }
+        .lp-stagger-7 { animation: lp-fade-up 0.6s ease-out 0.35s both; }
+
+        /* ── Rotating keywords in hero ── */
+        @keyframes lp-rotate-words {
+          0%, 16%  { transform: translateY(0%); }
+          20%, 36% { transform: translateY(-100%); }
+          40%, 56% { transform: translateY(-200%); }
+          60%, 76% { transform: translateY(-300%); }
+          80%, 96% { transform: translateY(-400%); }
+          100%     { transform: translateY(-500%); }
+        }
+        .lp-rotate-wrap {
+          display: inline-flex; overflow: hidden; height: 1.15em; vertical-align: baseline;
+          position: relative;
+        }
+        .lp-rotate-track {
+          display: flex; flex-direction: column;
+          animation: lp-rotate-words 12s cubic-bezier(0.68, -0.55, 0.27, 1.55) infinite;
+        }
+        .lp-rotate-track span { line-height: 1.15em; white-space: nowrap; }
+
+        /* ── Typing caret ── */
+        @keyframes lp-blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+        .lp-caret { display: inline-block; width: 3px; height: 1em; background: #38bdf8;
+          margin-left: 2px; vertical-align: text-bottom; animation: lp-blink 0.9s step-end infinite; }
+
+        /* ── Floating particles ── */
+        @keyframes lp-particle-float {
+          0% { transform: translateY(0) translateX(0); opacity: 0; }
+          10%,90% { opacity: 0.6; }
+          100% { transform: translateY(-400px) translateX(20px); opacity: 0; }
+        }
+        .lp-particle {
+          position: absolute; width: 4px; height: 4px; border-radius: 50%;
+          background: #38bdf8; pointer-events: none;
+          animation: lp-particle-float 12s linear infinite;
+        }
+
+        /* ── Dashboard mockup card animations ── */
+        @keyframes lp-demo-in {
+          0%,40%  { opacity: 0; transform: translateY(20px) scale(0.95); }
+          60%,100%{ opacity: 1; transform: translateY(0) scale(1); }
+        }
+        @keyframes lp-count-tick {
+          0%,20% { content: '0'; }
+          25%    { content: '1'; }
+          30%    { content: '2'; }
+          35%    { content: '3'; }
+          40%    { content: '5'; }
+          50%    { content: '7'; }
+          60%    { content: '9'; }
+          70%    { content: '12'; }
+          80%    { content: '15'; }
+          90%,100% { content: '18'; }
+        }
+        .lp-demo-card {
+          animation: lp-demo-in 1.5s ease-out both, lp-glow 6s ease-in-out 1.5s infinite;
+        }
+        @keyframes lp-typing {
+          from { width: 0; }
+          to   { width: 100%; }
+        }
+        .lp-demo-typing {
+          overflow: hidden; white-space: nowrap;
+          animation: lp-typing 3s steps(40, end) 2s both;
+        }
+        @keyframes lp-success-bounce {
+          0%,60% { transform: scale(0); opacity: 0; }
+          70%    { transform: scale(1.2); opacity: 1; }
+          85%    { transform: scale(0.95); }
+          100%   { transform: scale(1); opacity: 1; }
+        }
+        .lp-demo-check {
+          animation: lp-success-bounce 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) 5.2s both;
+        }
+        @keyframes lp-progress-fill {
+          from { width: 0; }
+          to   { width: var(--fill, 60%); }
+        }
+        .lp-progress-bar {
+          animation: lp-progress-fill 1.5s ease-out 0.8s both;
+        }
+
+        /* ── Floating platform icons ── */
+        @keyframes lp-float-soft {
+          0%,100% { transform: translateY(0); }
+          50%     { transform: translateY(-6px); }
+        }
+        .lp-plat-float:nth-child(1) { animation: lp-float-soft 4.5s ease-in-out 0s infinite; }
+        .lp-plat-float:nth-child(2) { animation: lp-float-soft 5.2s ease-in-out 0.3s infinite; }
+        .lp-plat-float:nth-child(3) { animation: lp-float-soft 4.8s ease-in-out 0.6s infinite; }
+        .lp-plat-float:nth-child(4) { animation: lp-float-soft 5.5s ease-in-out 0.9s infinite; }
+        .lp-plat-float:nth-child(5) { animation: lp-float-soft 4.3s ease-in-out 1.2s infinite; }
+        .lp-plat-float:nth-child(6) { animation: lp-float-soft 5.0s ease-in-out 1.5s infinite; }
+        .lp-plat-float:nth-child(7) { animation: lp-float-soft 4.7s ease-in-out 1.8s infinite; }
+
+        /* ── Count-up animation for stats ── */
+        @keyframes lp-count-up {
+          from { opacity: 0; transform: translateY(10px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        .lp-stat { animation: lp-count-up 0.7s ease-out both; }
+
+        /* ── Shimmer skeleton for demo ── */
+        @keyframes lp-shimmer {
+          0%   { background-position: -200% 0; }
+          100% { background-position: 200% 0; }
+        }
+        .lp-shimmer {
+          background: linear-gradient(90deg, rgba(255,255,255,0.03) 0%, rgba(14,165,233,0.15) 50%, rgba(255,255,255,0.03) 100%);
+          background-size: 200% 100%;
+          animation: lp-shimmer 2.5s linear infinite;
+        }
+
+        /* ── Orbit ring for features ── */
+        @keyframes lp-spin-slow {
+          from { transform: rotate(0deg); }
+          to   { transform: rotate(360deg); }
+        }
+        .lp-orbit-ring {
+          animation: lp-spin-slow 30s linear infinite;
+        }
+
+        /* ── Scroll-triggered reveals (CSS-only, Chrome 115+) ── */
+        @keyframes lp-reveal-in {
+          from { opacity: 0; transform: translateY(34px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        .lp-reveal {
+          opacity: 0;
+          animation: lp-reveal-in 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
+        }
+        @supports (animation-timeline: view()) {
+          .lp-reveal {
+            animation-timeline: view();
+            animation-range: entry 5% cover 28%;
+          }
+        }
+        @supports not (animation-timeline: view()) {
+          /* Fallback — reveal immediately on load so no content stays hidden */
+          .lp-reveal { opacity: 1; animation: lp-fade-up 0.6s ease-out both; }
+        }
+
+        /* ── Section-to-section divider (vertical flow connector) ── */
+        .lp-section-divider {
+          width: 1px; height: 80px; margin: 0 auto;
+          background: linear-gradient(180deg, transparent, rgba(14,165,233,0.35), transparent);
+          background-size: 100% 220%;
+          animation: lp-flow 4s ease-in-out infinite;
+          opacity: 0.65;
+        }
+        @keyframes lp-flow {
+          0%, 100% { background-position: 0 0%; }
+          50%      { background-position: 0 100%; }
+        }
+
+        /* ── Ambient drifting orbs (fixed-position ambience) ── */
+        @keyframes lp-drift-a {
+          0%,100% { transform: translate(-10vw,  10vh) scale(1); }
+          50%     { transform: translate( 10vw, -5vh)  scale(1.12); }
+        }
+        @keyframes lp-drift-b {
+          0%,100% { transform: translate( 12vw, -8vh) scale(1); }
+          50%     { transform: translate(-8vw,  12vh) scale(1.08); }
+        }
+        .lp-ambient {
+          position: fixed; pointer-events: none; z-index: 0;
+          filter: blur(80px);
+          will-change: transform;
+        }
+        .lp-ambient-a {
+          top: 18vh; left: 8vw; width: 520px; height: 520px;
+          background: radial-gradient(circle, rgba(14,165,233,0.12), transparent 70%);
+          animation: lp-drift-a 32s ease-in-out infinite;
+        }
+        .lp-ambient-b {
+          top: 55vh; right: 6vw; width: 440px; height: 440px;
+          background: radial-gradient(circle, rgba(168,85,247,0.08), transparent 70%);
+          animation: lp-drift-b 40s ease-in-out 4s infinite;
+        }
+
+        /* ── Halo breathe for the popular plan card ── */
+        @keyframes lp-breathe {
+          0%,100% { box-shadow: 0 0 48px rgba(14,165,233,0.18), 0 0 0 0 rgba(14,165,233,0.00); }
+          50%     { box-shadow: 0 0 64px rgba(14,165,233,0.28), 0 0 0 2px rgba(14,165,233,0.15); }
+        }
+        .lp-breathe { animation: lp-breathe 4.5s ease-in-out infinite; }
+
+        /* ── Features section: floating, styled, ambient ── */
+        @keyframes lp-feat-float {
+          0%, 100% { transform: translateY(0) rotate(0deg); }
+          50%      { transform: translateY(-10px) rotate(0.4deg); }
+        }
+        @keyframes lp-feat-orbit {
+          0%   { transform: rotate(0deg)   translate(18px) rotate(0deg); }
+          100% { transform: rotate(360deg) translate(18px) rotate(-360deg); }
+        }
+        @keyframes lp-icon-bob {
+          0%,100% { transform: translateY(0) rotate(0); }
+          30%     { transform: translateY(-4px) rotate(-4deg); }
+          60%     { transform: translateY(2px)  rotate(3deg); }
+        }
+        @keyframes lp-border-glow {
+          0%,100% { opacity: 0.35; }
+          50%     { opacity: 0.85; }
+        }
+        @keyframes lp-feat-blob {
+          0%,100% { transform: translate(0,0) scale(1); opacity: 0.35; }
+          50%     { transform: translate(14px,-10px) scale(1.15); opacity: 0.6; }
+        }
+
+        .lp-feat-card {
+          position: relative;
+          overflow: hidden;
+          padding: 28px 24px;
+          border-radius: 18px;
+          background: linear-gradient(180deg, #14141a 0%, #101015 100%);
+          border: 1px solid rgba(255,255,255,0.06);
+          /* Two animations: entry fade-up (runs once) + continuous float */
+          animation:
+            lp-fade-up 0.7s cubic-bezier(0.22,1,0.36,1) both,
+            lp-feat-float 7s ease-in-out infinite;
+          transition:
+            transform 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+            border-color 0.45s ease,
+            box-shadow 0.45s ease;
+        }
+        /* Stagger BOTH animations individually: entry delay + float phase */
+        .lp-feat-card:nth-child(1) { animation-delay: 0.05s, 0s;   }
+        .lp-feat-card:nth-child(2) { animation-delay: 0.12s, 0.9s; }
+        .lp-feat-card:nth-child(3) { animation-delay: 0.19s, 1.8s; }
+        .lp-feat-card:nth-child(4) { animation-delay: 0.26s, 2.6s; }
+        .lp-feat-card:nth-child(5) { animation-delay: 0.33s, 3.4s; }
+        .lp-feat-card:nth-child(6) { animation-delay: 0.40s, 4.2s; }
+
+        /* Keep pseudos behind the card's real children */
+        .lp-feat-card > * { position: relative; z-index: 2; }
+
+        /* Breathing gradient border via pseudo-element */
+        .lp-feat-card::before {
+          content: '';
+          position: absolute; inset: -1px; z-index: 1;
+          border-radius: inherit;
+          padding: 1px;
+          pointer-events: none;
+          background: conic-gradient(from 120deg,
+            rgba(14,165,233,0.55), rgba(168,85,247,0.35), rgba(14,165,233,0.0) 60%,
+            rgba(14,165,233,0.55));
+          -webkit-mask:
+            linear-gradient(#000 0 0) content-box,
+            linear-gradient(#000 0 0);
+          -webkit-mask-composite: xor;
+                  mask-composite: exclude;
+          animation: lp-border-glow 4.5s ease-in-out infinite, lp-spin-slow 22s linear infinite;
+        }
+
+        /* Soft ambient blob inside each card (behind content) */
+        .lp-feat-card::after {
+          content: '';
+          position: absolute; z-index: 0;
+          top: -40px; right: -40px; width: 180px; height: 180px;
+          border-radius: 50%;
+          pointer-events: none;
+          background: radial-gradient(circle, rgba(14,165,233,0.22), transparent 70%);
+          filter: blur(30px);
+          animation: lp-feat-blob 9s ease-in-out infinite;
+        }
+        .lp-feat-card:nth-child(even)::after {
+          background: radial-gradient(circle, rgba(168,85,247,0.20), transparent 70%);
+          animation-duration: 11s;
+          animation-delay: 1.5s;
+        }
+
+        .lp-feat-card:hover {
+          transform: translateY(-8px);
+          border-color: rgba(14,165,233,0.45);
+          box-shadow: 0 24px 54px rgba(14,165,233,0.20), 0 4px 12px rgba(14,165,233,0.10);
+        }
+        .lp-feat-card:hover::before { opacity: 1; }
+
+        /* Icon chip — styled, always bobbing */
+        .lp-feat-icon {
+          display: inline-flex; align-items: center; justify-content: center;
+          width: 54px; height: 54px; border-radius: 16px; margin-bottom: 18px;
+          font-size: 26px;
+          background: linear-gradient(135deg, rgba(14,165,233,0.22), rgba(37,99,235,0.12));
+          border: 1px solid rgba(14,165,233,0.28);
+          box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 4px 14px rgba(14,165,233,0.14);
+          animation: lp-icon-bob 4.5s ease-in-out infinite;
+          transform-origin: center;
+          position: relative;
+        }
+        .lp-feat-icon::after {
+          content: '';
+          position: absolute; inset: -6px;
+          border-radius: 20px;
+          border: 1px solid rgba(14,165,233,0.18);
+          opacity: 0;
+          transition: opacity 0.4s ease, transform 0.4s ease;
+          transform: scale(0.9);
+        }
+        .lp-feat-card:hover .lp-feat-icon::after { opacity: 1; transform: scale(1); }
+
+        /* Little orbital dot revolving around the icon */
+        .lp-feat-icon-dot {
+          position: absolute; top: 50%; left: 50%;
+          width: 6px; height: 6px; border-radius: 50%;
+          background: #38bdf8;
+          box-shadow: 0 0 10px rgba(56,189,248,0.9);
+          transform: translate(-50%,-50%);
+          animation: lp-feat-orbit 6s linear infinite;
+        }
+
+        /* Title underline sweep on hover */
+        .lp-feat-title {
+          position: relative; display: inline-block;
+          background: linear-gradient(90deg, #fafafa, #fafafa);
+          background-size: 0% 1px;
+          background-position: 0 100%;
+          background-repeat: no-repeat;
+          transition: background-size 0.5s ease;
+        }
+        .lp-feat-card:hover .lp-feat-title {
+          background-image: linear-gradient(90deg, #38bdf8, #a855f7);
+          background-size: 100% 2px;
+        }
+
+        /* ── Compare table — highlight the GM column when a row is hovered ── */
+        .lp-compare-row:hover td:nth-child(2) {
+          background: rgba(14,165,233,0.11) !important;
+          transition: background 0.25s ease;
+        }
+
+        /* Respect user's reduced-motion preference */
+        @media (prefers-reduced-motion: reduce) {
+          *, *::before, *::after {
+            animation-duration: 0.01ms !important;
+            transition-duration: 0.01ms !important;
+          }
+          .lp-reveal { opacity: 1 !important; transform: none !important; }
+          .lp-card:hover, .lp-plat-float:hover, .lp-btn-primary:hover, .lp-feat-card:hover { transform: none !important; }
+          .lp-ambient, .lp-feat-card::before, .lp-feat-card::after, .lp-feat-icon-dot { display: none; }
+          .lp-feat-card, .lp-feat-icon { animation: none !important; }
+        }
+      `}</style>
+
+      {/* ══════ Ambient drift orbs (viewport background, no interaction) ══════ */}
+      <div className="lp-ambient lp-ambient-a" aria-hidden="true" />
+      <div className="lp-ambient lp-ambient-b" aria-hidden="true" />
+
+      {/* ══════ Nav ══════ */}
       <header style={{
         position: 'sticky', top: 0, zIndex: 50,
         backdropFilter: 'blur(20px) saturate(1.5)',
-        backgroundColor: 'rgba(9, 9, 11, 0.85)',
-        borderBottom: '1px solid rgba(255,255,255,0.04)',
+        backgroundColor: 'rgba(9,9,11,0.85)',
+        borderBottom: '1px solid rgba(255,255,255,0.06)',
       }}>
         <nav style={{
           maxWidth: 1140, margin: '0 auto', padding: '14px 24px',
@@ -102,279 +534,520 @@ export default async function LandingPage() {
             display: 'flex', alignItems: 'center', gap: 10,
           }}>
             <span style={{
-              width: 32, height: 32, borderRadius: 10,
-              background: '#0ea5e9', display: 'inline-flex',
-              alignItems: 'center', justifyContent: 'center',
-            }}>
-              <svg viewBox="0 0 64 64" width="16" height="16">
-                <rect x="4" y="4" width="56" height="46" rx="14" fill="white" />
-                <polygon points="18,50 28,50 20,60" fill="white" />
-                <text x="32" y="37" textAnchor="middle" dominantBaseline="central" fontFamily="system-ui" fontSize="32" fontWeight="800" fill="#0ea5e9">G</text>
-              </svg>
-            </span>
+              width: 34, height: 34, borderRadius: 10,
+              background: 'linear-gradient(135deg, #0ea5e9, #2563eb)',
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 15, fontWeight: 900, color: '#fff',
+            }}>G</span>
             GetMention
           </Link>
-
           <div style={{ display: 'flex', alignItems: 'center', gap: 28 }}>
-            <Link href="#features" style={{ color: '#a1a1aa', textDecoration: 'none', fontSize: 14, fontWeight: 500, transition: 'color 0.15s' }}>Features</Link>
-            <Link href="#pricing" style={{ color: '#a1a1aa', textDecoration: 'none', fontSize: 14, fontWeight: 500 }}>Pricing</Link>
-            <Link href="/login" style={{ color: '#a1a1aa', textDecoration: 'none', fontSize: 14, fontWeight: 500 }}>Login</Link>
-            <Link href="/signup" style={{
-              padding: '9px 20px', borderRadius: 4,
-              background: '#0ea5e9', color: '#fff',
-              textDecoration: 'none', fontSize: 14, fontWeight: 600, border: 'none',
-              transition: 'background 0.15s',
-            }}>
-              Get Started
-            </Link>
+            <Link href="#how-it-works" className="lp-nav">How it works</Link>
+            <Link href="#features" className="lp-nav">Features</Link>
+            <Link href="#compare" className="lp-nav">Compare</Link>
+            <Link href="#pricing" className="lp-nav">Pricing</Link>
+            <Link href="/login" className="lp-nav">Login</Link>
+            <Link href="/signup" className="lp-btn-primary" style={{
+              padding: '9px 22px', borderRadius: 10,
+              background: 'linear-gradient(135deg, #0ea5e9, #2563eb)',
+              color: '#fff', textDecoration: 'none', fontSize: 14, fontWeight: 700,
+              boxShadow: '0 4px 14px rgba(14,165,233,0.25)',
+            }}>Get Started</Link>
           </div>
         </nav>
       </header>
 
-      {/* ── Hero ── */}
+      {/* ══════ Hero ══════ */}
       <section style={{
-        maxWidth: 1140, margin: '0 auto', padding: '120px 24px 100px',
+        maxWidth: 1140, margin: '0 auto', padding: '120px 24px 80px',
         textAlign: 'center', position: 'relative',
       }}>
-        {/* Glow orbs */}
+        {/* Cursor-follow spotlight (client island) */}
+        <HeroSpotlight />
+
+        {/* Breathing glow orbs */}
         <div style={{
-          position: 'absolute', top: -80, left: '50%', transform: 'translateX(-50%)',
-          width: 700, height: 700,
-          background: 'radial-gradient(circle, rgba(14, 165, 233, 0.12) 0%, transparent 65%)',
-          pointerEvents: 'none',
+          position: 'absolute', top: -60, left: '50%', transform: 'translateX(-50%)',
+          width: 760, height: 760,
+          background: 'radial-gradient(circle, rgba(14,165,233,0.12) 0%, transparent 60%)',
+          pointerEvents: 'none', filter: 'blur(40px)',
+          animation: 'lp-glow 8s ease-in-out infinite',
         }} />
         <div style={{
-          position: 'absolute', top: 100, left: '15%',
-          width: 300, height: 300,
-          background: 'radial-gradient(circle, rgba(236, 72, 153, 0.06) 0%, transparent 70%)',
-          pointerEvents: 'none', filter: 'blur(40px)',
+          position: 'absolute', top: 140, right: '10%',
+          width: 340, height: 340,
+          background: 'radial-gradient(circle, rgba(37,99,235,0.10) 0%, transparent 65%)',
+          pointerEvents: 'none', filter: 'blur(60px)',
+          animation: 'lp-glow 11s ease-in-out infinite 2s',
         }} />
 
+        {/* Live badge */}
         <div style={{
           display: 'inline-flex', alignItems: 'center', gap: 8,
-          padding: '6px 16px 6px 8px', borderRadius: 9999,
-          background: 'rgba(14, 165, 233, 0.1)',
-          border: '1px solid rgba(14, 165, 233, 0.2)',
+          padding: '6px 16px 6px 10px', borderRadius: 9999,
+          background: 'rgba(14,165,233,0.1)',
+          border: '1px solid rgba(14,165,233,0.25)',
           fontSize: 13, fontWeight: 600, color: '#38bdf8',
-          marginBottom: 36, position: 'relative',
+          marginBottom: 32, position: 'relative',
+          animation: 'lp-fade-up 0.6s ease-out 0s both, lp-float-y 4s ease-in-out 1s infinite',
         }}>
           <span style={{
             width: 8, height: 8, borderRadius: '50%', background: '#10b981',
-            boxShadow: '0 0 8px rgba(16, 185, 129, 0.5)',
+            animation: 'lp-pulse-dot 2s ease-out infinite',
           }} />
-          Now with 6 platform support
+          Now with 7 platform support + Chrome Extension
         </div>
 
+        {/* Floating particles */}
+        {Array.from({ length: 12 }).map((_, i) => (
+          <span key={i} className="lp-particle" style={{
+            left: `${(i * 8.5) % 100}%`,
+            bottom: 0,
+            animationDelay: `${(i * 0.7) % 10}s`,
+            animationDuration: `${10 + (i % 4) * 2}s`,
+            opacity: 0.4 + (i % 3) * 0.2,
+          }} />
+        ))}
+
+        {/* Animated gradient headline with rotating keyword */}
         <h1 style={{
           fontSize: 'clamp(40px, 5.5vw, 72px)',
           fontWeight: 800, lineHeight: 1.05, letterSpacing: '-0.04em',
-          margin: '0 auto 28px', maxWidth: 780,
+          margin: '0 auto 16px', maxWidth: 820,
           color: '#fff',
+          animation: 'lp-fade-up 0.7s ease-out 0.1s both',
         }}>
-          AI-Powered Social Engagement on Autopilot
+          Social Engagement on{' '}
+          <span style={{
+            backgroundImage: 'linear-gradient(135deg, #0ea5e9 0%, #38bdf8 50%, #60a5fa 100%)',
+            backgroundSize: '200% 200%',
+            WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text',
+            animation: 'lp-gradient 10s ease-in-out infinite',
+          }}>
+            Autopilot
+          </span>
         </h1>
 
-        <p style={{
-          fontSize: 18, lineHeight: 1.7, color: '#71717a',
-          maxWidth: 560, margin: '0 auto 48px',
+        {/* Rotating keyword line */}
+        <div style={{
+          fontSize: 'clamp(18px, 2.2vw, 26px)',
+          fontWeight: 600, color: '#71717a',
+          margin: '0 auto 32px',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+          animation: 'lp-fade-up 0.7s ease-out 0.2s both',
         }}>
-          GetMention scrapes trending posts, evaluates relevance with AI, and
-          posts thoughtful replies across six major platforms — so you grow
-          while you sleep.
-        </p>
-
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, position: 'relative' }}>
-          <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
-            <Link href="/signup" style={{
-              padding: '14px 32px', borderRadius: 4,
-              background: '#0ea5e9', color: '#fff',
-              textDecoration: 'none', fontSize: 16, fontWeight: 600,
-              transition: 'background 0.15s, transform 0.15s',
-            }}>
-              Start Free
-            </Link>
-            <Link href="#how-it-works" style={{
-              padding: '14px 32px', borderRadius: 4,
-              background: 'rgba(255,255,255,0.06)', color: '#fafafa',
-              textDecoration: 'none', fontSize: 16, fontWeight: 600,
-              transition: 'background 0.15s',
-            }}>
-              How It Works
-            </Link>
-          </div>
-          <p style={{ color: '#52525b', fontSize: 13, margin: 0 }}>
-            No credit card required &nbsp;&middot;&nbsp; Free plan available &nbsp;&middot;&nbsp; Cancel anytime
-          </p>
+          Scrape →&nbsp;
+          <span className="lp-rotate-wrap" style={{ color: '#38bdf8', fontWeight: 700 }}>
+            <span className="lp-rotate-track">
+              <span>evaluate with AI</span>
+              <span>write natural replies</span>
+              <span>comment &amp; engage</span>
+              <span>build authority</span>
+              <span>grow on autopilot</span>
+              <span>evaluate with AI</span>
+            </span>
+          </span>
+          <span className="lp-caret" />
         </div>
 
-        {/* Platform row */}
-        <div style={{
-          display: 'flex', justifyContent: 'center', gap: 32,
-          flexWrap: 'wrap', marginTop: 80,
+        <p style={{
+          fontSize: 18, lineHeight: 1.7, color: '#a1a1aa',
+          maxWidth: 600, margin: '0 auto 44px',
+          animation: 'lp-fade-up 0.7s ease-out 0.25s both',
         }}>
-          {PLATFORMS.map((p) => (
-            <div key={p.name} style={{
+          AI finds relevant posts across 7 platforms, writes natural replies, and engages using your real browser session — undetectable and human-like.
+        </p>
+
+        <div style={{
+          display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'center',
+          animation: 'lp-fade-up 0.7s ease-out 0.4s both',
+        }}>
+          <Link href="/signup" className="lp-btn-primary" style={{
+            padding: '14px 32px', borderRadius: 12,
+            background: 'linear-gradient(135deg, #0ea5e9, #2563eb)',
+            color: '#fff', textDecoration: 'none', fontSize: 16, fontWeight: 700,
+            boxShadow: '0 6px 20px rgba(14,165,233,0.3)',
+          }}>
+            Start Free Today
+          </Link>
+          <Link href="#how-it-works" style={{
+            padding: '14px 32px', borderRadius: 12,
+            background: 'rgba(255,255,255,0.06)', color: '#fafafa',
+            textDecoration: 'none', fontSize: 16, fontWeight: 600,
+            border: '1px solid rgba(255,255,255,0.1)',
+            transition: 'background 0.2s ease, border-color 0.2s ease',
+          }}>
+            See How It Works
+          </Link>
+        </div>
+
+        <p style={{
+          color: '#52525b', fontSize: 13, marginTop: 20,
+          animation: 'lp-fade-in 0.8s ease-out 0.6s both',
+        }}>
+          No credit card required &nbsp;·&nbsp; Free plan available &nbsp;·&nbsp; Cancel anytime
+        </p>
+
+        {/* Platform logos row with floating animation */}
+        <div style={{
+          display: 'flex', justifyContent: 'center', gap: 28,
+          flexWrap: 'wrap', marginTop: 64,
+        }}>
+          {PLATFORMS.map((p, i) => (
+            <div key={p.name} className={`lp-plat-float lp-stagger-${Math.min(i+1, 7)}`} style={{
               display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
             }}>
               <div style={{
-                width: 52, height: 52, borderRadius: 16,
+                width: 52, height: 52, borderRadius: 14,
                 background: 'rgba(255,255,255,0.04)',
-                border: '1px solid rgba(255,255,255,0.06)',
+                border: '1px solid rgba(255,255,255,0.08)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                color: p.color, transition: 'transform 0.2s, border-color 0.2s',
+                fontSize: 20, fontWeight: 800, color: p.color,
+                transition: 'transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease',
+                cursor: 'default',
               }}>
-                {p.icon}
+                {p.letter}
               </div>
               <span style={{ fontSize: 12, color: '#52525b', fontWeight: 500 }}>{p.name}</span>
             </div>
           ))}
         </div>
+
+        {/* Live dashboard demo card — shows the product in action */}
+        <div className="lp-demo-card" style={{
+          maxWidth: 620, margin: '72px auto 0',
+          background: 'linear-gradient(180deg, rgba(14,165,233,0.04), rgba(14,165,233,0.01))',
+          border: '1px solid rgba(14,165,233,0.25)',
+          borderRadius: 16,
+          padding: '20px 24px',
+          textAlign: 'left',
+          position: 'relative',
+          overflow: 'hidden',
+          boxShadow: '0 20px 60px rgba(14,165,233,0.12)',
+        }}>
+          {/* Top bar: browser chrome */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 18, opacity: 0.6 }}>
+            <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#ef4444' }} />
+            <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#f59e0b' }} />
+            <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#10b981' }} />
+            <span style={{ marginLeft: 12, fontSize: 11, color: '#52525b', fontFamily: 'monospace' }}>
+              dashboard.getmention.io/activity
+            </span>
+          </div>
+
+          {/* Feed items */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {/* Item 1 — scraping */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'rgba(14,165,233,0.06)', border: '1px solid rgba(14,165,233,0.15)', borderRadius: 10 }}>
+              <span style={{ width: 24, height: 24, borderRadius: 6, background: '#1d9bf0', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 800, color: '#fff' }}>𝕏</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12, color: '#e4e4e7', fontWeight: 600 }}>Scraping Twitter for &quot;SEO tools&quot;</div>
+                <div className="lp-shimmer" style={{ height: 2, borderRadius: 1, marginTop: 6 }} />
+              </div>
+              <span style={{ fontSize: 10, fontWeight: 700, color: '#38bdf8' }}>LIVE</span>
+            </div>
+
+            {/* Item 2 — AI writing reply */}
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 12px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: 10 }}>
+              <span style={{ width: 24, height: 24, borderRadius: 6, background: 'linear-gradient(135deg,#0ea5e9,#2563eb)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, color: '#fff' }}>AI</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 11, color: '#71717a', fontWeight: 600, marginBottom: 4 }}>Writing reply · Score 94/100</div>
+                <div className="lp-demo-typing" style={{ fontSize: 12, color: '#e4e4e7', lineHeight: 1.5, fontFamily: 'system-ui' }}>
+                  been using serpbays for backlinks — solid results...
+                </div>
+              </div>
+            </div>
+
+            {/* Item 3 — posted successfully with animated checkmark */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.2)', borderRadius: 10 }}>
+              <span className="lp-demo-check" style={{
+                width: 24, height: 24, borderRadius: 6, background: '#10b981',
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3"><polyline points="20 6 9 17 4 12" /></svg>
+              </span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 12, color: '#e4e4e7', fontWeight: 600 }}>Comment posted on Reddit</div>
+                <div style={{ fontSize: 11, color: '#52525b', marginTop: 2 }}>r/SEO · 2s ago</div>
+              </div>
+              <span style={{
+                fontSize: 11, fontWeight: 700, color: '#10b981',
+                padding: '3px 10px', borderRadius: 8, background: 'rgba(16,185,129,0.12)',
+                border: '1px solid rgba(16,185,129,0.25)',
+              }}>
+                ✓ Verified
+              </span>
+            </div>
+
+            {/* Item 4 — Daily progress */}
+            <div style={{ padding: '12px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <span style={{ fontSize: 11, color: '#a1a1aa', fontWeight: 600 }}>Today&apos;s engagement</span>
+                <span style={{ fontSize: 13, fontWeight: 800, color: '#38bdf8' }}>18 / 30</span>
+              </div>
+              <div style={{ height: 6, background: 'rgba(255,255,255,0.05)', borderRadius: 3, overflow: 'hidden' }}>
+                <div className="lp-progress-bar" style={{
+                  height: '100%', borderRadius: 3,
+                  background: 'linear-gradient(90deg, #0ea5e9, #60a5fa)',
+                  '--fill': '60%',
+                } as React.CSSProperties} />
+              </div>
+            </div>
+          </div>
+        </div>
       </section>
 
-      {/* ── Features ── */}
-      <section id="features" style={{ maxWidth: 1140, margin: '0 auto', padding: '80px 24px' }}>
-        <div style={{ textAlign: 'center', marginBottom: 56 }}>
-          <p style={{ fontSize: 13, fontWeight: 700, color: '#0ea5e9', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 12 }}>
-            Features
-          </p>
-          <h2 style={{ fontSize: 'clamp(28px, 3.5vw, 40px)', fontWeight: 800, letterSpacing: '-0.03em', marginBottom: 12, color: '#fff' }}>
-            Everything You Need to Scale
-          </h2>
-          <p style={{ fontSize: 16, color: '#71717a', maxWidth: 480, margin: '0 auto' }}>
-            Powerful features designed to save hours of manual work every single day.
-          </p>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
-          {FEATURES.map((f) => (
-            <div key={f.title} style={{
-              padding: '28px 24px', borderRadius: 8,
-              background: '#131316', transition: 'background 0.15s',
+      {/* ══════ Stats bar ══════ */}
+      <section style={{ maxWidth: 1140, margin: '0 auto', padding: '0 24px 60px' }}>
+        <div style={{
+          display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+          gap: 16, padding: '28px 24px',
+          background: 'linear-gradient(135deg, rgba(14,165,233,0.04), rgba(37,99,235,0.02))',
+          border: '1px solid rgba(14,165,233,0.12)',
+          borderRadius: 20,
+        }}>
+          {[
+            { num: '7', label: 'Platforms', color: '#38bdf8', delay: 0.05 },
+            { num: '24/7', label: 'Autopilot', color: '#10b981', delay: 0.15 },
+            { num: '<2m', label: 'Setup Time', color: '#f59e0b', delay: 0.25 },
+            { num: '0%', label: 'Detection Risk', color: '#a855f7', delay: 0.35 },
+          ].map((s, i) => (
+            <div key={s.label} className="lp-stat" style={{
+              textAlign: 'center',
+              animationDelay: `${s.delay}s`,
+              borderLeft: i > 0 ? '1px solid rgba(255,255,255,0.06)' : 'none',
             }}>
               <div style={{
-                width: 48, height: 48, borderRadius: 12,
-                background: 'rgba(14, 165, 233, 0.1)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                color: '#0ea5e9', marginBottom: 18,
-              }}>
-                {f.icon}
-              </div>
-              <h3 style={{ fontSize: 17, fontWeight: 700, color: '#fafafa', marginBottom: 8 }}>
-                {f.title}
-              </h3>
-              <p style={{ fontSize: 14, lineHeight: 1.7, color: '#71717a', margin: 0 }}>
-                {f.description}
-              </p>
+                fontSize: 32, fontWeight: 900, color: s.color,
+                letterSpacing: '-0.04em', lineHeight: 1,
+              }}>{s.num}</div>
+              <div style={{
+                fontSize: 11, fontWeight: 700, color: '#71717a',
+                marginTop: 6, textTransform: 'uppercase', letterSpacing: '0.08em',
+              }}>{s.label}</div>
             </div>
           ))}
         </div>
       </section>
 
-      {/* ── How It Works ── */}
-      <section id="how-it-works" style={{
-        maxWidth: 1140, margin: '0 auto', padding: '80px 24px',
-      }}>
-        <div style={{ textAlign: 'center', marginBottom: 56 }}>
+      {/* ── Section flow divider ── */}
+      <div className="lp-section-divider" aria-hidden="true" />
+
+      {/* ══════ How It Works (animated timeline) ══════ */}
+      <section id="how-it-works" style={{ maxWidth: 1140, margin: '0 auto', padding: '80px 24px' }}>
+        <div className="lp-reveal" style={{ textAlign: 'center', marginBottom: 56 }}>
           <p style={{ fontSize: 13, fontWeight: 700, color: '#0ea5e9', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 12 }}>
             How It Works
           </p>
-          <h2 style={{ fontSize: 'clamp(28px, 3.5vw, 40px)', fontWeight: 800, letterSpacing: '-0.03em', color: '#fff' }}>
+          <h2 style={{ fontSize: 'clamp(28px,3.5vw,40px)', fontWeight: 800, letterSpacing: '-0.03em', color: '#fff' }}>
             Three Steps to Autopilot
           </h2>
+          <p style={{ fontSize: 15, color: '#71717a', maxWidth: 520, margin: '12px auto 0' }}>
+            From sign-up to your first AI-posted reply in under 5 minutes.
+          </p>
         </div>
 
         <div style={{
-          display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-          gap: 24, position: 'relative',
+          display: 'flex', flexDirection: 'column', gap: 0,
+          maxWidth: 720, margin: '0 auto', position: 'relative',
         }}>
-          {STEPS.map((s) => (
-            <div key={s.num} style={{
-              padding: 32, borderRadius: 8,
-              background: '#131316', textAlign: 'center',
+          {/* Animated vertical line */}
+          <div style={{
+            position: 'absolute', left: 31, top: 40, bottom: 40, width: 2,
+            background: 'linear-gradient(180deg, #0ea5e9, #2563eb)',
+            opacity: 0.35,
+            animation: 'lp-line-draw 1.6s ease-out 0.4s both',
+            transformOrigin: 'top',
+          }} />
+
+          {STEPS.map((s, i) => (
+            <div key={s.num} className="lp-reveal" style={{
+              display: 'flex', gap: 24, padding: '22px 0',
+              animationDelay: `${i * 0.12}s`,
               position: 'relative',
             }}>
               <div style={{
-                width: 56, height: 56, borderRadius: 16,
-                background: '#0ea5e9',
+                width: 64, height: 64, borderRadius: 20, flexShrink: 0,
+                background: 'linear-gradient(135deg, #0ea5e9, #2563eb)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 20, fontWeight: 800, color: '#fff',
-                margin: '0 auto 20px',
-              }}>
-                {s.num}
+                fontSize: 22, fontWeight: 900, color: '#fff',
+                boxShadow: '0 4px 20px rgba(14,165,233,0.3)',
+                zIndex: 2,
+              }}>{s.num}</div>
+              <div style={{ paddingTop: 4 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <span style={{ fontSize: 20 }}>{s.icon}</span>
+                  <h3 style={{ fontSize: 19, fontWeight: 700, color: '#fff', margin: 0 }}>{s.title}</h3>
+                </div>
+                <p style={{ fontSize: 14.5, lineHeight: 1.7, color: '#a1a1aa', margin: 0 }}>{s.description}</p>
               </div>
-              <h3 style={{ fontSize: 18, fontWeight: 700, color: '#fafafa', marginBottom: 10 }}>
-                {s.title}
-              </h3>
-              <p style={{ fontSize: 14, lineHeight: 1.7, color: '#71717a', margin: 0 }}>
-                {s.description}
-              </p>
             </div>
           ))}
         </div>
       </section>
 
-      {/* ── Pricing ── */}
-      <section id="pricing" style={{ maxWidth: 1140, margin: '0 auto', padding: '80px 24px' }}>
-        <div style={{ textAlign: 'center', marginBottom: 56 }}>
+      <div className="lp-section-divider" aria-hidden="true" />
+
+      {/* ══════ Features ══════ */}
+      <section id="features" style={{ maxWidth: 1140, margin: '0 auto', padding: '80px 24px' }}>
+        <div className="lp-reveal" style={{ textAlign: 'center', marginBottom: 56 }}>
           <p style={{ fontSize: 13, fontWeight: 700, color: '#0ea5e9', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 12 }}>
-            Pricing
+            Features
           </p>
-          <h2 style={{ fontSize: 'clamp(28px, 3.5vw, 40px)', fontWeight: 800, letterSpacing: '-0.03em', marginBottom: 12, color: '#fff' }}>
-            Simple, Transparent Pricing
+          <h2 style={{ fontSize: 'clamp(28px,3.5vw,40px)', fontWeight: 800, letterSpacing: '-0.03em', color: '#fff' }}>
+            Built for Growth. Safe by Design.
           </h2>
-          <p style={{ fontSize: 16, color: '#71717a', maxWidth: 460, margin: '0 auto' }}>
-            Start free. Upgrade when you&apos;re ready to go all-in.
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 20 }}>
+          {FEATURES.map((f, i) => (
+            <div key={f.title} className={`lp-feat-card lp-stagger-${Math.min(i+1, 6)}`}>
+              <div className="lp-feat-icon">
+                <span style={{ position: 'relative', zIndex: 1 }}>{f.icon}</span>
+                <span className="lp-feat-icon-dot" aria-hidden="true" />
+              </div>
+              <h3 style={{ fontSize: 18, fontWeight: 700, color: '#fafafa', margin: '0 0 10px' }}>
+                <span className="lp-feat-title">{f.title}</span>
+              </h3>
+              <p style={{ fontSize: 14, lineHeight: 1.7, color: '#a1a1aa', margin: 0 }}>{f.description}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <div className="lp-section-divider" aria-hidden="true" />
+
+      {/* ══════ Comparison ══════ */}
+      <section id="compare" style={{ maxWidth: 1140, margin: '0 auto', padding: '80px 24px' }}>
+        <div className="lp-reveal" style={{ textAlign: 'center', marginBottom: 48 }}>
+          <p style={{ fontSize: 13, fontWeight: 700, color: '#0ea5e9', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 12 }}>
+            Compare
+          </p>
+          <h2 style={{ fontSize: 'clamp(28px,3.5vw,40px)', fontWeight: 800, letterSpacing: '-0.03em', color: '#fff' }}>
+            GetMention vs The Alternatives
+          </h2>
+          <p style={{ fontSize: 15, color: '#71717a', maxWidth: 520, margin: '12px auto 0' }}>
+            See why teams choose GetMention over manual work or generic social tools.
           </p>
         </div>
 
         <div style={{
-          display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-          gap: 20, alignItems: 'stretch',
+          overflowX: 'auto', borderRadius: 16,
+          border: '1px solid rgba(255,255,255,0.06)',
+          background: '#0f0f12',
+          animation: 'lp-fade-up 0.7s ease-out 0.1s both',
         }}>
-          {PLANS.map((plan) => (
-            <div key={plan.name} style={{
-              padding: 32, borderRadius: 8,
-              background: plan.popular ? '#131316' : '#0f0f12',
-              border: plan.popular ? '2px solid #0ea5e9' : '1px solid rgba(255,255,255,0.04)',
-              display: 'flex', flexDirection: 'column',
-              position: 'relative',
-              boxShadow: plan.popular ? '0 0 40px rgba(14, 165, 233, 0.15)' : 'none',
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 720 }}>
+            <thead>
+              <tr style={{ background: 'rgba(14,165,233,0.06)' }}>
+                <th style={{ padding: '16px 20px', textAlign: 'left', fontSize: 13, fontWeight: 700, color: '#a1a1aa', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>Feature</th>
+                <th style={{ padding: '16px 20px', textAlign: 'center', fontSize: 13, fontWeight: 700, color: '#38bdf8', borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(14,165,233,0.1)' }}>GetMention</th>
+                <th style={{ padding: '16px 20px', textAlign: 'center', fontSize: 13, fontWeight: 700, color: '#71717a', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>Manual</th>
+                <th style={{ padding: '16px 20px', textAlign: 'center', fontSize: 13, fontWeight: 700, color: '#71717a', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>Hootsuite</th>
+                <th style={{ padding: '16px 20px', textAlign: 'center', fontSize: 13, fontWeight: 700, color: '#71717a', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>Taplio</th>
+              </tr>
+            </thead>
+            <tbody>
+              {COMPARISON.map((row, i) => (
+                <tr key={i} className="lp-compare-row" style={{
+                  background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.015)',
+                }}>
+                  <td style={{ padding: '13px 20px', fontSize: 13.5, fontWeight: 600, color: '#d4d4d8', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                    {row.feature}
+                  </td>
+                  {(['gm', 'manual', 'hootsuite', 'taplio'] as const).map(k => {
+                    const val = row[k];
+                    const isGm = k === 'gm';
+                    return (
+                      <td key={k} style={{
+                        padding: '13px 20px', textAlign: 'center',
+                        borderBottom: '1px solid rgba(255,255,255,0.04)',
+                        background: isGm ? 'rgba(14,165,233,0.05)' : 'transparent',
+                      }}>
+                        {val === true ? (
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={isGm ? '#10b981' : '#4ade80'} strokeWidth="2.5" style={{ display: 'inline-block' }}>
+                            <polyline points="20 6 9 17 4 12" />
+                          </svg>
+                        ) : val === false ? (
+                          <span style={{ color: '#52525b', fontSize: 15, fontWeight: 600 }}>—</span>
+                        ) : (
+                          <span style={{ fontSize: 12.5, fontWeight: 600, color: isGm ? '#38bdf8' : '#a1a1aa' }}>{String(val)}</span>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <div className="lp-section-divider" aria-hidden="true" />
+
+      {/* ══════ Pricing ══════ */}
+      <section id="pricing" style={{ maxWidth: 1140, margin: '0 auto', padding: '80px 24px' }}>
+        <div className="lp-reveal" style={{ textAlign: 'center', marginBottom: 48 }}>
+          <p style={{ fontSize: 13, fontWeight: 700, color: '#0ea5e9', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 12 }}>
+            Pricing
+          </p>
+          <h2 style={{ fontSize: 'clamp(28px,3.5vw,40px)', fontWeight: 800, letterSpacing: '-0.03em', color: '#fff', marginBottom: 12 }}>
+            Simple, Transparent Pricing
+          </h2>
+          <p style={{ fontSize: 15, color: '#71717a', maxWidth: 460, margin: '0 auto' }}>
+            Start free with Twitter. Upgrade when you need more platforms.
+          </p>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 20, alignItems: 'stretch' }}>
+          {PLANS.map((plan, i) => (
+            <div key={plan.name} className={`lp-card lp-reveal lp-stagger-${i+1}${plan.popular ? ' lp-breathe' : ''}`} style={{
+              padding: 32, borderRadius: 20,
+              background: plan.popular ? 'rgba(14,165,233,0.06)' : '#131316',
+              border: plan.popular ? '2px solid #0ea5e9' : '1px solid rgba(255,255,255,0.06)',
+              display: 'flex', flexDirection: 'column', position: 'relative',
+              boxShadow: plan.popular ? '0 0 48px rgba(14,165,233,0.18)' : 'none',
             }}>
               {plan.popular && (
                 <span style={{
-                  position: 'absolute', top: -11, left: '50%', transform: 'translateX(-50%)',
-                  padding: '4px 14px', borderRadius: 9999,
-                  background: '#0ea5e9', color: '#fff',
-                  fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em',
-                }}>
-                  Most Popular
-                </span>
+                  position: 'absolute', top: -12, left: '50%', transform: 'translateX(-50%)',
+                  padding: '5px 16px', borderRadius: 9999,
+                  background: 'linear-gradient(135deg, #0ea5e9, #2563eb)',
+                  color: '#fff', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
+                }}>Most Popular</span>
               )}
-              <h3 style={{ fontSize: 18, fontWeight: 700, color: '#fafafa', marginBottom: 8 }}>{plan.name}</h3>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, marginBottom: 24 }}>
-                <span style={{ fontSize: 44, fontWeight: 800, color: '#fff', letterSpacing: '-0.03em' }}>${plan.price}</span>
-                <span style={{ fontSize: 15, color: '#52525b' }}>{plan.period}</span>
+              <h3 style={{ fontSize: 20, fontWeight: 700, color: '#fff', marginBottom: 4 }}>{plan.name}</h3>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, marginBottom: 14 }}>
+                <span style={{ fontSize: 48, fontWeight: 900, color: '#fff', letterSpacing: '-0.04em' }}>${plan.price}</span>
+                <span style={{ fontSize: 15, color: '#71717a' }}>{plan.period}</span>
               </div>
-              <ul style={{
-                listStyle: 'none', padding: 0, margin: '0 0 28px',
-                display: 'flex', flexDirection: 'column', gap: 12, flex: 1,
-              }}>
-                {plan.features.map((f) => (
-                  <li key={f} style={{ fontSize: 14, color: '#a1a1aa', display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
+
+              {/* Platform badges */}
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 20 }}>
+                {plan.platforms.map(p => (
+                  <span key={p} style={{
+                    padding: '3px 10px', borderRadius: 8,
+                    background: 'rgba(14,165,233,0.1)', border: '1px solid rgba(14,165,233,0.2)',
+                    fontSize: 11, fontWeight: 600, color: '#38bdf8',
+                  }}>{p}</span>
+                ))}
+              </div>
+
+              <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 28px', display: 'flex', flexDirection: 'column', gap: 12, flex: 1 }}>
+                {plan.features.map(f => (
+                  <li key={f} style={{ fontSize: 14, color: '#d4d4d8', display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2.5"><polyline points="20 6 9 17 4 12" /></svg>
                     {f}
                   </li>
                 ))}
               </ul>
-              <Link href="/signup" style={{
-                display: 'block', textAlign: 'center',
-                padding: '12px 24px', borderRadius: 4,
-                background: plan.popular ? '#0ea5e9' : 'rgba(255,255,255,0.06)',
-                color: plan.popular ? '#fff' : '#a1a1aa',
-                textDecoration: 'none', fontSize: 14, fontWeight: 600,
-                transition: 'background 0.15s',
+              <Link href="/signup" className="lp-btn-primary" style={{
+                display: 'block', textAlign: 'center', padding: '13px 24px', borderRadius: 12,
+                background: plan.popular ? 'linear-gradient(135deg, #0ea5e9, #2563eb)' : 'rgba(255,255,255,0.06)',
+                color: plan.popular ? '#fff' : '#d4d4d8',
+                textDecoration: 'none', fontSize: 14, fontWeight: 700,
+                border: plan.popular ? 'none' : '1px solid rgba(255,255,255,0.08)',
+                boxShadow: plan.popular ? '0 4px 16px rgba(14,165,233,0.3)' : 'none',
               }}>
                 {plan.price === 0 ? 'Get Started Free' : 'Get Started'}
               </Link>
@@ -383,64 +1056,56 @@ export default async function LandingPage() {
         </div>
       </section>
 
-      {/* ── CTA ── */}
-      <section style={{ maxWidth: 1140, margin: '0 auto', padding: '60px 24px 80px' }}>
+      {/* ══════ Final CTA ══════ */}
+      <section style={{ maxWidth: 1140, margin: '0 auto', padding: '40px 24px 80px' }}>
         <div style={{
-          padding: '56px 40px', borderRadius: 12,
-          background: '#131316', textAlign: 'center',
-          position: 'relative', overflow: 'hidden',
+          padding: '56px 40px', borderRadius: 24,
+          background: 'linear-gradient(135deg, rgba(14,165,233,0.1), rgba(37,99,235,0.06))',
+          border: '1px solid rgba(14,165,233,0.2)',
+          textAlign: 'center', position: 'relative', overflow: 'hidden',
+          animation: 'lp-fade-up 0.8s ease-out both',
         }}>
           <div style={{
             position: 'absolute', top: -100, left: '50%', transform: 'translateX(-50%)',
             width: 600, height: 600,
-            background: 'radial-gradient(circle, rgba(14, 165, 233, 0.08) 0%, transparent 60%)',
-            pointerEvents: 'none',
+            background: 'radial-gradient(circle, rgba(14,165,233,0.15) 0%, transparent 60%)',
+            pointerEvents: 'none', filter: 'blur(40px)',
+            animation: 'lp-glow 8s ease-in-out infinite',
           }} />
           <h2 style={{
-            fontSize: 'clamp(24px, 3vw, 36px)', fontWeight: 800,
-            color: '#fff', letterSpacing: '-0.02em', marginBottom: 14, position: 'relative',
+            fontSize: 'clamp(24px,3vw,38px)', fontWeight: 900, color: '#fff',
+            letterSpacing: '-0.03em', marginBottom: 14, position: 'relative',
           }}>
-            Ready to Automate Your Social Growth?
+            Ready to Grow on Autopilot?
           </h2>
           <p style={{
-            fontSize: 16, color: '#71717a', maxWidth: 460,
-            margin: '0 auto 28px', lineHeight: 1.7, position: 'relative',
+            fontSize: 17, color: '#a1a1aa', maxWidth: 500,
+            margin: '0 auto 32px', lineHeight: 1.7, position: 'relative',
           }}>
-            Join marketers who save hours every day with AI-powered engagement.
+            Join marketers who save hours every day with AI-powered engagement across 7 platforms.
           </p>
-          <Link href="/signup" style={{
-            display: 'inline-block', padding: '14px 36px', borderRadius: 4,
-            background: '#0ea5e9', color: '#fff',
-            textDecoration: 'none', fontSize: 16, fontWeight: 600,
+          <Link href="/signup" className="lp-btn-primary" style={{
+            display: 'inline-block', padding: '16px 44px', borderRadius: 14,
+            background: 'linear-gradient(135deg, #0ea5e9, #2563eb)',
+            color: '#fff', textDecoration: 'none', fontSize: 17, fontWeight: 700,
+            boxShadow: '0 8px 28px rgba(14,165,233,0.35)',
             position: 'relative',
-          }}>
-            Get Started Free
-          </Link>
+          }}>Get Started Free</Link>
         </div>
       </section>
 
-      {/* ── Footer ── */}
-      <footer style={{
-        borderTop: '1px solid rgba(255,255,255,0.04)',
-        padding: '40px 24px', maxWidth: 1140, margin: '0 auto',
-      }}>
-        <div style={{
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          flexWrap: 'wrap', gap: 20,
-        }}>
+      {/* ══════ Footer ══════ */}
+      <footer style={{ borderTop: '1px solid rgba(255,255,255,0.06)', padding: '40px 24px', maxWidth: 1140, margin: '0 auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 20 }}>
           <div>
-            <span style={{ fontSize: 18, fontWeight: 800, color: '#fafafa' }}>
-              GetMention
-            </span>
-            <p style={{ fontSize: 13, color: '#3f3f46', marginTop: 6 }}>
-              &copy; {new Date().getFullYear()} GetMention. All rights reserved.
-            </p>
+            <span style={{ fontSize: 18, fontWeight: 800, color: '#fafafa' }}>GetMention</span>
+            <p style={{ fontSize: 13, color: '#3f3f46', marginTop: 6 }}>&copy; {new Date().getFullYear()} GetMention. All rights reserved.</p>
           </div>
           <div style={{ display: 'flex', gap: 28 }}>
-            <Link href="/terms" style={{ color: '#52525b', textDecoration: 'none', fontSize: 13, fontWeight: 500 }}>Terms</Link>
-            <Link href="/privacy" style={{ color: '#52525b', textDecoration: 'none', fontSize: 13, fontWeight: 500 }}>Privacy</Link>
-            <Link href="/login" style={{ color: '#52525b', textDecoration: 'none', fontSize: 13, fontWeight: 500 }}>Login</Link>
-            <Link href="/signup" style={{ color: '#52525b', textDecoration: 'none', fontSize: 13, fontWeight: 500 }}>Sign Up</Link>
+            <Link href="/terms" className="lp-nav">Terms</Link>
+            <Link href="/privacy" className="lp-nav">Privacy</Link>
+            <Link href="/login" className="lp-nav">Login</Link>
+            <Link href="/signup" className="lp-nav">Sign Up</Link>
           </div>
         </div>
       </footer>

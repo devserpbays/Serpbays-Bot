@@ -198,8 +198,8 @@
     const textFound = (document.body.innerText || '').includes(snippet);
     const posted = boxCleared || textFound;
 
-    if (!posted) return { success: false, error: 'Reply submitted but not confirmed on page' };
-    return { success: true, verified: true };
+    if (!posted) return { success: false, error: 'Reply submitted but not confirmed on page', postUrl: window.location.href };
+    return { success: true, verified: true, verifyMethod: boxCleared ? 'box_cleared' : 'text_on_page', postUrl: window.location.href };
   }
 
   async function likePost() {
@@ -207,12 +207,13 @@
     const likeBtn = document.querySelector('[data-testid="like"]');
     if (!likeBtn) {
       const unlikeBtn = document.querySelector('[data-testid="unlike"]');
-      if (unlikeBtn) return { success: true, alreadyLiked: true };
-      return { success: false, error: 'Like button not found' };
+      if (unlikeBtn) return { success: true, alreadyLiked: true, postUrl: window.location.href };
+      return { success: false, error: 'Like button not found', postUrl: window.location.href };
     }
     likeBtn.click();
     await sleep(2000);
-    return { success: !!document.querySelector('[data-testid="unlike"]') };
+    const liked = !!document.querySelector('[data-testid="unlike"]');
+    return { success: liked, verified: liked, verifyMethod: liked ? 'unlike_btn_visible' : '', error: liked ? undefined : 'Like click did not flip testid=unlike', postUrl: window.location.href };
   }
 
   // ── Scraping ────────────────────────────────────────────────────────────

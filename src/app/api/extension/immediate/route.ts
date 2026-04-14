@@ -39,24 +39,29 @@ export async function GET(req: NextRequest) {
  * POST — Mark task as completed after content script posts it.
  */
 export async function POST(req: NextRequest) {
-  let body: { taskId?: string; success?: boolean; error?: string };
+  let body: { taskId?: string; success?: boolean; error?: string; postUrl?: string };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const { taskId, success } = body;
+  const { taskId, success, postUrl } = body;
   if (!taskId) return NextResponse.json({ error: 'taskId required' }, { status: 400 });
 
   await connectDB();
 
   if (success) {
-    await Post.findByIdAndUpdate(taskId, {
+    const update: Record<string, unknown> = {
       status: 'posted',
       postedAt: new Date(),
       postedByAccount: 'extension-manual',
-    });
+    };
+    // Save the specific post permalink (FB post, reddit comment URL, etc.)
+    // so "View reply" in the dashboard links to the actual post — not the
+    // group/subreddit index.
+    if (postUrl) update.replyUrl = postUrl;
+    await Post.findByIdAndUpdate(taskId, update);
   }
 
   return NextResponse.json({ ok: true });

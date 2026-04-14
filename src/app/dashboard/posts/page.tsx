@@ -249,10 +249,18 @@ export default function PostsPage() {
                                                     </span>
                                                 ) : null}
                                                 {post.replyUrl && (
-                                                    <a href={post.replyUrl} target="_blank" rel="noopener noreferrer"
-                                                        style={{ color: 'var(--accent)', marginLeft: 'auto' }}>
-                                                        View reply →
-                                                    </a>
+                                                    <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                                                        {post.verifiedAnswerUrl && (
+                                                            <span title={`Verified on Quora /stats${post.verifiedAt ? ' at ' + new Date(post.verifiedAt).toLocaleString() : ''}`}
+                                                                style={{ fontSize: '11px', fontWeight: 700, padding: '2px 7px', borderRadius: 10, background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.4)', color: '#10b981' }}>
+                                                                ✓ Verified
+                                                            </span>
+                                                        )}
+                                                        <a href={post.replyUrl} target="_blank" rel="noopener noreferrer"
+                                                            style={{ color: 'var(--accent)' }}>
+                                                            View {post.platform === 'quora' ? 'answer' : 'reply'} →
+                                                        </a>
+                                                    </span>
                                                 )}
                                             </div>
                                         </div>

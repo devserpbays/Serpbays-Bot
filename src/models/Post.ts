@@ -9,9 +9,10 @@ const PostSchema = new Schema({
   scrapedAt: { type: Date, default: Date.now },
   status: {
     type: String,
-    enum: ['new', 'evaluating', 'evaluated', 'approved', 'rejected', 'posted'],
+    enum: ['new', 'evaluating', 'evaluated', 'approved', 'rejected', 'posted', 'skipped'],
     default: 'new',
   },
+  skipReason: { type: String, default: '' },
   aiReply: String,
   aiRelevanceScore: Number,
   aiTone: String,
@@ -33,6 +34,10 @@ const PostSchema = new Schema({
   isShort: { type: Boolean, default: false },
   editedReply: String,
   replyUrl: String,
+  // Quora-specific: URL of the answer as it appears on /stats — proves the
+  // answer is actually published and visible on the user's content page.
+  verifiedAnswerUrl: String,
+  verifiedAt: Date,
   evaluatedAt: Date,
   approvedAt: Date,
   postedAt: Date,
