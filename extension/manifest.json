@@ -2,10 +2,10 @@
   "manifest_version": 3,
   "name": "GetMention - AI Social Engagement",
   "short_name": "GetMention",
-  "version": "1.0.24",
+  "version": "1.0.25",
   "description": "AI finds relevant posts across 7 social platforms and helps you comment, like, and engage naturally — on autopilot.",
   "author": "GetMention by SerpBays",
-  "homepage_url": "https://ai-bot.serpbays.com",
+  "homepage_url": "http://88.222.214.19:3005",
   "permissions": [
     "activeTab",
     "storage",
@@ -25,7 +25,11 @@
     "https://www.pinterest.com/*",
     "https://in.pinterest.com/*",
     "https://www.skool.com/*",
-    "https://ai-bot.serpbays.com/*"
+    "http://88.222.214.19:3005/*"
+  ],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://*/*"
   ],
   "background": {
     "service_worker": "background.js"

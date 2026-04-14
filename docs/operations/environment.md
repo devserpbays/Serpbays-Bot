@@ -189,7 +189,7 @@ PAYPAL_PLAN_BUSINESS_YEARLY=P-xxx
 # === Resend ===
 RESEND_API_KEY=re_xxx
 RESEND_FROM="GetMention <notify@serpbays.com>"
-NEXT_PUBLIC_APP_URL=https://ai-bot.serpbays.com
+NEXT_PUBLIC_APP_URL=http://88.222.214.19:3005
 
 # === Security ===
 COOKIE_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef

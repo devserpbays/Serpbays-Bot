@@ -251,7 +251,7 @@ pm2 start ecosystem.config.js
 # or: pm2 start "next start -p 3005" --name bot-serp
 ```
 
-Server runs on `http://localhost:3005` (behind nginx at `https://ai-bot.serpbays.com`).
+Server runs on `http://localhost:3005` (behind nginx at `http://88.222.214.19:3005`).
 
 ## Extension Setup
 

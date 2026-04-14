@@ -3,7 +3,9 @@
  */
 
 document.addEventListener('DOMContentLoaded', async () => {
-  const DASHBOARD_URL = 'https://ai-bot.serpbays.com';
+  // Current Hostinger dev server (will become a real domain in prod).
+  // User can override via the server-URL input on the onboarding screen.
+  const DEFAULT_SERVER = 'http://88.222.214.19:3005';
 
   const onboardSection = document.getElementById('onboardSection');
   const mainSection = document.getElementById('mainSection');
@@ -19,13 +21,19 @@ document.addEventListener('DOMContentLoaded', async () => {
   };
 
   // ── Check stored key → decide which screen to show ─────────────
-  const { apiKey, serverUrl } = await chrome.storage.sync.get(['apiKey', 'serverUrl']);
-  const SERVER = serverUrl || DASHBOARD_URL;
+  const stored = await chrome.storage.sync.get(['apiKey', 'serverUrl']);
+  let SERVER = stored.serverUrl || DEFAULT_SERVER;
 
-  if (apiKey) {
+  if (stored.apiKey) {
     showMain();
   } else {
     showOnboarding(1);
+    // Pre-fill the server URL input with the current default so users
+    // don't have to type the IP each time during dev.
+    setTimeout(() => {
+      const inp = document.getElementById('serverUrlInput');
+      if (inp && !inp.value) inp.value = DEFAULT_SERVER;
+    }, 0);
   }
 
   // ── Version label ─────────────────────────────────────────────
@@ -61,9 +69,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Step 1 → Step 2
   document.getElementById('step1Next').addEventListener('click', () => goToStep(2));
 
-  // Step 2: Open signup
+  // Step 2: Open signup — uses the server URL the user just entered
   document.getElementById('openSignup').addEventListener('click', () => {
-    chrome.tabs.create({ url: DASHBOARD_URL + '/signup' });
+    const url = (document.getElementById('serverUrlInput')?.value || SERVER || '').trim();
+    if (!url) {
+      alert('Please enter your server URL first.');
+      return;
+    }
+    chrome.tabs.create({ url: url.replace(/\/$/, '') + '/signup' });
   });
 
   // Step 2 → Step 3
@@ -85,24 +98,43 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // Step 3: Connect
+  // Step 3: Connect — validates the user-supplied server URL, requests
+  // host permission for it (MV3 optional_host_permissions), then verifies
+  // the API key by hitting /api/extension/ping.
   document.getElementById('connectBtn').addEventListener('click', async () => {
     const key = document.getElementById('apiKeyInput').value.trim();
+    const urlRaw = (document.getElementById('serverUrlInput')?.value || SERVER || '').trim();
     const msgEl = document.getElementById('connectMsg');
     const btn = document.getElementById('connectBtn');
+
+    if (!urlRaw) { showMsg(msgEl, 'Enter your server URL (e.g. https://your-server.com)', 'error'); return; }
+    if (!/^https?:\/\//i.test(urlRaw)) { showMsg(msgEl, 'Server URL must start with http:// or https://', 'error'); return; }
     if (!key) { showMsg(msgEl, 'Please paste your API key', 'error'); return; }
     if (!key.startsWith('gm_')) { showMsg(msgEl, 'API key should start with "gm_"', 'error'); return; }
+
+    const cleanUrl = urlRaw.replace(/\/$/, '');
 
     btn.disabled = true;
     btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="animation:gm-spin 1s linear infinite"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> Connecting...';
 
     try {
-      const res = await fetch(`${SERVER}/api/extension/ping`, {
+      // Request the runtime host permission for this exact origin
+      try {
+        const granted = await chrome.permissions.request({ origins: [cleanUrl + '/*'] });
+        if (!granted) {
+          throw new Error('Host permission denied — extension cannot reach this URL without it');
+        }
+      } catch (permErr) {
+        throw new Error(permErr.message || 'Could not request host permission');
+      }
+
+      const res = await fetch(`${cleanUrl}/api/extension/ping`, {
         headers: { 'X-Extension-Key': key },
       });
-      if (!res.ok) throw new Error('Invalid API key — check that you copied it from Dashboard → Settings');
+      if (!res.ok) throw new Error('Invalid API key or unreachable server (HTTP ' + res.status + ')');
       const data = await res.json();
-      await chrome.storage.sync.set({ apiKey: key, serverUrl: SERVER, autoPost: true });
+      await chrome.storage.sync.set({ apiKey: key, serverUrl: cleanUrl, autoPost: true });
+      SERVER = cleanUrl;
       showMsg(msgEl, 'Connected to ' + (data.companyName || 'your account') + '!', 'success');
       setTimeout(() => showMain(), 800);
     } catch (err) {

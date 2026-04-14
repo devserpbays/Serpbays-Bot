@@ -16,7 +16,7 @@
 </div>
 
 > [!IMPORTANT]
-> **Project:** GetMention by SerpBays · **Working dir:** `/var/www/ai-bot/bot-serp` · **Production:** `https://ai-bot.serpbays.com` · **Last updated:** 2026-04-14
+> **Project:** GetMention by SerpBays · **Working dir:** `/var/www/ai-bot/bot-serp` · **Production:** `http://88.222.214.19:3005` · **Last updated:** 2026-04-14
 
 ---
 

@@ -113,7 +113,7 @@ flowchart TB
 |---|---|
 | pm2 | process `bot-serp`, port **3005** |
 | pm2-logrotate | 3.0.0 |
-| nginx | reverse proxy `ai-bot.serpbays.com` → `:3005` |
+| nginx | reverse proxy `88.222.214.19` → `:3005` |
 | Host | Linux 6.8 (Hostinger VPS) |
 
 ---

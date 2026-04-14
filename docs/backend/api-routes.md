@@ -295,7 +295,7 @@ flowchart LR
 
 ```mermaid
 flowchart TB
-    REQ[🌐 Incoming request] --> HV{Valid host?<br/>localhost, ai-bot.serpbays.com,<br/>EXTRA_ALLOWED_HOSTS}
+    REQ[🌐 Incoming request] --> HV{Valid host?<br/>localhost, 88.222.214.19,<br/>EXTRA_ALLOWED_HOSTS}
     HV -->|No| BLK[❌ 400]
     HV -->|Yes| PUB{In public allow-list?}
     PUB -->|Yes| OK1[✅ Allow]

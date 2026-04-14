@@ -61,7 +61,7 @@ All three are `chrome.alarms.create()` — MV3 replacement for `setInterval` sin
 | Key | Purpose |
 |---|---|
 | `apiKey` | User's extension API key (`gm_...`) |
-| `serverUrl` | Default `https://ai-bot.serpbays.com` |
+| `serverUrl` | Default `http://88.222.214.19:3005` |
 | `autoPost` | Master toggle (bool) |
 
 ---

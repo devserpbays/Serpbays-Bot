@@ -51,7 +51,7 @@ extension/
   "version": "1.0.24",
   "description": "AI finds relevant posts across 7 social platforms...",
   "author": "GetMention by SerpBays",
-  "homepage_url": "https://ai-bot.serpbays.com"
+  "homepage_url": "http://88.222.214.19:3005"
 }
 ```
 
@@ -79,7 +79,7 @@ https://www.quora.com/*
 https://www.pinterest.com/*
 https://in.pinterest.com/*
 https://www.skool.com/*
-https://ai-bot.serpbays.com/*
+http://88.222.214.19:3005/*
 ```
 
 > [!WARNING]
@@ -207,7 +207,7 @@ flowchart LR
 
 **Auth**: every request carries `X-Extension-Key: <apiKey>` header.
 
-**Default server**: `https://ai-bot.serpbays.com`.
+**Default server**: `http://88.222.214.19:3005`.
 
 ---
 

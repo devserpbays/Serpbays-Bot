@@ -215,9 +215,17 @@
         <div style="margin-top:8px"><button class="btn-link" id="step2Back">← Back</button></div>
       </div>
 
-      <!-- Step 3: Connect API Key -->
+      <!-- Step 3: Connect Server URL + API Key -->
       <div class="step" id="step3">
-        <p style="font-size:13px;color:#a1a1aa;margin-bottom:4px;text-align:left;">Paste your API key from the dashboard</p>
+        <p style="font-size:13px;color:#a1a1aa;margin-bottom:4px;text-align:left;">Enter your server URL</p>
+        <p style="font-size:11px;color:#3f3f46;margin-bottom:8px;text-align:left;">
+          Where your GetMention dashboard is hosted (e.g. <span class="link-accent">https://your-domain.com</span>)
+        </p>
+        <div class="key-input-wrap" style="margin-bottom:14px">
+          <input type="text" id="serverUrlInput" placeholder="http://88.222.214.19:3005" value="http://88.222.214.19:3005" autocomplete="off" spellcheck="false" />
+        </div>
+
+        <p style="font-size:13px;color:#a1a1aa;margin-bottom:4px;text-align:left;">Paste your API key</p>
         <p style="font-size:11px;color:#3f3f46;margin-bottom:12px;text-align:left;">
           Dashboard → Settings → top card → <span class="link-accent">Copy API key</span>
         </p>

@@ -103,7 +103,7 @@ The zip is served to authenticated users via `GET /api/download`:
 
 ```
 curl -H "Cookie: __session=<clerk-jwt>" \
-     https://ai-bot.serpbays.com/api/download \
+     http://88.222.214.19:3005/api/download \
      -o GetMention-1.0.24.zip
 ```
 
@@ -121,10 +121,10 @@ Handles HTTPS termination and forwards to `127.0.0.1:3005`.
 ```nginx
 server {
     listen 443 ssl http2;
-    server_name ai-bot.serpbays.com;
+    server_name 88.222.214.19;
 
-    ssl_certificate     /etc/letsencrypt/live/ai-bot.serpbays.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/ai-bot.serpbays.com/privkey.pem;
+    ssl_certificate     /etc/letsencrypt/live/88.222.214.19/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/88.222.214.19/privkey.pem;
 
     # Streaming responses (large log exports)
     proxy_buffering off;
@@ -151,7 +151,7 @@ server {
 | Endpoint | What it checks |
 |---|---|
 | `GET /api/health` | App is up and can parse requests |
-| `curl -s https://ai-bot.serpbays.com/api/health` | End-to-end through nginx |
+| `curl -s http://88.222.214.19:3005/api/health` | End-to-end through nginx |
 | `pm2 status bot-serp` | Process state, memory, CPU, restart count |
 | `pm2 logs bot-serp --err --lines 50` | Recent error output |
 | `mongosh --eval 'db.runCommand({ping: 1})'` | MongoDB is reachable |

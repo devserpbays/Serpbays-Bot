@@ -40,7 +40,7 @@ Last updated: 2026-04-14 · Extension version: 1.0.10
 > - Pro ($49/mo): 3 platforms, 15 posts/day, 25 keywords
 > - Business ($149/mo): 6 platforms, 50 posts/day, 100 keywords
 >
-> Dashboard & billing: https://ai-bot.serpbays.com
+> Dashboard & billing: http://88.222.214.19:3005
 > Support: support@serpbays.com
 
 ## Category
@@ -80,7 +80,7 @@ Required to notify the user when the extension discovers posts that need manual 
 
 Required so the extension can run its content scripts on each supported platform. This is the core functionality the user signs up for — discovering relevant posts and submitting replies on these specific platforms.
 
-### Host Permission — `https://ai-bot.serpbays.com/*`
+### Host Permission — `http://88.222.214.19:3005/*`
 Required so the extension can fetch tasks and settings from, and report results to, the GetMention backend over HTTPS.
 
 ### Remote Code Use
@@ -106,9 +106,9 @@ Confirm the three certifications at the bottom:
 
 ## URLs
 
-- Homepage: `https://ai-bot.serpbays.com`
-- Privacy policy: `https://ai-bot.serpbays.com/privacy`
-- Terms of service: `https://ai-bot.serpbays.com/terms`
+- Homepage: `http://88.222.214.19:3005`
+- Privacy policy: `http://88.222.214.19:3005/privacy`
+- Terms of service: `http://88.222.214.19:3005/terms`
 - Support email: `support@serpbays.com`
 
 ---
@@ -128,7 +128,7 @@ Or use the following demo API key directly in the extension popup to skip signup
 Workflow to test:
   1. Install extension from the attached zip.
   2. Click the GetMention icon → paste the API key above → Save.
-  3. In the dashboard (https://ai-bot.serpbays.com/dashboard) add a keyword like "seo".
+  3. In the dashboard (http://88.222.214.19:3005/dashboard) add a keyword like "seo".
   4. Open https://www.reddit.com in a tab — the extension will scrape relevant posts within ~30s.
   5. Approve a draft reply in /dashboard/review → watch it post.
 ```
@@ -156,7 +156,7 @@ Run through this list the day before submitting.
 
 1. `bash scripts/build-extension.sh` — confirm the zip version matches the manifest.
 2. `npm run build && pm2 restart bot-serp` — ship the latest privacy policy.
-3. From a non-cached browser, confirm both `https://ai-bot.serpbays.com/privacy` and `https://ai-bot.serpbays.com/terms` return HTTP 200 publicly.
+3. From a non-cached browser, confirm both `http://88.222.214.19:3005/privacy` and `http://88.222.214.19:3005/terms` return HTTP 200 publicly.
 4. Create a dedicated reviewer Clerk account and API key; paste them into the "Notes to reviewer" box.
 5. Load the exact zip you will upload into `chrome://extensions` (Developer Mode → Load Unpacked) and run one full end-to-end cycle (scrape + post) on each supported platform.
 6. Verify no `console.error` from the extension during the test cycle.
