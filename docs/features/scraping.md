@@ -64,7 +64,7 @@ flowchart TB
 ```mermaid
 flowchart LR
     KW[Random keyword] --> SR[Pick 1 random subreddit<br/>from configured list]
-    SR --> JOIN[Open /r/{name}]
+    SR --> JOIN["Open /r/subreddit-name"]
     JOIN --> J{Join button present?}
     J -->|Yes| CLK[Click Join]
     J -->|No| AJ[Already joined]
@@ -185,7 +185,7 @@ a[href*="/groups/"][href*="/permalink/"]
 ```mermaid
 flowchart TB
     C[Scrape cycle] --> LP[For EACH configured<br/>Skool community]
-    LP --> OP[Open /{community}/]
+    LP --> OP["Open /community-slug/"]
     OP --> JC[JOIN_COMMUNITY msg<br/>auto-joins new ones]
     JC --> SC[Scroll to lazy-load]
     SC --> EX[Extract post cards]

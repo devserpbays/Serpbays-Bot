@@ -127,7 +127,7 @@ flowchart TB
     end
 
     subgraph SRV [☁️ Server API]
-        API[/api/extension/*]
+        API["/api/extension/*"]
     end
 
     subgraph PLAT [🌐 Platforms]
